@@ -373,10 +373,17 @@ def load_traffic_map(xlsx_path: Path) -> dict[str, dict]:
 def build_client_entity(briefing: dict, traffic_map: dict[str, dict]) -> dict:
     dom = normalize_domain(briefing.get("url", ""))
     traffic = traffic_map.get(dom, {})
+    title = (
+        (briefing.get("cliente") or briefing.get("client") or briefing.get("empresa") or "")
+        or (briefing.get("nicho_principal") and extract_website_name(briefing.get("url", "")))
+        or extract_website_name(briefing.get("url", ""))
+        or dom
+    )
     return {
         "domain": dom,
         "url": root_url(briefing.get("url", "")),
-        "title": dom,
+        "title": str(title).strip() or dom,
+        "company": str(title).strip() or dom,
         "similaridade": "Cliente",
         "perfil": traffic.get("perfil") or "—",
         "fonte": "Cliente",
