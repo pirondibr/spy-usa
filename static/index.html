@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en-US">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -25,7 +25,7 @@
         radial-gradient(900px 400px at 100% 0%, #f6e7c8 0%, transparent 50%),
         linear-gradient(180deg, #f7fafc 0%, var(--sand) 100%);
     }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 48px 20px 80px; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
     .brand {
       font-family: Georgia, "Times New Roman", serif;
       font-size: clamp(2.4rem, 6vw, 3.4rem);
@@ -33,7 +33,7 @@
       margin: 0 0 8px;
       line-height: 1.05;
     }
-    .lede { color: var(--muted); margin: 0 0 28px; font-size: 1.05rem; max-width: 36ch; }
+    .lede { color: var(--muted); margin: 0 0 28px; font-size: 1.05rem; max-width: 40ch; }
     form {
       display: grid;
       gap: 12px;
@@ -44,14 +44,18 @@
       box-shadow: 0 10px 40px rgba(15, 23, 42, 0.06);
     }
     label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
-    input[type="text"] {
+    input[type="text"], textarea {
       border: 1px solid var(--line);
       border-radius: 10px;
       padding: 12px 14px;
       font: inherit;
       font-size: 16px;
       color: var(--ink);
+      width: 100%;
+      resize: vertical;
     }
+    textarea { min-height: 88px; line-height: 1.4; }
+    .hint-field { font-size: 12px; font-weight: 400; color: #94a3b8; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     button {
       border: 0;
@@ -69,6 +73,7 @@
       color: var(--teal-deep);
       border: 1px solid var(--line);
     }
+    button.sm { padding: 6px 10px; font-size: 12px; }
     .opts { display: grid; gap: 8px; }
     .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 500; }
     .check .hint { color: #94a3b8; font-weight: 400; }
@@ -109,16 +114,66 @@
       white-space: pre-wrap;
     }
     .err { color: #b91c1c; margin-top: 10px; font-size: 14px; }
-    .done a {
+    .done { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+    .done a, .done button {
       display: inline-block;
-      margin-top: 12px;
       color: #fff;
       background: var(--teal-deep);
       text-decoration: none;
       padding: 10px 14px;
       border-radius: 10px;
       font-weight: 700;
+      border: 0;
+      cursor: pointer;
+      font: inherit;
     }
+    .done button.ghost {
+      background: transparent;
+      color: var(--teal-deep);
+      border: 1px solid var(--line);
+    }
+    .history {
+      margin-top: 28px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.9);
+      padding: 16px 18px;
+    }
+    .history h2 { margin: 0 0 4px; font-size: 18px; color: var(--teal-deep); }
+    .history-sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+    .history table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .history th, .history td {
+      text-align: left;
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: middle;
+    }
+    .history th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+    }
+    .history a.company {
+      color: var(--teal-deep);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .history a.company:hover { text-decoration: underline; }
+    .history .muted-row { color: var(--muted); }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: #e2e8f0;
+      color: #475569;
+    }
+    .badge.done { background: #ccfbf1; color: #0f766e; }
+    .badge.running, .badge.pending { background: #fef3c7; color: #b45309; }
+    .badge.error { background: #fee2e2; color: #b91c1c; }
+    .empty { color: var(--muted); font-size: 13px; margin: 0; }
     .foot { margin-top: 28px; font-size: 12px; color: var(--muted); }
   </style>
 </head>
@@ -129,13 +184,15 @@
 
     <form id="form">
       <label>
-        Domain or URL
-        <input id="url" name="url" type="text" placeholder="semrush.com" required autocomplete="off" />
+        Domain / URL
+        <span class="hint-field">Uma por linha ou separadas por vírgula — até 5 empresas</span>
+        <textarea id="url" name="url" placeholder="semrush.com&#10;ahrefs.com&#10;hubspot.com" required autocomplete="off"></textarea>
       </label>
       <div class="opts">
         <label class="check">
-          <input id="siteOnly" type="checkbox" />
-          Apenas este site <span class="hint">(sem concorrentes)</span>
+          <input id="siteOnly" type="checkbox" checked />
+          Modo sem pesquisar concorrentes
+          <span class="hint">(analisa só as empresas informadas)</span>
         </label>
         <label class="check">
           <input id="googleAds" type="checkbox" checked />
@@ -144,7 +201,6 @@
         <label class="check">
           <input id="linkedinAds" type="checkbox" checked />
           LinkedIn Ads Library
-          <span class="hint">(empresa → anúncio → pagante → total)</span>
         </label>
         <label class="check">
           <input id="force" type="checkbox" />
@@ -165,12 +221,20 @@
       <div class="done" id="done"></div>
     </div>
 
+    <section class="history" id="history">
+      <h2>Runs anteriores</h2>
+      <p class="history-sub">Clique na empresa para abrir o relatório, ou refaça a análise.</p>
+      <div id="historyBody"><p class="empty">Carregando…</p></div>
+    </section>
+
     <p class="foot" id="hello">Checking API keys…</p>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const TOTAL = 10;
+    let es = null;
+    let activeJobIds = [];
 
     async function refreshHello() {
       try {
@@ -183,11 +247,70 @@
         $("hello").textContent = "Server offline";
       }
     }
-    refreshHello();
 
-    let es = null;
-    $("form").addEventListener("submit", async (e) => {
-      e.preventDefault();
+    function fmtWhen(iso) {
+      if (!iso) return "—";
+      try {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toLocaleString();
+      } catch { return iso; }
+    }
+
+    function modeLabel(r) {
+      return r.site_only === false ? "com concorrentes" : "sem concorrentes";
+    }
+
+    async function loadHistory() {
+      const box = $("historyBody");
+      try {
+        const r = await fetch("/api/runs?limit=40");
+        const j = await r.json();
+        const runs = j.runs || [];
+        if (!runs.length) {
+          box.innerHTML = `<p class="empty">Nenhuma run ainda. Analise uma empresa acima.</p>`;
+          return;
+        }
+        const rows = runs.map((run) => {
+          const st = (run.status || "—").toLowerCase();
+          const canOpen = st === "done" && run.html_url;
+          const company = run.company || run.slug || run.url || run.id;
+          const companyCell = canOpen
+            ? `<a class="company" href="${run.html_url}">${escapeHtml(company)}</a>`
+            : `<span class="muted-row">${escapeHtml(company)}</span>`;
+          const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
+          return `<tr>
+            <td>${companyCell}</td>
+            <td class="muted-row">${escapeHtml(run.url || "—")}</td>
+            <td><span class="badge ${escapeHtml(st)}">${escapeHtml(st)}</span></td>
+            <td class="muted-row">${escapeHtml(modeLabel(run))}</td>
+            <td class="muted-row">${escapeHtml(fmtWhen(run.created_at))}</td>
+            <td>${redoBtn}</td>
+          </tr>`;
+        }).join("");
+        box.innerHTML = `<div class="table-wrap"><table>
+          <thead><tr>
+            <th>Empresa</th><th>URL</th><th>Status</th><th>Modo</th><th>Quando</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`;
+        box.querySelectorAll("[data-rerun]").forEach((btn) => {
+          btn.addEventListener("click", () => rerun(btn.getAttribute("data-rerun")));
+        });
+      } catch {
+        box.innerHTML = `<p class="empty">Não foi possível carregar o histórico.</p>`;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function resetStatus() {
       $("err").textContent = "";
       $("done").innerHTML = "";
       $("log").textContent = "";
@@ -195,32 +318,25 @@
       $("go").disabled = true;
       $("stepLabel").textContent = "Queuing job…";
       $("bar").style.width = "2%";
-
       if (es) { es.close(); es = null; }
+    }
 
-      try {
-        const res = await fetch("/api/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: $("url").value.trim(),
-            force: $("force").checked,
-            site_only: $("siteOnly").checked,
-            include_google_ads: $("googleAds").checked,
-            include_linkedin: $("linkedinAds").checked,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to start");
+    function attachDone(jobId, htmlUrl) {
+      const url = htmlUrl || `/runs/${jobId}/report.html`;
+      $("done").innerHTML = `
+        <a href="${url}">Open tables report</a>
+        <button type="button" class="ghost" id="redoBtn">Refazer</button>
+      `;
+      const btn = $("redoBtn");
+      if (btn) btn.addEventListener("click", () => rerun(jobId));
+    }
 
-        const flags = [
-          data.site_only ? "site-only" : "with-competitors",
-          data.include_google_ads ? "google-ads" : "no-google-ads",
-          data.include_linkedin ? "linkedin" : "no-linkedin",
-        ].join(" · ");
-        $("meta").textContent = `${data.company || ""} · ${data.url || ""} · ${flags} · job ${data.job_id}`;
-        es = new EventSource(data.stream);
-        es.onmessage = (ev) => {
+    function watchJob(job) {
+      return new Promise((resolve) => {
+        const streamUrl = job.stream || `/api/jobs/${job.job_id}/stream`;
+        const source = new EventSource(streamUrl);
+        es = source;
+        source.onmessage = (ev) => {
           let msg;
           try { msg = JSON.parse(ev.data); } catch { return; }
           if (msg.type === "ping") return;
@@ -230,60 +346,161 @@
           }
           if (msg.type === "progress") {
             const pct = Math.min(98, Math.round((Number(msg.index || 0) / TOTAL) * 100));
-            $("bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100/TOTAL)) : pct) + "%";
+            $("bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100 / TOTAL)) : pct) + "%";
             $("stepLabel").textContent = `${msg.progress_label || ""} — ${msg.label || msg.step_id}: ${msg.detail || msg.state}`;
           }
           if (msg.type === "error") {
             $("err").textContent = msg.message || "Error";
-            $("go").disabled = false;
-            es.close();
+            source.close();
+            resolve({ ok: false, job });
           }
           if (msg.type === "finished" || (msg.type === "done" && msg.html_url)) {
-            const url = msg.html_url || `/runs/${data.job_id}/report.html`;
+            const url = msg.html_url || `/runs/${job.job_id}/report.html`;
             $("bar").style.width = "100%";
-            $("stepLabel").textContent = "Done";
-            $("done").innerHTML = `<a href="${url}">Open tables report</a>`;
-            $("go").disabled = false;
-            es.close();
+            $("stepLabel").textContent = `Done — ${job.company || job.job_id}`;
+            attachDone(job.job_id, url);
+            source.close();
+            resolve({ ok: true, job, url });
           }
           if (msg.type === "eof") {
-            $("go").disabled = false;
+            source.close();
+            resolve({ ok: true, job });
           }
         };
-        es.onerror = () => {
-          // fallback poll
-          poll(data.job_id);
+        source.onerror = () => {
+          source.close();
+          poll(job.job_id).then(resolve);
         };
+      });
+    }
+
+    async function poll(jobId) {
+      return new Promise((resolve) => {
+        const tick = async () => {
+          try {
+            const r = await fetch(`/api/jobs/${jobId}`);
+            const j = await r.json();
+            if (j.status === "done" && j.html_url) {
+              $("bar").style.width = "100%";
+              $("stepLabel").textContent = "Done";
+              attachDone(jobId, j.html_url);
+              resolve({ ok: true, job: { job_id: jobId }, url: j.html_url });
+              return;
+            }
+            if (j.status === "error") {
+              $("err").textContent = j.error || "Error";
+              resolve({ ok: false, job: { job_id: jobId } });
+              return;
+            }
+            setTimeout(tick, 3000);
+          } catch {
+            setTimeout(tick, 4000);
+          }
+        };
+        tick();
+      });
+    }
+
+    async function startAnalyze(payload) {
+      resetStatus();
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to start");
+
+        const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
+        activeJobIds = list.map((j) => j.job_id);
+        const flags = [
+          data.site_only ? "sem concorrentes" : "com concorrentes",
+          data.include_google_ads ? "google-ads" : "no-google-ads",
+          data.include_linkedin ? "linkedin" : "no-linkedin",
+          list.length > 1 ? `${list.length} empresas` : "",
+        ].filter(Boolean).join(" · ");
+        $("meta").textContent = list.map((j) => j.company || j.url).join(", ") + ` · ${flags}`;
+
+        // Open all streams up front (queue is sequential server-side)
+        const results = [];
+        for (let i = 0; i < list.length; i++) {
+          const job = list[i];
+          $("stepLabel").textContent = `Empresa ${i + 1}/${list.length}: ${job.company || job.url}…`;
+          $("bar").style.width = `${Math.max(2, Math.round((i / list.length) * 100))}%`;
+          const result = await watchJob(job);
+          if (result && result.url) results.push({ company: job.company, url: result.url, id: job.job_id });
+          loadHistory();
+        }
+        const links = results;
+
+        if (links.length > 1) {
+          $("done").innerHTML = links.map((l) =>
+            `<a href="${l.url}">${escapeHtml(l.company || "Report")}</a>`
+          ).join("") + `<button type="button" class="ghost" id="redoBtn">Refazer última</button>`;
+          const btn = $("redoBtn");
+          if (btn) btn.addEventListener("click", () => rerun(links[links.length - 1].id));
+        } else if (links.length === 1) {
+          attachDone(links[0].id, links[0].url);
+        }
+
+        $("bar").style.width = "100%";
+        $("stepLabel").textContent = list.length > 1 ? `Done — ${links.length}/${list.length} reports` : "Done";
+        $("go").disabled = false;
+        loadHistory();
       } catch (err) {
         $("err").textContent = err.message || String(err);
         $("go").disabled = false;
       }
+    }
+
+    async function rerun(runId) {
+      if (!runId) return;
+      resetStatus();
+      $("stepLabel").textContent = "Refazendo run…";
+      try {
+        const res = await fetch(`/api/rerun/${runId}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Falha ao refazer");
+        const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
+        $("meta").textContent = `Rerun · ${list[0].company || list[0].url} · force`;
+        $("url").value = list[0].url || $("url").value;
+        const result = await watchJob(list[0]);
+        if (result && result.url) attachDone(list[0].job_id, result.url);
+        $("go").disabled = false;
+        loadHistory();
+      } catch (err) {
+        $("err").textContent = err.message || String(err);
+        $("go").disabled = false;
+      }
+    }
+
+    $("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      startAnalyze({
+        url: $("url").value.trim(),
+        force: $("force").checked,
+        site_only: $("siteOnly").checked,
+        include_google_ads: $("googleAds").checked,
+        include_linkedin: $("linkedinAds").checked,
+      });
     });
 
-    async function poll(jobId) {
-      const tick = async () => {
-        try {
-          const r = await fetch(`/api/jobs/${jobId}`);
-          const j = await r.json();
-          if (j.status === "done" && j.html_url) {
-            $("bar").style.width = "100%";
-            $("stepLabel").textContent = "Done";
-            $("done").innerHTML = `<a href="${j.html_url}">Open tables report</a>`;
-            $("go").disabled = false;
-            return;
-          }
-          if (j.status === "error") {
-            $("err").textContent = j.error || "Error";
-            $("go").disabled = false;
-            return;
-          }
-          setTimeout(tick, 3000);
-        } catch {
-          setTimeout(tick, 4000);
-        }
-      };
-      tick();
-    }
+    // Deep-link: /?rerun=<id> or /?url=semrush.com
+    (function bootFromQuery() {
+      const q = new URLSearchParams(location.search);
+      const rerunId = q.get("rerun") || q.get("redo");
+      const preUrl = q.get("url") || q.get("q");
+      if (preUrl) $("url").value = preUrl;
+      if (rerunId) {
+        history.replaceState({}, "", "/");
+        rerun(rerunId);
+      }
+    })();
+
+    refreshHello();
+    loadHistory();
+    setInterval(loadHistory, 15000);
   </script>
 </body>
 </html>

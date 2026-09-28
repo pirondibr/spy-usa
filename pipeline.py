@@ -327,27 +327,46 @@ def _emit_progress(
     )
 
 
-def _save_report(run_id: str, report: dict, parsed: ParsedInput) -> Path:
+def _save_report(
+    run_id: str,
+    report: dict,
+    parsed: ParsedInput,
+    *,
+    site_only: bool = False,
+    include_google_ads: bool = True,
+    include_linkedin: bool = True,
+    force: bool = False,
+) -> Path:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     import json
+    from datetime import datetime, timezone
 
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = {
+        "id": run_id,
+        "slug": parsed.slug,
+        "url": parsed.url,
+        "company": parsed.company,
+        "status": "done",
+        "market": "US",
+        "site_only": bool(site_only),
+        "include_google_ads": bool(include_google_ads),
+        "include_linkedin": bool(include_linkedin),
+        "force": bool(force),
+        "created_at": created_at,
+        "html_url": f"/runs/{run_id}/report.html",
+    }
+    (run_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     (run_dir / "report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    html = render_report_html(
-        report,
-        run_meta={
-            "id": run_id,
-            "slug": parsed.slug,
-            "url": parsed.url,
-            "company": parsed.company,
-            "status": "done",
-            "market": "US",
-        },
-    )
+    html = render_report_html(report, run_meta=meta)
     html_path = run_dir / "report.html"
     html_path.write_text(html, encoding="utf-8")
     return html_path
@@ -400,7 +419,13 @@ def run_pipeline(
             _emit_progress(emit, set_step, sid, "done", "Cached")
         report = _attach_brand_dfs(report, slug)
         if run_id:
-            _save_report(run_id, report, parsed)
+            _save_report(
+                run_id, report, parsed,
+                site_only=site_only,
+                include_google_ads=include_google_ads,
+                include_linkedin=include_linkedin,
+                force=force,
+            )
         emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
         return report
 
@@ -419,7 +444,7 @@ def run_pipeline(
     if site_only:
         _emit_progress(
             emit, set_step, "briefing_concorrentes", "running",
-            f"Briefing + site only (no competitors): {url}",
+            f"Briefing + modo sem concorrentes: {url}",
         )
     else:
         _emit_progress(
@@ -447,10 +472,10 @@ def run_pipeline(
             preferred_competitors=[],
             fallback_url=url,
         )
-        early["competitors_note"] = "Site only — competitor discovery skipped."
+        early["competitors_note"] = "Modo sem pesquisar concorrentes — discovery skipped."
         early["competitors_count"] = 0
         emit("partial", section="briefing_concorrentes", data=early, client=client_name)
-        _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Site only (0 competitors)")
+        _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Sem concorrentes (0)")
     else:
         _run_script(
             [sys.executable, str(SCRIPT_CONCORRENTES), slug, "nacional"],
@@ -604,7 +629,13 @@ def run_pipeline(
 
     html_url = ""
     if run_id:
-        _save_report(run_id, report, parsed)
+        _save_report(
+            run_id, report, parsed,
+            site_only=site_only,
+            include_google_ads=include_google_ads,
+            include_linkedin=include_linkedin,
+            force=force,
+        )
         html_url = f"/runs/{run_id}/report.html"
 
     emit("done", report=report, html_url=html_url)

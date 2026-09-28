@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Optional
 from urllib.parse import urlparse
 
 
@@ -97,6 +98,77 @@ def _split_competitors(chunk: str) -> list[str]:
         _add(cleaned)
 
     return out[:3]
+
+
+MAX_COMPANIES = 5
+
+
+def _token_to_parsed(token: str) -> Optional[ParsedInput]:
+    """Converte um token (url/dominio/nome) em ParsedInput minimo."""
+    text = (token or "").strip().strip(" ,.;")
+    if not text or len(text) < 2:
+        return None
+    low = text.lower()
+    if low in {"nenhum", "nenhuma", "nao", "não", "n/a", "na", "http", "https", "www"}:
+        return None
+    p = parse_user_message(text)
+    if not p.url and not p.slug:
+        return None
+    p.competitors = []
+    return p
+
+
+def parse_company_list(message: str, *, limit: int = MAX_COMPANIES) -> list[ParsedInput]:
+    """Extrai ate N empresas de texto (linhas, virgulas ou espacos).
+
+    Aceita:
+      semrush.com
+      ahrefs.com, hubspot.com
+      https://similarweb.com/
+    """
+    raw = (message or "").strip()
+    if not raw:
+        return []
+
+    # Se o usuario usou "concorrentes:" / "vs", mantem 1 empresa + concorrentes no parser legado
+    if re.search(r"(?:concorrentes?|competitors?|vs\.?|versus)\s*[:\-]?", raw, re.I):
+        one = parse_user_message(raw)
+        return [one] if (one.url or one.slug) else []
+
+    # Preferir URLs/dominios explicitos
+    urls = _extract_urls(raw)
+    out: list[ParsedInput] = []
+    seen: set[str] = set()
+
+    def _push(p: ParsedInput) -> None:
+        key = (p.slug or p.url or p.company or "").strip().lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        out.append(p)
+
+    if urls:
+        for u in urls:
+            p = _token_to_parsed(u)
+            if p:
+                _push(p)
+            if len(out) >= limit:
+                return out
+        return out
+
+    # Sem URL clara: split por linha / virgula / ponto-e-virgula
+    chunks = re.split(r"[\n,;]+", raw)
+    for chunk in chunks:
+        p = _token_to_parsed(chunk)
+        if p:
+            _push(p)
+        if len(out) >= limit:
+            break
+    if out:
+        return out
+
+    one = parse_user_message(raw)
+    return [one] if (one.url or one.slug) else []
 
 
 def parse_user_message(message: str) -> ParsedInput:

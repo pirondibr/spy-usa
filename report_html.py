@@ -350,6 +350,7 @@ def render_report_html(
   <div class="toolbar">
     <button type="button" class="primary" onclick="window.print()">Print / PDF</button>
     <a href="/">New analysis</a>
+    {('<a href="/?rerun=' + _esc(meta.get('id')) + '">Refazer</a>') if meta.get('id') else ''}
   </div>
   <h1>Spy USA — {_esc(client)}</h1>
   <div class="sub">{run_line}</div>
