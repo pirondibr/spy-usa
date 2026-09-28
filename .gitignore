@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+outputs/
+*.xlsx
+.DS_Store
+_patch_usa.py
+
+_test_job.json
+outputs/
+*.xlsx

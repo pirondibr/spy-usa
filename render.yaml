@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: spy-usa
+    runtime: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 900 --graceful-timeout 60 --keep-alive 75 server:app
+    healthCheckPath: /api/hello
+    disk:
+      name: spy-usa-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: SPY_MARKET
+        value: "us"
+      - key: RADAR_DATA_DIR
+        value: /var/data
+      - key: SPY_DATA_DIR
+        value: /var/data
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: SCRAPINGBEE_API_KEY
+        sync: false
+      - key: DATAFORSEO_USER
+        sync: false
+      - key: DATAFORSEO_PASS
+        sync: false
+      - key: SEMRUSH_API_KEY
+        sync: false

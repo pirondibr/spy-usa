@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spy USA</title>
+  <style>
+    :root {
+      --ink: #0b1220;
+      --muted: #5b6b7c;
+      --line: #d7e0ea;
+      --teal: #0f766e;
+      --teal-deep: #115e59;
+      --sand: #f3efe6;
+      --card: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Georgia, serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #c7ebe6 0%, transparent 55%),
+        radial-gradient(900px 400px at 100% 0%, #f6e7c8 0%, transparent 50%),
+        linear-gradient(180deg, #f7fafc 0%, var(--sand) 100%);
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 48px 20px 80px; }
+    .brand {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.4rem, 6vw, 3.4rem);
+      letter-spacing: -0.03em;
+      margin: 0 0 8px;
+      line-height: 1.05;
+    }
+    .lede { color: var(--muted); margin: 0 0 28px; font-size: 1.05rem; max-width: 36ch; }
+    form {
+      display: grid;
+      gap: 12px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 10px 40px rgba(15, 23, 42, 0.06);
+    }
+    label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    input[type="text"] {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font: inherit;
+      font-size: 16px;
+      color: var(--ink);
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      background: var(--teal);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      padding: 12px 18px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    button.ghost {
+      background: transparent;
+      color: var(--teal-deep);
+      border: 1px solid var(--line);
+    }
+    .opts { display: grid; gap: 8px; }
+    .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 500; }
+    .check .hint { color: #94a3b8; font-weight: 400; }
+    .status {
+      margin-top: 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.85);
+      padding: 16px 18px;
+      display: none;
+    }
+    .status.show { display: block; }
+    .bar {
+      height: 8px;
+      background: #e8eef4;
+      border-radius: 99px;
+      overflow: hidden;
+      margin: 10px 0 14px;
+    }
+    .bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--teal), #14b8a6);
+      transition: width .35s ease;
+    }
+    .step { font-size: 14px; margin: 0 0 6px; }
+    .meta { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
+    .log {
+      margin-top: 12px;
+      max-height: 220px;
+      overflow: auto;
+      font: 12px/1.45 ui-monospace, monospace;
+      color: #334155;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+    }
+    .err { color: #b91c1c; margin-top: 10px; font-size: 14px; }
+    .done a {
+      display: inline-block;
+      margin-top: 12px;
+      color: #fff;
+      background: var(--teal-deep);
+      text-decoration: none;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+    .foot { margin-top: 28px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="brand">Spy USA</h1>
+    <p class="lede">Marketing analysis for US companies — SEO, Brand, Google Ads Library, Meta, Instagram, YouTube, TikTok.</p>
+
+    <form id="form">
+      <label>
+        Domain or URL
+        <input id="url" name="url" type="text" placeholder="semrush.com" required autocomplete="off" />
+      </label>
+      <div class="opts">
+        <label class="check">
+          <input id="siteOnly" type="checkbox" />
+          Apenas este site <span class="hint">(sem concorrentes)</span>
+        </label>
+        <label class="check">
+          <input id="googleAds" type="checkbox" checked />
+          Google Ads Library
+        </label>
+        <label class="check">
+          <input id="force" type="checkbox" />
+          Force refresh
+        </label>
+      </div>
+      <div class="row">
+        <button id="go" type="submit">Analyze</button>
+      </div>
+    </form>
+
+    <div class="status" id="status">
+      <p class="step" id="stepLabel">Starting…</p>
+      <div class="bar"><i id="bar"></i></div>
+      <p class="meta" id="meta"></p>
+      <div class="log" id="log"></div>
+      <p class="err" id="err"></p>
+      <div class="done" id="done"></div>
+    </div>
+
+    <p class="foot" id="hello">Checking API keys…</p>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const TOTAL = 8;
+
+    async function refreshHello() {
+      try {
+        const r = await fetch("/api/hello");
+        const j = await r.json();
+        $("hello").textContent = j.live_ready
+          ? `Ready · market US · v${j.version}`
+          : `Missing keys: ${Object.entries(j.keys || {}).filter(([,v]) => !v).map(([k]) => k).join(", ")}`;
+      } catch {
+        $("hello").textContent = "Server offline";
+      }
+    }
+    refreshHello();
+
+    let es = null;
+    $("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("err").textContent = "";
+      $("done").innerHTML = "";
+      $("log").textContent = "";
+      $("status").classList.add("show");
+      $("go").disabled = true;
+      $("stepLabel").textContent = "Queuing job…";
+      $("bar").style.width = "2%";
+
+      if (es) { es.close(); es = null; }
+
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: $("url").value.trim(),
+            force: $("force").checked,
+            site_only: $("siteOnly").checked,
+            include_google_ads: $("googleAds").checked,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to start");
+
+        const flags = [
+          data.site_only ? "site-only" : "with-competitors",
+          data.include_google_ads ? "google-ads" : "no-google-ads",
+        ].join(" · ");
+        $("meta").textContent = `${data.company || ""} · ${data.url || ""} · ${flags} · job ${data.job_id}`;
+        es = new EventSource(data.stream);
+        es.onmessage = (ev) => {
+          let msg;
+          try { msg = JSON.parse(ev.data); } catch { return; }
+          if (msg.type === "ping") return;
+          if (msg.type === "log" && msg.line) {
+            $("log").textContent += msg.line + "\n";
+            $("log").scrollTop = $("log").scrollHeight;
+          }
+          if (msg.type === "progress") {
+            const pct = Math.min(98, Math.round((Number(msg.index || 0) / TOTAL) * 100));
+            $("bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100/TOTAL)) : pct) + "%";
+            $("stepLabel").textContent = `${msg.progress_label || ""} — ${msg.label || msg.step_id}: ${msg.detail || msg.state}`;
+          }
+          if (msg.type === "error") {
+            $("err").textContent = msg.message || "Error";
+            $("go").disabled = false;
+            es.close();
+          }
+          if (msg.type === "finished" || (msg.type === "done" && msg.html_url)) {
+            const url = msg.html_url || `/runs/${data.job_id}/report.html`;
+            $("bar").style.width = "100%";
+            $("stepLabel").textContent = "Done";
+            $("done").innerHTML = `<a href="${url}">Open tables report</a>`;
+            $("go").disabled = false;
+            es.close();
+          }
+          if (msg.type === "eof") {
+            $("go").disabled = false;
+          }
+        };
+        es.onerror = () => {
+          // fallback poll
+          poll(data.job_id);
+        };
+      } catch (err) {
+        $("err").textContent = err.message || String(err);
+        $("go").disabled = false;
+      }
+    });
+
+    async function poll(jobId) {
+      const tick = async () => {
+        try {
+          const r = await fetch(`/api/jobs/${jobId}`);
+          const j = await r.json();
+          if (j.status === "done" && j.html_url) {
+            $("bar").style.width = "100%";
+            $("stepLabel").textContent = "Done";
+            $("done").innerHTML = `<a href="${j.html_url}">Open tables report</a>`;
+            $("go").disabled = false;
+            return;
+          }
+          if (j.status === "error") {
+            $("err").textContent = j.error || "Error";
+            $("go").disabled = false;
+            return;
+          }
+          setTimeout(tick, 3000);
+        } catch {
+          setTimeout(tick, 4000);
+        }
+      };
+      tick();
+    }
+  </script>
+</body>
+</html>
