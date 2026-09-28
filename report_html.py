@@ -44,6 +44,92 @@ def _link_cell(url: Any, label: str = "Open") -> str:
     )
 
 
+def _client_row(section: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not section:
+        return None
+    rows = section.get("rows") or []
+    for r in rows:
+        if r.get("is_client"):
+            return r
+    return rows[0] if len(rows) == 1 else None
+
+
+def _main_datum(section: Optional[dict[str, Any]], kind: str) -> str:
+    """Valor principal do cliente (ou unico row) para a tabela resumo."""
+    if not section:
+        return "—"
+    row = _client_row(section)
+    if kind == "ads":
+        if row:
+            return str(row.get("ads_fmt") or row.get("value_fmt") or "0")
+        return str(section.get("total_ads_fmt") or "—")
+    if kind in ("seo", "brand"):
+        if row:
+            return str(row.get("traffic_fmt") or "0")
+        return str(section.get("total_traffic_fmt") or "—")
+    if kind == "brand_dfs":
+        if row:
+            return str(
+                row.get("traffic_fmt")
+                or row.get("latest_volume")
+                or "0"
+            )
+        return str(section.get("total_traffic_fmt") or "—")
+    # count / social / linkedin
+    if row:
+        return str(row.get("value_fmt") or row.get("ads_fmt") or "0")
+    return str(section.get("total_fmt") or "—")
+
+
+def _summary_channels(report: dict[str, Any]) -> str:
+    """Tabela resumo no topo: Canal | Dados principal (ordem fixa)."""
+    # Ordem: Google → Meta → LinkedIn → Marca Semrush → SEO → YT → IG → TT → DFS
+    channels: list[tuple[str, str, str]] = [
+        ("Google Ads", "google_ads", "ads"),
+        ("Meta Ads", "meta", "ads"),
+        ("LinkedIn Ads", "linkedin", "count"),
+        ("Marca Semrush", "brand", "brand"),
+        ("SEO Orgânico", "seo", "seo"),
+        ("YouTube", "youtube", "count"),
+        ("Instagram", "instagram", "count"),
+        ("TikTok", "tiktok", "count"),
+        ("Marca DataForSEO", "brand_dataforseo", "brand_dfs"),
+    ]
+    unit_fallback = {
+        "ads": "ads",
+        "count": "",
+        "seo": "visits",
+        "brand": "visits",
+        "brand_dfs": "vol.",
+    }
+    table_rows: list[list[str]] = []
+    for label, key, kind in channels:
+        section = report.get(key)
+        if not isinstance(section, dict):
+            continue
+        if not (
+            section.get("rows")
+            or section.get("total_fmt")
+            or section.get("total_ads_fmt")
+            or section.get("total_traffic_fmt")
+        ):
+            continue
+        value = _main_datum(section, kind)
+        unit = (section.get("unit") or unit_fallback.get(kind) or "").strip()
+        if unit and value not in ("—", "n/d") and unit.lower() not in value.lower():
+            value = f"{value} {unit}"
+        table_rows.append([_esc(label), _esc(value)])
+
+    if not table_rows:
+        return ""
+    return f"""
+    <section>
+      <h2>Resumo — canais</h2>
+      {_rows_table(["Canal", "Dados principal"], table_rows)}
+    </section>
+    """
+
+
 def _section_rank(
     title: str,
     section: Optional[dict[str, Any]],
@@ -203,16 +289,18 @@ def render_report_html(
             _link_cell(site, "Site"),
         ])
 
+    summary = _summary_channels(report)
+    # Mesma ordem do resumo: Google → Meta → LinkedIn → Marca → SEO → YT → IG → TT → DFS
     sections = [
-        _section_rank("SEO Organic (US)", report.get("seo"), "seo", link_label="Semrush"),
-        _section_rank("Brand Search Semrush (US)", report.get("brand"), "brand", link_label="Semrush"),
-        _section_brand_dfs(report.get("brand_dataforseo")),
         _section_rank("Google Ads Library (US)", report.get("google_ads"), "meta", link_label="Library"),
         _section_rank("Meta Ads (US)", report.get("meta"), "meta", link_label="Library"),
         _section_rank("LinkedIn Ads Library (US)", report.get("linkedin"), "count", link_label="Library"),
-        _section_rank("Instagram", report.get("instagram"), "count", link_label="Profile"),
+        _section_rank("Brand Search Semrush (US)", report.get("brand"), "brand", link_label="Semrush"),
+        _section_rank("SEO Organic (US)", report.get("seo"), "seo", link_label="Semrush"),
         _section_rank("YouTube", report.get("youtube"), "count", link_label="Profile"),
+        _section_rank("Instagram", report.get("instagram"), "count", link_label="Profile"),
         _section_rank("TikTok", report.get("tiktok"), "count", link_label="Profile"),
+        _section_brand_dfs(report.get("brand_dataforseo")),
     ]
 
     run_line = " · ".join(
@@ -265,6 +353,8 @@ def render_report_html(
   </div>
   <h1>Spy USA — {_esc(client)}</h1>
   <div class="sub">{run_line}</div>
+
+  {f'<div class="card">{summary}</div>' if summary else ''}
 
   <div class="card">
     <h2>Briefing</h2>
