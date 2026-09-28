@@ -68,10 +68,18 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
     if not data:
         return report
     rows_raw = data.get("rows") or []
+    from urllib.parse import quote
+
     rows = []
     for r in rows_raw:
         vol = r.get("latest_volume")
         g1 = r.get("growth_1y_pct")
+        kw = (r.get("brand_keyword") or "").strip()
+        kw_url = (
+            f"https://www.semrush.com/analytics/keywordoverview/?q={quote(kw)}&db=us"
+            if kw
+            else ""
+        )
         rows.append({
             "name": r.get("name") or r.get("brand_keyword"),
             "domain": r.get("domain"),
@@ -91,6 +99,7 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
             "growth_3y_pct": r.get("growth_3y_pct"),
             "growth_5y_pct": r.get("growth_5y_pct"),
             "site_title": r.get("site_title"),
+            "url": kw_url,
         })
     client = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
     report["brand_dataforseo"] = {

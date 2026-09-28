@@ -30,10 +30,22 @@ except Exception:
 
 
 
+def _clean_domain(domain: str) -> str:
+    return (
+        (domain or "")
+        .strip()
+        .lower()
+        .replace("https://", "")
+        .replace("http://", "")
+        .replace("www.", "")
+        .split("/")[0]
+    )
+
+
 def _google_transparency_url(domain: str, existing: str = "") -> str:
     if (existing or "").strip():
         return existing.strip()
-    dom = (domain or "").strip().lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+    dom = _clean_domain(domain)
     if not dom:
         return ""
     return f"https://adstransparency.google.com/?region=US&domain={dom}"
@@ -50,6 +62,43 @@ def _meta_ads_library_url(domain: str, name: str = "", existing: str = "") -> st
         "https://www.facebook.com/ads/library/?active_status=active&ad_type=all"
         f"&country={META_COUNTRY}&q={quote(q)}&search_type=keyword_unordered"
     )
+
+
+def _semrush_overview_url(domain: str) -> str:
+    """Link Semrush Domain Overview (US database)."""
+    from urllib.parse import quote
+
+    dom = _clean_domain(domain)
+    if not dom:
+        return ""
+    return (
+        "https://www.semrush.com/analytics/overview/"
+        f"?q={quote(dom)}&searchType=domain&db=us"
+    )
+
+
+def _semrush_keyword_url(keyword: str) -> str:
+    """Link Semrush Keyword Overview (US) for brand search volume."""
+    from urllib.parse import quote
+
+    kw = (keyword or "").strip()
+    if not kw:
+        return ""
+    return (
+        "https://www.semrush.com/analytics/keywordoverview/"
+        f"?q={quote(kw)}&db=us"
+    )
+
+
+def _linkedin_ad_library_url(name: str = "", existing: str = "") -> str:
+    if (existing or "").strip():
+        return existing.strip()
+    from urllib.parse import quote
+
+    q = (name or "").strip()
+    if not q:
+        return "https://www.linkedin.com/ad-library/search"
+    return f"https://www.linkedin.com/ad-library/search?accountOwner={quote(q)}"
 
 # Fallbacks quando Metricas Canais omite o cliente (export incompleto).
 # Valores alinhados ao radar_v2_chatguru de exemplo na pasta do projeto.
@@ -1170,6 +1219,7 @@ def build_report_from_xlsx(
             "growth_hot": g is not None and g >= 100,
             "is_client": bool(e.get("is_client")),
             "similaridade": _row_sim(e),
+            "url": _semrush_overview_url(e.get("domain") or ""),
         })
 
     # Brand Search: mesmo top 10 (inclui marca 0)
@@ -1206,6 +1256,7 @@ def build_report_from_xlsx(
             "growth_hot": g is not None and g >= 100,
             "is_client": bool(e.get("is_client")),
             "similaridade": _row_sim(e),
+            "url": _semrush_overview_url(e.get("domain") or ""),
         })
 
     ads_analysis = _build_ads_analysis(client_label, gads_table)
@@ -1246,6 +1297,9 @@ def build_report_from_xlsx(
             if e.get("is_client"):
                 client_rank = i
             bar = int(round((val or 0) / max_v * 100)) if max_v and (val or 0) else 1
+            raw_url = str(e.get(url_field) or "").strip()
+            if url_field == "linkedin_ads_url":
+                raw_url = _linkedin_ad_library_url(e.get("name") or e.get("domain") or "", raw_url)
             table.append({
                 "name": e["name"],
                 "domain": e["domain"],
@@ -1253,7 +1307,7 @@ def build_report_from_xlsx(
                 "value": val,
                 "value_fmt": _fmt_int(val) if (val or 0) > 0 else ("n/d" if str(e.get(url_field) or "").strip() else "0"),
                 "bar": max(bar, 1) if (val or 0) > 0 else 1,
-                "url": e.get(url_field) or "",
+                "url": raw_url,
                 "is_client": bool(e.get("is_client")),
                 "similaridade": _row_sim(e),
             })

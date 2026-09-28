@@ -34,7 +34,23 @@ def _rows_table(headers: list[str], rows: list[list[str]]) -> str:
     )
 
 
-def _section_rank(title: str, section: Optional[dict[str, Any]], kind: str = "ads") -> str:
+def _link_cell(url: Any, label: str = "Open") -> str:
+    u = str(url or "").strip()
+    if not u or u in ("—", "-", "n/a", "None"):
+        return "—"
+    return (
+        f'<a class="ext" href="{_esc(u)}" target="_blank" rel="noopener noreferrer">'
+        f"{_esc(label)}</a>"
+    )
+
+
+def _section_rank(
+    title: str,
+    section: Optional[dict[str, Any]],
+    kind: str = "ads",
+    *,
+    link_label: str = "Open",
+) -> str:
     if not section:
         return ""
     rows_data = section.get("rows") or []
@@ -43,7 +59,7 @@ def _section_rank(title: str, section: Optional[dict[str, Any]], kind: str = "ad
 
     table_rows: list[list[str]] = []
     if kind == "meta":
-        headers = ["#", "Company", "Ads", "Est. spend", "%", "Similarity"]
+        headers = ["#", "Company", "Ads", "Est. spend", "%", "Similarity", "Link"]
         for i, r in enumerate(rows_data, 1):
             name = _esc(r.get("name") or r.get("domain") or "—")
             if r.get("is_client"):
@@ -55,11 +71,12 @@ def _section_rank(title: str, section: Optional[dict[str, Any]], kind: str = "ad
                 _esc(r.get("investimento_fmt") or "—"),
                 _esc(r.get("pct_fmt") or "—"),
                 _esc(r.get("similaridade") or "—"),
+                _link_cell(r.get("url"), link_label),
             ])
         hero = _esc(section.get("total_invest_fmt") or section.get("total_fmt") or "—")
         hero_sub = f"{_esc(section.get('total_ads_fmt') or '')} · leader {_esc(section.get('leader') or '—')}"
     elif kind in ("seo", "brand"):
-        headers = ["#", "Company", "Traffic", "Growth", "Similarity"]
+        headers = ["#", "Company", "Traffic", "Growth", "Similarity", "Link"]
         for i, r in enumerate(rows_data, 1):
             name = _esc(r.get("name") or r.get("domain") or "—")
             if r.get("is_client"):
@@ -70,11 +87,12 @@ def _section_rank(title: str, section: Optional[dict[str, Any]], kind: str = "ad
                 _esc(r.get("traffic_fmt") or "0"),
                 _esc(r.get("growth_fmt") or "n/a"),
                 _esc(r.get("similaridade") or "—"),
+                _link_cell(r.get("url"), link_label),
             ])
         hero = _esc(section.get("total_traffic_fmt") or "—")
         hero_sub = f"leader {_esc(section.get('leader') or '—')}"
     else:
-        headers = ["#", "Company", "Value", "Similarity"]
+        headers = ["#", "Company", "Value", "Similarity", "Link"]
         for i, r in enumerate(rows_data, 1):
             name = _esc(r.get("name") or r.get("domain") or "—")
             if r.get("is_client"):
@@ -84,6 +102,7 @@ def _section_rank(title: str, section: Optional[dict[str, Any]], kind: str = "ad
                 name,
                 _esc(r.get("value_fmt") or r.get("ads_fmt") or "0"),
                 _esc(r.get("similaridade") or "—"),
+                _link_cell(r.get("url"), link_label),
             ])
         hero = _esc(section.get("total_fmt") or section.get("total_invest_fmt") or "—")
         hero_sub = f"{_esc(section.get('unit') or '')} · leader {_esc(section.get('leader') or '—')}"
@@ -120,7 +139,7 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
             return "n/a"
         return f"{v:+.1f}%"
 
-    headers = ["#", "Company", "Keyword", "Latest", "Vol", "1y", "2y", "3y", "5y", "Δ1y"]
+    headers = ["#", "Company", "Keyword", "Latest", "Vol", "1y", "2y", "3y", "5y", "Δ1y", "Link"]
     table_rows: list[list[str]] = []
     for i, r in enumerate(rows_data, 1):
         name = _esc(r.get("name") or r.get("domain") or "—")
@@ -137,6 +156,7 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
             _esc(_fmt_vol(r.get("volume_3y"))),
             _esc(_fmt_vol(r.get("volume_5y"))),
             _esc(_fmt_g(r.get("growth_1y_pct"))),
+            _link_cell(r.get("url"), "Semrush"),
         ])
 
     latest = _esc(section.get("latest_label") or "—")
@@ -171,24 +191,28 @@ def render_report_html(
         name = _esc(c.get("name") or c.get("domain") or "—")
         if c.get("is_client"):
             name += ' <span class="you">you</span>'
+        site = (c.get("url") or c.get("site_url") or "").strip()
+        if not site and c.get("domain"):
+            site = f"https://{c.get('domain')}/"
         comp_rows.append([
             str(i),
             name,
             _esc(c.get("domain") or "—"),
             _esc(c.get("similaridade") or ("Client" if c.get("is_client") else "—")),
             _esc(c.get("nicho") or "—"),
+            _link_cell(site, "Site"),
         ])
 
     sections = [
-        _section_rank("SEO Organic (US)", report.get("seo"), "seo"),
-        _section_rank("Brand Search Semrush (US)", report.get("brand"), "brand"),
+        _section_rank("SEO Organic (US)", report.get("seo"), "seo", link_label="Semrush"),
+        _section_rank("Brand Search Semrush (US)", report.get("brand"), "brand", link_label="Semrush"),
         _section_brand_dfs(report.get("brand_dataforseo")),
-        _section_rank("Google Ads Library (US)", report.get("google_ads"), "meta"),
-        _section_rank("Meta Ads (US)", report.get("meta"), "meta"),
-        _section_rank("LinkedIn Ads Library (US)", report.get("linkedin"), "count"),
-        _section_rank("Instagram", report.get("instagram"), "count"),
-        _section_rank("YouTube", report.get("youtube"), "count"),
-        _section_rank("TikTok", report.get("tiktok"), "count"),
+        _section_rank("Google Ads Library (US)", report.get("google_ads"), "meta", link_label="Library"),
+        _section_rank("Meta Ads (US)", report.get("meta"), "meta", link_label="Library"),
+        _section_rank("LinkedIn Ads Library (US)", report.get("linkedin"), "count", link_label="Library"),
+        _section_rank("Instagram", report.get("instagram"), "count", link_label="Profile"),
+        _section_rank("YouTube", report.get("youtube"), "count", link_label="Profile"),
+        _section_rank("TikTok", report.get("tiktok"), "count", link_label="Profile"),
     ]
 
     run_line = " · ".join(
@@ -223,6 +247,8 @@ def render_report_html(
   th, td {{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }}
   th {{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }}
   .you {{ color:var(--accent); font-weight:700; font-size:11px; margin-left:4px; }}
+  a.ext {{ color:var(--accent); font-weight:700; text-decoration:none; white-space:nowrap; }}
+  a.ext:hover {{ text-decoration:underline; }}
   .insight {{ font-size:13px; color:#334155; background:var(--bg); border-radius:8px; padding:12px 14px; }}
   .note {{ color:#b45309; font-size:13px; margin-top:8px; }}
   .toolbar {{ position:sticky; top:0; background:rgba(255,255,255,.92); backdrop-filter:blur(6px); padding:10px 0 14px; margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap; z-index:5; }}
@@ -253,7 +279,7 @@ def render_report_html(
   <div class="card">
     <h2>Competitors ({_esc(report.get('competitors_count') or max(0, len(comps)-1))})</h2>
     {f"<p class='note'>{_esc(note)}</p>" if note else ''}
-    {_rows_table(['#', 'Company', 'Domain', 'Similarity', 'Niche'], comp_rows)}
+    {_rows_table(['#', 'Company', 'Domain', 'Similarity', 'Niche', 'Link'], comp_rows)}
   </div>
 
   {''.join(f'<div class="card">{s}</div>' for s in sections if s)}

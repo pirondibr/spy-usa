@@ -977,7 +977,7 @@ def parse_linkedin_result_count(text: str) -> int | None:
 
 
 def lookup_linkedin_ads(query: str) -> dict:
-    """LinkedIn Ads: empresa → anuncio → pagante → total (US Ad Library)."""
+    """LinkedIn Ads: Empresa/anunciante -> confere nome -> total de anuncios."""
     q = (query or "").strip()
     if not q:
         return {
@@ -986,69 +986,12 @@ def lookup_linkedin_ads(query: str) -> dict:
             "linkedin_search_url": "",
             "spb_credits": 0,
         }
-    try:
-        # Prefer vendor path used by Spy USA (ScrapingBee + payer flow)
-        vendor = Path(__file__).resolve().parent / "vendor"
-        if str(vendor) not in sys.path:
-            sys.path.insert(0, str(vendor))
-        from linkedin_library_us import lookup_company_via_payer_flow
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    from linkedin_library_us import lookup_company_via_payer_flow
 
-        return lookup_company_via_payer_flow(q)
-    except Exception as e:
-        print(f"[LINKEDIN] payer-flow falhou, fallback accountOwner: {e}", flush=True)
-
-    url = linkedin_account_owner_url(q)
-    params = {
-        "api_key": SCRAPINGBEE_API_KEY,
-        "url": url,
-        "render_js": "true",
-        "premium_proxy": "true",
-        "country_code": SCRAPINGBEE_COUNTRY,
-        "wait": "5000",
-        "extract_rules": json.dumps({"h1": "h1"}),
-    }
-    credits = 0
-    last_err: Exception | None = None
-    for attempt in range(3):
-        try:
-            r = requests.get(SCRAPINGBEE_URL, params=params, timeout=120)
-            credits += int(r.headers.get("Spb-cost") or 0)
-            if r.status_code == 401:
-                raise RuntimeError("ScrapingBee sem creditos (401) no LinkedIn")
-            if r.status_code != 200:
-                raise RuntimeError(f"ScrapingBee LinkedIn HTTP {r.status_code}")
-
-            h1 = ""
-            try:
-                payload = r.json()
-                if isinstance(payload, dict):
-                    h1 = str(payload.get("h1") or "")
-            except Exception:
-                h1 = ""
-            if not h1:
-                m = re.search(r"<h1[^>]*>(.*?)</h1>", r.text or "", flags=re.IGNORECASE | re.DOTALL)
-                h1 = m.group(1) if m else (r.text or "")
-
-            count = parse_linkedin_result_count(h1)
-            if count is None:
-                count = parse_linkedin_result_count(r.text or "")
-            return {
-                "linkedin_ads": count,
-                "linkedin_payer": q,
-                "linkedin_search_url": url,
-                "spb_credits": credits,
-            }
-        except Exception as exc:
-            last_err = exc
-            time.sleep(1.5 + attempt)
-
-    print(f"[LINKEDIN/SB] falha '{q}': {last_err}", flush=True)
-    return {
-        "linkedin_ads": None,
-        "linkedin_payer": q,
-        "linkedin_search_url": url,
-        "spb_credits": credits,
-    }
+    return lookup_company_via_payer_flow(q)
 
 
 def load_linkedin_map(competitors: list[dict]) -> dict[str, dict]:
@@ -1060,17 +1003,17 @@ def load_linkedin_map(competitors: list[dict]) -> dict[str, dict]:
     for i, comp in enumerate(competitors, 1):
         query = company_query_for_competitor(comp)
         t0 = time.time()
-        print(f"[LINKEDIN/SB] ({i}/{n}) {comp.get('domain', '?')} query='{query}' ...", flush=True)
+        print(f"[LINKEDIN] ({i}/{n}) {comp.get('domain', '?')} query='{query}' ...", flush=True)
         result = lookup_linkedin_ads(query)
         out[comp["domain"]] = result
         total_credits += int(result.get("spb_credits") or 0)
         print(
-            f"[LINKEDIN/SB] ({i}/{n}) {comp.get('domain', '?')} -> "
-            f"{result.get('linkedin_ads')} ads  credits={result.get('spb_credits', 0)}  "
+            f"[LINKEDIN] ({i}/{n}) {comp.get('domain', '?')} -> "
+            f"{result.get('linkedin_ads')} ads  found={result.get('name_found')}  "
             f"({time.time() - t0:.1f}s)",
             flush=True,
         )
-    print(f"[LINKEDIN/SB] Total credits ScrapingBee: {total_credits}", flush=True)
+    print(f"[LINKEDIN] Total creditos ScrapingBee: {total_credits}", flush=True)
     return out
 
 
