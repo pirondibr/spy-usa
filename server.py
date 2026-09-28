@@ -66,6 +66,7 @@ class Job:
     force: bool = False
     site_only: bool = False
     include_google_ads: bool = True
+    include_linkedin: bool = True
     queue: Queue = field(default_factory=Queue)
     status: str = "pending"
     current_step: str = ""
@@ -107,6 +108,7 @@ def _worker(job: Job) -> None:
             force=job.force,
             site_only=job.site_only,
             include_google_ads=job.include_google_ads,
+            include_linkedin=job.include_linkedin,
         )
         job.report = report
         job.html_url = f"/runs/{job.job_id}/report.html"
@@ -154,6 +156,12 @@ def analyze():
         include_google_ads = bool(body.get("google_ads"))
     else:
         include_google_ads = True
+    if "include_linkedin" in body:
+        include_linkedin = bool(body.get("include_linkedin"))
+    elif "linkedin" in body:
+        include_linkedin = bool(body.get("linkedin"))
+    else:
+        include_linkedin = True
     parsed = parse_user_message(raw)
     if not parsed.url and not parsed.slug:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400
@@ -169,6 +177,7 @@ def analyze():
         force=force,
         site_only=site_only,
         include_google_ads=include_google_ads,
+        include_linkedin=include_linkedin,
     )
     jobs[job_id] = job
     threading.Thread(target=_worker, args=(job,), daemon=True).start()
@@ -179,6 +188,7 @@ def analyze():
         "url": parsed.url,
         "site_only": site_only,
         "include_google_ads": include_google_ads,
+        "include_linkedin": include_linkedin,
         "stream": f"/api/jobs/{job_id}/stream",
         "status_url": f"/api/jobs/{job_id}",
     })

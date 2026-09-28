@@ -125,7 +125,7 @@
 <body>
   <div class="wrap">
     <h1 class="brand">Spy USA</h1>
-    <p class="lede">Marketing analysis for US companies — SEO, Brand, Google Ads Library, Meta, Instagram, YouTube, TikTok.</p>
+    <p class="lede">Marketing analysis for US companies — SEO, Brand, Google Ads, Meta, LinkedIn Ads Library, Instagram, YouTube, TikTok.</p>
 
     <form id="form">
       <label>
@@ -140,6 +140,11 @@
         <label class="check">
           <input id="googleAds" type="checkbox" checked />
           Google Ads Library
+        </label>
+        <label class="check">
+          <input id="linkedinAds" type="checkbox" checked />
+          LinkedIn Ads Library
+          <span class="hint">(empresa → anúncio → pagante → total)</span>
         </label>
         <label class="check">
           <input id="force" type="checkbox" />
@@ -165,7 +170,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const TOTAL = 8;
+    const TOTAL = 9;
 
     async function refreshHello() {
       try {
@@ -202,6 +207,7 @@
             force: $("force").checked,
             site_only: $("siteOnly").checked,
             include_google_ads: $("googleAds").checked,
+            include_linkedin: $("linkedinAds").checked,
           }),
         });
         const data = await res.json();
@@ -210,6 +216,7 @@
         const flags = [
           data.site_only ? "site-only" : "with-competitors",
           data.include_google_ads ? "google-ads" : "no-google-ads",
+          data.include_linkedin ? "linkedin" : "no-linkedin",
         ].join(" · ");
         $("meta").textContent = `${data.company || ""} · ${data.url || ""} · ${flags} · job ${data.job_id}`;
         es = new EventSource(data.stream);

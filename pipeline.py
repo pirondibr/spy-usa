@@ -23,6 +23,7 @@ SCRIPT_SEO = FINAL_DIR / "5b - seo organico.py"
 SCRIPT_BRAND = FINAL_DIR / "5c - brand search.py"
 SCRIPT_GOOGLE = FINAL_DIR / "5a - google ads.py"
 SCRIPT_META = FINAL_DIR / "5d - meta ads.py"
+SCRIPT_LINKEDIN = FINAL_DIR / "5e - linkedin ads.py"
 SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
 
 _DATA_DIR = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
@@ -40,9 +41,10 @@ STEP_DEFS = [
     {"id": "brand", "label": "Brand search (US)", "index": 3, "eta_live": 30},
     {"id": "google_ads", "label": "Google Ads Library (US)", "index": 4, "eta_live": 180},
     {"id": "meta", "label": "Meta Ads (US)", "index": 5, "eta_live": 180},
-    {"id": "instagram", "label": "Instagram", "index": 6, "eta_live": 120},
-    {"id": "youtube", "label": "YouTube", "index": 7, "eta_live": 20},
-    {"id": "tiktok", "label": "TikTok", "index": 8, "eta_live": 40},
+    {"id": "linkedin", "label": "LinkedIn Ads Library (US)", "index": 6, "eta_live": 240},
+    {"id": "instagram", "label": "Instagram", "index": 7, "eta_live": 120},
+    {"id": "youtube", "label": "YouTube", "index": 8, "eta_live": 20},
+    {"id": "tiktok", "label": "TikTok", "index": 9, "eta_live": 40},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
 
@@ -286,6 +288,7 @@ def run_pipeline(
     force: bool = False,
     site_only: bool = False,
     include_google_ads: bool = True,
+    include_linkedin: bool = True,
 ) -> dict:
     required = (
         "OPENROUTER_API_KEY",
@@ -320,7 +323,7 @@ def run_pipeline(
             preferred_competitors=parsed.competitors,
         )
         _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Cached report")
-        for sid in ("seo", "brand", "google_ads", "meta", "instagram", "youtube", "tiktok"):
+        for sid in ("seo", "brand", "google_ads", "meta", "linkedin", "instagram", "youtube", "tiktok"):
             _emit_progress(emit, set_step, sid, "done", "Cached")
         if run_id:
             _save_report(run_id, report, parsed)
@@ -333,6 +336,7 @@ def run_pipeline(
         market="US",
         site_only=site_only,
         include_google_ads=include_google_ads,
+        include_linkedin=include_linkedin,
         total_steps=TOTAL_STEPS,
         eta_label="~3–8 min" if site_only else "~10–15 min",
     )
@@ -461,7 +465,30 @@ def run_pipeline(
     emit("partial", section="meta", data=report.get("meta") or {}, client=client_name)
     _emit_progress(emit, set_step, "meta", "done", "Meta ready")
 
-    # 6–8) Social
+    # 6) LinkedIn Ads Library (optional) — empresa → ad → pagante → total
+    if include_linkedin:
+        _emit_progress(
+            emit, set_step, "linkedin", "running",
+            "LinkedIn Ads Library (US): find ad → payer → total...",
+        )
+        try:
+            _run_script(
+                [sys.executable, str(SCRIPT_LINKEDIN), slug],
+                FINAL_DIR,
+                on_log,
+                timeout_sec=600,
+                env=script_env,
+            )
+        except Exception as e:
+            emit("log", line=f"[LINKEDIN] Partial failure: {e}")
+        xlsx = find_metricas_xlsx(slug) or xlsx
+        report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
+        emit("partial", section="linkedin", data=report.get("linkedin") or {}, client=client_name)
+        _emit_progress(emit, set_step, "linkedin", "done", "LinkedIn ready")
+    else:
+        _emit_progress(emit, set_step, "linkedin", "done", "Skipped")
+
+    # 7–9) Social
     _emit_progress(emit, set_step, "instagram", "running", "Instagram / YouTube / TikTok...")
     try:
         _run_script(

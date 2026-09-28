@@ -199,10 +199,12 @@ def _extract_google_result_urls(html_text: str) -> list[str]:
 
 
 def company_query_for_competitor(comp: dict) -> str:
-    title = re.split(r"[|\-:]", comp.get("title", "") or "")[0].strip()
-    title_fold = compact(title)
-    if title and len(title_fold) >= 4:
-        return title
+    """Nome legivel para LinkedIn/Meta: title > company > dominio."""
+    for key in ("company", "name", "title"):
+        title = re.split(r"[|\-:]", str(comp.get(key, "") or ""))[0].strip()
+        title_fold = compact(title)
+        if title and len(title_fold) >= 3 and not title.lower().startswith("http"):
+            return title
     token = domain_token(comp.get("domain", ""))
     return token or comp.get("domain", "")
 
@@ -932,11 +934,20 @@ def parse_tiktok_followers(url: str) -> int | None:
 
 
 def linkedin_account_owner_url(name: str) -> str:
-    return f"{LINKEDIN_AD_LIBRARY_BASE}?accountOwner={quote_plus(name.strip())}&countries=" + META_COUNTRY + ""
+    try:
+        from linkedin_library_us import account_owner_url
+        return account_owner_url(name)
+    except Exception:
+        return f"{LINKEDIN_AD_LIBRARY_BASE}?accountOwner={quote_plus(name.strip())}&countries={META_COUNTRY}"
 
 
 def parse_linkedin_result_count(text: str) -> int | None:
     """Extrai total do h1 PT/EN/FR da LinkedIn Ad Library."""
+    try:
+        from linkedin_library_us import parse_result_count
+        return parse_result_count(text)
+    except Exception:
+        pass
     if not text:
         return None
     t = (text or "").replace("\xa0", " ").replace("&nbsp;", " ")
@@ -959,9 +970,8 @@ def parse_linkedin_result_count(text: str) -> int | None:
 
 
 def lookup_linkedin_ads(query: str) -> dict:
-    """LinkedIn Ads via ScrapingBee (busca accountOwner na Ad Library)."""
+    """LinkedIn Ads: empresa → anuncio → pagante → total (US Ad Library)."""
     q = (query or "").strip()
-    url = linkedin_account_owner_url(q) if q else ""
     if not q:
         return {
             "linkedin_ads": None,
@@ -969,7 +979,18 @@ def lookup_linkedin_ads(query: str) -> dict:
             "linkedin_search_url": "",
             "spb_credits": 0,
         }
+    try:
+        # Prefer vendor path used by Spy USA (ScrapingBee + payer flow)
+        vendor = Path(__file__).resolve().parent / "vendor"
+        if str(vendor) not in sys.path:
+            sys.path.insert(0, str(vendor))
+        from linkedin_library_us import lookup_company_via_payer_flow
 
+        return lookup_company_via_payer_flow(q)
+    except Exception as e:
+        print(f"[LINKEDIN] payer-flow falhou, fallback accountOwner: {e}", flush=True)
+
+    url = linkedin_account_owner_url(q)
     params = {
         "api_key": SCRAPINGBEE_API_KEY,
         "url": url,

@@ -129,6 +129,7 @@ def render_report_html(
         _section_rank("Brand Search (US)", report.get("brand"), "brand"),
         _section_rank("Google Ads Library (US)", report.get("google_ads"), "meta"),
         _section_rank("Meta Ads (US)", report.get("meta"), "meta"),
+        _section_rank("LinkedIn Ads Library (US)", report.get("linkedin"), "count"),
         _section_rank("Instagram", report.get("instagram"), "count"),
         _section_rank("YouTube", report.get("youtube"), "count"),
         _section_rank("TikTok", report.get("tiktok"), "count"),

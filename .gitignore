@@ -8,6 +8,6 @@ outputs/
 .DS_Store
 _patch_usa.py
 
-_test_job.json
-outputs/
-*.xlsx
+# Example / local-only scripts (depend on shared Playwright stack)
+modo_linkedin_ads.py
+
