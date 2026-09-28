@@ -24,6 +24,7 @@ SCRIPT_BRAND = FINAL_DIR / "5c - brand search.py"
 SCRIPT_GOOGLE = FINAL_DIR / "5a - google ads.py"
 SCRIPT_META = FINAL_DIR / "5d - meta ads.py"
 SCRIPT_LINKEDIN = FINAL_DIR / "5e - linkedin ads.py"
+SCRIPT_BRAND_DFS = FINAL_DIR / "5g - brand dataforseo.py"
 SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
 
 _DATA_DIR = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
@@ -38,15 +39,78 @@ EmitFn = Callable[..., None]
 STEP_DEFS = [
     {"id": "briefing_concorrentes", "label": "Briefing (+ competitors)", "index": 1, "eta_live": 180},
     {"id": "seo", "label": "SEO organic (US)", "index": 2, "eta_live": 30},
-    {"id": "brand", "label": "Brand search (US)", "index": 3, "eta_live": 30},
-    {"id": "google_ads", "label": "Google Ads Library (US)", "index": 4, "eta_live": 180},
-    {"id": "meta", "label": "Meta Ads (US)", "index": 5, "eta_live": 180},
-    {"id": "linkedin", "label": "LinkedIn Ads Library (US)", "index": 6, "eta_live": 240},
-    {"id": "instagram", "label": "Instagram", "index": 7, "eta_live": 120},
-    {"id": "youtube", "label": "YouTube", "index": 8, "eta_live": 20},
-    {"id": "tiktok", "label": "TikTok", "index": 9, "eta_live": 40},
+    {"id": "brand", "label": "Brand search Semrush (US)", "index": 3, "eta_live": 30},
+    {"id": "brand_dfs", "label": "Brand DataForSEO (US)", "index": 4, "eta_live": 40},
+    {"id": "google_ads", "label": "Google Ads Library (US)", "index": 5, "eta_live": 180},
+    {"id": "meta", "label": "Meta Ads (US)", "index": 6, "eta_live": 180},
+    {"id": "linkedin", "label": "LinkedIn Ads Library (US)", "index": 7, "eta_live": 240},
+    {"id": "instagram", "label": "Instagram", "index": 8, "eta_live": 120},
+    {"id": "youtube", "label": "YouTube", "index": 9, "eta_live": 20},
+    {"id": "tiktok", "label": "TikTok", "index": 10, "eta_live": 40},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
+
+
+def _load_brand_dfs(slug: str) -> Optional[dict]:
+    path = METRICAS_DIR / slug / f"brand-dataforseo-{slug}.json"
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _attach_brand_dfs(report: dict, slug: str) -> dict:
+    data = _load_brand_dfs(slug)
+    if not data:
+        return report
+    rows_raw = data.get("rows") or []
+    rows = []
+    for r in rows_raw:
+        vol = r.get("latest_volume")
+        g1 = r.get("growth_1y_pct")
+        rows.append({
+            "name": r.get("name") or r.get("brand_keyword"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "brand_keyword": r.get("brand_keyword"),
+            "traffic": vol or 0,
+            "traffic_fmt": f"{vol:,}" if isinstance(vol, int) else (str(vol) if vol is not None else "—"),
+            "growth_fmt": (f"{g1:+.1f}%" if isinstance(g1, (int, float)) else "n/a"),
+            "latest_label": r.get("latest_label"),
+            "volume_1y": r.get("volume_1y"),
+            "volume_2y": r.get("volume_2y"),
+            "volume_3y": r.get("volume_3y"),
+            "volume_5y": r.get("volume_5y"),
+            "growth_1y_pct": r.get("growth_1y_pct"),
+            "growth_2y_pct": r.get("growth_2y_pct"),
+            "growth_3y_pct": r.get("growth_3y_pct"),
+            "growth_5y_pct": r.get("growth_5y_pct"),
+            "site_title": r.get("site_title"),
+        })
+    client = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
+    report["brand_dataforseo"] = {
+        "source": "dataforseo",
+        "market": "US",
+        "latest_label": data.get("latest_label") or client.get("latest_label"),
+        "client_keyword": data.get("client_keyword") or client.get("brand_keyword"),
+        "leader": (rows[0].get("name") if rows else "—"),
+        "total_traffic_fmt": rows[0].get("traffic_fmt") if rows else "—",
+        "unit": "monthly searches",
+        "rows": rows,
+        "insight": (
+            f"Brand keyword «{data.get('client_keyword') or client.get('brand_keyword') or '—'}» "
+            f"· latest month {data.get('latest_label') or client.get('latest_label') or 'n/a'} "
+            f"(DataForSEO Google Ads US). Growth vs same month 1y/2y/3y/5y."
+        ),
+        "analysis_title": "Brand Search — DataForSEO",
+        "raw": data,
+    }
+    return report
 
 
 def find_metricas_xlsx(slug: str) -> Optional[Path]:
@@ -323,8 +387,9 @@ def run_pipeline(
             preferred_competitors=parsed.competitors,
         )
         _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Cached report")
-        for sid in ("seo", "brand", "google_ads", "meta", "linkedin", "instagram", "youtube", "tiktok"):
+        for sid in ("seo", "brand", "brand_dfs", "google_ads", "meta", "linkedin", "instagram", "youtube", "tiktok"):
             _emit_progress(emit, set_step, sid, "done", "Cached")
+        report = _attach_brand_dfs(report, slug)
         if run_id:
             _save_report(run_id, report, parsed)
         emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
@@ -426,7 +491,28 @@ def run_pipeline(
     xlsx = find_metricas_xlsx(slug) or xlsx
     report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
     emit("partial", section="brand", data=report.get("brand") or {}, client=client_name)
-    _emit_progress(emit, set_step, "brand", "done", "Brand ready")
+    _emit_progress(emit, set_step, "brand", "done", "Brand Semrush ready")
+
+    # 3b) Brand DataForSEO (keyword from domain+title, monthly history)
+    _emit_progress(emit, set_step, "brand_dfs", "running", "Brand DataForSEO US (1y/2y/3y/5y)...")
+    try:
+        _run_script(
+            [sys.executable, str(SCRIPT_BRAND_DFS), slug],
+            FINAL_DIR,
+            on_log,
+            timeout_sec=180,
+            env=script_env,
+        )
+    except Exception as e:
+        emit("log", line=f"[BRAND/DFS] Partial failure: {e}")
+    report = _attach_brand_dfs(report, slug)
+    emit(
+        "partial",
+        section="brand_dataforseo",
+        data=report.get("brand_dataforseo") or {},
+        client=client_name,
+    )
+    _emit_progress(emit, set_step, "brand_dfs", "done", "Brand DataForSEO ready")
 
     # 4) Google Ads Library (optional)
     if include_google_ads:
@@ -502,6 +588,7 @@ def run_pipeline(
         emit("log", line=f"[SOCIAL] Partial failure: {e}")
     xlsx = find_metricas_xlsx(slug) or xlsx
     report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
+    report = _attach_brand_dfs(report, slug)
     for sid in ("instagram", "youtube", "tiktok"):
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")

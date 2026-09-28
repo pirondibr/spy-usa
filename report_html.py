@@ -100,6 +100,61 @@ def _section_rank(title: str, section: Optional[dict[str, Any]], kind: str = "ad
     """
 
 
+def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+
+    def _fmt_vol(v: Any) -> str:
+        if v is None:
+            return "—"
+        try:
+            return f"{int(v):,}"
+        except Exception:
+            return str(v)
+
+    def _fmt_g(v: Any) -> str:
+        if not isinstance(v, (int, float)):
+            return "n/a"
+        return f"{v:+.1f}%"
+
+    headers = ["#", "Company", "Keyword", "Latest", "Vol", "1y", "2y", "3y", "5y", "Δ1y"]
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        table_rows.append([
+            str(i),
+            name,
+            _esc(r.get("brand_keyword") or "—"),
+            _esc(r.get("latest_label") or "—"),
+            _esc(r.get("traffic_fmt") or _fmt_vol(r.get("latest_volume") or r.get("traffic"))),
+            _esc(_fmt_vol(r.get("volume_1y"))),
+            _esc(_fmt_vol(r.get("volume_2y"))),
+            _esc(_fmt_vol(r.get("volume_3y"))),
+            _esc(_fmt_vol(r.get("volume_5y"))),
+            _esc(_fmt_g(r.get("growth_1y_pct"))),
+        ])
+
+    latest = _esc(section.get("latest_label") or "—")
+    kw = _esc(section.get("client_keyword") or "—")
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = f"keyword {kw} · latest {latest} · DataForSEO US"
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or ""
+    return f"""
+    <section>
+      <h2>Brand Search — DataForSEO (US)</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
 def render_report_html(
     report: dict[str, Any],
     *,
@@ -126,7 +181,8 @@ def render_report_html(
 
     sections = [
         _section_rank("SEO Organic (US)", report.get("seo"), "seo"),
-        _section_rank("Brand Search (US)", report.get("brand"), "brand"),
+        _section_rank("Brand Search Semrush (US)", report.get("brand"), "brand"),
+        _section_brand_dfs(report.get("brand_dataforseo")),
         _section_rank("Google Ads Library (US)", report.get("google_ads"), "meta"),
         _section_rank("Meta Ads (US)", report.get("meta"), "meta"),
         _section_rank("LinkedIn Ads Library (US)", report.get("linkedin"), "count"),
