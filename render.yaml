@@ -30,3 +30,5 @@ services:
         sync: false
       - key: SEMRUSH_API_KEY
         sync: false
+      - key: SIMILARWEB_RAPIDAPI_KEY
+        sync: false

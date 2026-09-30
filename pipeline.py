@@ -25,6 +25,7 @@ SCRIPT_GOOGLE = FINAL_DIR / "5a - google ads.py"
 SCRIPT_META = FINAL_DIR / "5d - meta ads.py"
 SCRIPT_LINKEDIN = FINAL_DIR / "5e - linkedin ads.py"
 SCRIPT_BRAND_DFS = FINAL_DIR / "5g - brand dataforseo.py"
+SCRIPT_SIMILARWEB = FINAL_DIR / "5h - similarweb.py"
 SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
 
 _DATA_DIR = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
@@ -41,12 +42,13 @@ STEP_DEFS = [
     {"id": "seo", "label": "SEO organic (US)", "index": 2, "eta_live": 30},
     {"id": "brand", "label": "Brand search Semrush (US)", "index": 3, "eta_live": 30},
     {"id": "brand_dfs", "label": "Brand DataForSEO (US)", "index": 4, "eta_live": 40},
-    {"id": "google_ads", "label": "Google Ads Library (US)", "index": 5, "eta_live": 180},
-    {"id": "meta", "label": "Meta Ads (US)", "index": 6, "eta_live": 180},
-    {"id": "linkedin", "label": "LinkedIn Ads Library (US)", "index": 7, "eta_live": 240},
-    {"id": "instagram", "label": "Instagram", "index": 8, "eta_live": 120},
-    {"id": "youtube", "label": "YouTube", "index": 9, "eta_live": 20},
-    {"id": "tiktok", "label": "TikTok", "index": 10, "eta_live": 40},
+    {"id": "similarweb", "label": "SimilarWeb Traffic", "index": 5, "eta_live": 60},
+    {"id": "google_ads", "label": "Google Ads Library (US)", "index": 6, "eta_live": 180},
+    {"id": "meta", "label": "Meta Ads (US)", "index": 7, "eta_live": 180},
+    {"id": "linkedin", "label": "LinkedIn Ads Library (US)", "index": 8, "eta_live": 240},
+    {"id": "instagram", "label": "Instagram", "index": 9, "eta_live": 120},
+    {"id": "youtube", "label": "YouTube", "index": 10, "eta_live": 20},
+    {"id": "tiktok", "label": "TikTok", "index": 11, "eta_live": 40},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
 
@@ -118,6 +120,68 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         ),
         "analysis_title": "Brand Search — DataForSEO",
         "raw": data,
+    }
+    return report
+
+
+def _load_similarweb(slug: str) -> Optional[dict]:
+    path = METRICAS_DIR / slug / f"similarweb-{slug}.json"
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _attach_similarweb(report: dict, slug: str) -> dict:
+    data = _load_similarweb(slug)
+    if not data:
+        return report
+    rows_raw = data.get("rows") or []
+    rows: list[dict] = []
+    for r in rows_raw:
+        rows.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": r.get("traffic") or r.get("latest_visits") or 0,
+            "traffic_fmt": r.get("traffic_fmt") or "—",
+            "snapshot_date": r.get("snapshot_date"),
+            "snapshot_label": r.get("snapshot_label") or "—",
+            "bounce_fmt": r.get("bounce_fmt") or "—",
+            "pages_fmt": r.get("pages_fmt") or "—",
+            "time_fmt": r.get("time_fmt") or "—",
+            "is_data_from_ga": bool(r.get("is_data_from_ga")),
+            "visits_monthly": r.get("visits_monthly") or [],
+            "sources": r.get("sources") or [],
+            "countries": r.get("countries") or [],
+            "error": r.get("error"),
+            "url": r.get("url") or (f"https://{r.get('domain')}/" if r.get("domain") else ""),
+        })
+    client = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
+    ok_rows = [r for r in rows if not r.get("error")]
+    leader = ok_rows[0] if ok_rows else client
+    report["similarweb"] = {
+        "source": "similarweb_rapidapi",
+        "market": "global",
+        "latest_label": data.get("latest_label") or client.get("snapshot_label"),
+        "client_domain": data.get("client_domain") or client.get("domain"),
+        "leader": leader.get("name") if leader else "—",
+        "total_traffic_fmt": (client.get("traffic_fmt") if client else "—"),
+        "unit": "visits/mo",
+        "rows": rows,
+        "insight": (
+            f"SimilarWeb traffic for «{client.get('domain') or '—'}» "
+            f"· snapshot {client.get('snapshot_label') or data.get('latest_label') or 'n/a'} "
+            f"· bounce {client.get('bounce_fmt') or '—'} · "
+            f"{client.get('pages_fmt') or '—'} pages/visit · "
+            f"{client.get('time_fmt') or '—'} on site."
+        ),
+        "analysis_title": "SimilarWeb Traffic",
     }
     return report
 
@@ -415,9 +479,10 @@ def run_pipeline(
             preferred_competitors=parsed.competitors,
         )
         _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Cached report")
-        for sid in ("seo", "brand", "brand_dfs", "google_ads", "meta", "linkedin", "instagram", "youtube", "tiktok"):
+        for sid in ("seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta", "linkedin", "instagram", "youtube", "tiktok"):
             _emit_progress(emit, set_step, sid, "done", "Cached")
         report = _attach_brand_dfs(report, slug)
+        report = _attach_similarweb(report, slug)
         if run_id:
             _save_report(
                 run_id, report, parsed,
@@ -548,6 +613,27 @@ def run_pipeline(
     )
     _emit_progress(emit, set_step, "brand_dfs", "done", "Brand DataForSEO ready")
 
+    # 3c) SimilarWeb Traffic (RapidAPI)
+    _emit_progress(emit, set_step, "similarweb", "running", "SimilarWeb Traffic (RapidAPI)...")
+    try:
+        _run_script(
+            [sys.executable, str(SCRIPT_SIMILARWEB), slug],
+            FINAL_DIR,
+            on_log,
+            timeout_sec=180,
+            env=script_env,
+        )
+    except Exception as e:
+        emit("log", line=f"[SIMILARWEB] Partial failure: {e}")
+    report = _attach_similarweb(report, slug)
+    emit(
+        "partial",
+        section="similarweb",
+        data=report.get("similarweb") or {},
+        client=client_name,
+    )
+    _emit_progress(emit, set_step, "similarweb", "done", "SimilarWeb ready")
+
     # 4) Google Ads Library (optional)
     if include_google_ads:
         _emit_progress(emit, set_step, "google_ads", "running", "Google Ads Transparency (US)...")
@@ -623,6 +709,7 @@ def run_pipeline(
     xlsx = find_metricas_xlsx(slug) or xlsx
     report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
     report = _attach_brand_dfs(report, slug)
+    report = _attach_similarweb(report, slug)
     for sid in ("instagram", "youtube", "tiktok"):
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")

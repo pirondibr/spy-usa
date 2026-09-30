@@ -75,6 +75,10 @@ def _main_datum(section: Optional[dict[str, Any]], kind: str) -> str:
                 or "0"
             )
         return str(section.get("total_traffic_fmt") or "—")
+    if kind == "similarweb":
+        if row:
+            return str(row.get("traffic_fmt") or "0")
+        return str(section.get("total_traffic_fmt") or "—")
     # count / social / linkedin
     if row:
         return str(row.get("value_fmt") or row.get("ads_fmt") or "0")
@@ -90,6 +94,7 @@ def _summary_channels(report: dict[str, Any]) -> str:
         ("LinkedIn Ads", "linkedin", "count"),
         ("Marca Semrush", "brand", "brand"),
         ("SEO Orgânico", "seo", "seo"),
+        ("SimilarWeb", "similarweb", "similarweb"),
         ("YouTube", "youtube", "count"),
         ("Instagram", "instagram", "count"),
         ("TikTok", "tiktok", "count"),
@@ -101,6 +106,7 @@ def _summary_channels(report: dict[str, Any]) -> str:
         "seo": "visits",
         "brand": "visits",
         "brand_dfs": "vol.",
+        "similarweb": "visits/mo",
     }
     table_rows: list[list[str]] = []
     for label, key, kind in channels:
@@ -261,6 +267,152 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
     """
 
 
+def _section_similarweb(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+
+    # 1) Overview / Engagement
+    overview_headers = [
+        "#", "Company", "Domain", "Visits", "Snapshot",
+        "Bounce", "Pages/visit", "Time on site", "GA?", "Link",
+    ]
+    overview_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        if r.get("error"):
+            name += f' <span class="note">({_esc(r.get("error"))})</span>'
+        overview_rows.append([
+            str(i),
+            name,
+            _esc(r.get("domain") or "—"),
+            _esc(r.get("traffic_fmt") or "—"),
+            _esc(r.get("snapshot_label") or "—"),
+            _esc(r.get("bounce_fmt") or "—"),
+            _esc(r.get("pages_fmt") or "—"),
+            _esc(r.get("time_fmt") or "—"),
+            "Yes" if r.get("is_data_from_ga") else "No",
+            _link_cell(r.get("url"), "Site"),
+        ])
+
+    # 2) Monthly visits — union of month labels (chronological)
+    month_keys: list[str] = []
+    seen_m: set[str] = set()
+    for r in rows_data:
+        for m in r.get("visits_monthly") or []:
+            d = str(m.get("date") or "")
+            if d and d not in seen_m:
+                seen_m.add(d)
+                month_keys.append(d)
+    month_keys.sort()
+    month_labels = []
+    label_by_date: dict[str, str] = {}
+    for d in month_keys:
+        for r in rows_data:
+            for m in r.get("visits_monthly") or []:
+                if str(m.get("date")) == d:
+                    label_by_date[d] = str(m.get("label") or d[:7])
+                    break
+            if d in label_by_date:
+                break
+        month_labels.append(label_by_date.get(d, d[:7]))
+
+    monthly_html = ""
+    if month_keys:
+        m_headers = ["Company"] + month_labels
+        m_rows: list[list[str]] = []
+        for r in rows_data:
+            by_date = {
+                str(m.get("date")): (m.get("visits_fmt") or "—")
+                for m in (r.get("visits_monthly") or [])
+            }
+            name = _esc(r.get("name") or r.get("domain") or "—")
+            if r.get("is_client"):
+                name += ' <span class="you">you</span>'
+            m_rows.append([name] + [_esc(by_date.get(d, "—")) for d in month_keys])
+        monthly_html = f"""
+      <h3 style="font-size:14px;margin:18px 0 8px;color:#334155;">Monthly visits</h3>
+      {_rows_table(m_headers, m_rows)}
+        """
+
+    # 3) Traffic sources
+    source_names = [
+        "Direct", "Search", "Social", "Referrals", "Paid Referrals", "Mail",
+    ]
+    extra_sources: list[str] = []
+    for r in rows_data:
+        for s in r.get("sources") or []:
+            n = str(s.get("name") or "")
+            if n and n not in source_names and n not in extra_sources:
+                extra_sources.append(n)
+    all_sources = source_names + extra_sources
+    sources_html = ""
+    if any(r.get("sources") for r in rows_data):
+        s_headers = ["Company"] + all_sources
+        s_rows: list[list[str]] = []
+        for r in rows_data:
+            by_name = {
+                str(s.get("name")): (s.get("share_fmt") or "—")
+                for s in (r.get("sources") or [])
+            }
+            name = _esc(r.get("name") or r.get("domain") or "—")
+            if r.get("is_client"):
+                name += ' <span class="you">you</span>'
+            s_rows.append([name] + [_esc(by_name.get(n, "—")) for n in all_sources])
+        sources_html = f"""
+      <h3 style="font-size:14px;margin:18px 0 8px;color:#334155;">Traffic sources</h3>
+      {_rows_table(s_headers, s_rows)}
+        """
+
+    # 4) Top countries (long form: Company | Country | Share)
+    country_rows: list[list[str]] = []
+    for r in rows_data:
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        countries = r.get("countries") or []
+        if not countries:
+            country_rows.append([name, "—", "—"])
+            continue
+        for c in countries:
+            country_rows.append([
+                name,
+                _esc(c.get("code") or "—"),
+                _esc(c.get("share_fmt") or "—"),
+            ])
+            name = ""  # group visually under first row
+    countries_html = ""
+    if any(r.get("countries") for r in rows_data):
+        countries_html = f"""
+      <h3 style="font-size:14px;margin:18px 0 8px;color:#334155;">Top countries</h3>
+      {_rows_table(["Company", "Country", "Share"], country_rows)}
+        """
+
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = (
+        f"domain {_esc(section.get('client_domain') or '—')} · "
+        f"snapshot {_esc(section.get('latest_label') or '—')} · SimilarWeb"
+    )
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or ""
+    return f"""
+    <section>
+      <h2>SimilarWeb Traffic</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      <h3 style="font-size:14px;margin:0 0 8px;color:#334155;">Overview &amp; engagement</h3>
+      {_rows_table(overview_headers, overview_rows)}
+      {monthly_html}
+      {sources_html}
+      {countries_html}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
 def render_report_html(
     report: dict[str, Any],
     *,
@@ -297,6 +449,7 @@ def render_report_html(
         _section_rank("LinkedIn Ads Library (US)", report.get("linkedin"), "count", link_label="Library"),
         _section_rank("Brand Search Semrush (US)", report.get("brand"), "brand", link_label="Semrush"),
         _section_rank("SEO Organic (US)", report.get("seo"), "seo", link_label="Semrush"),
+        _section_similarweb(report.get("similarweb")),
         _section_rank("YouTube", report.get("youtube"), "count", link_label="Profile"),
         _section_rank("Instagram", report.get("instagram"), "count", link_label="Profile"),
         _section_rank("TikTok", report.get("tiktok"), "count", link_label="Profile"),

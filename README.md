@@ -1,6 +1,6 @@
 # Spy USA
 
-Marketing analysis for **US** companies: SEO, Brand, Meta Ads Library, Instagram, YouTube, TikTok.
+Marketing analysis for **US** companies: SEO, Brand, Meta Ads Library, Instagram, YouTube, TikTok, SimilarWeb.
 
 HTML tables only (no chatbot). Adapted from [radar-agent-demo](https://github.com/pirondibr/radar-agent-demo) with market filters:
 
@@ -8,6 +8,7 @@ HTML tables only (no chatbot). Adapted from [radar-agent-demo](https://github.co
 - DataForSEO location `2840` / language `en`
 - Meta Ads Library `country=US`
 - ScrapingBee `country_code=us`
+- SimilarWeb via RapidAPI (`SIMILARWEB_RAPIDAPI_KEY`)
 
 ## Local
 
