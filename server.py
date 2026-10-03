@@ -46,7 +46,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -74,8 +74,10 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "url": job.parsed.url,
         "company": job.parsed.company,
         "status": job.status,
-        "market": "US",
+        "market": (getattr(job, "market", None) or "us").upper(),
         "site_only": bool(job.site_only),
+        "compare_all": bool(getattr(job, "compare_all", False)),
+        "peer_urls": list(job.parsed.competitors or []),
         "include_google_ads": bool(job.include_google_ads),
         "include_linkedin": bool(job.include_linkedin),
         "force": bool(job.force),
@@ -178,6 +180,8 @@ class Job:
     site_only: bool = False
     include_google_ads: bool = True
     include_linkedin: bool = True
+    market: str = "us"
+    compare_all: bool = False
     queue: Queue = field(default_factory=Queue)
     status: str = "pending"
     current_step: str = ""
@@ -227,7 +231,13 @@ def _worker(job: Job) -> None:
     try:
         job.status = "running"
         _write_run_meta(job)
-        emit(job, "started", company=job.parsed.company, slug=job.parsed.slug, market="US")
+        emit(
+            job, "started",
+            company=job.parsed.company,
+            slug=job.parsed.slug,
+            market=(job.market or "us").upper(),
+            compare_all=bool(job.compare_all),
+        )
 
         def _emit(event_type: str, **payload: Any) -> None:
             emit(job, event_type, **payload)
@@ -244,6 +254,8 @@ def _worker(job: Job) -> None:
             site_only=job.site_only,
             include_google_ads=job.include_google_ads,
             include_linkedin=job.include_linkedin,
+            market=job.market or "us",
+            compare_all=bool(job.compare_all),
         )
         job.report = report
         job.html_url = f"/runs/{job.job_id}/report.html"
@@ -266,7 +278,14 @@ def _enqueue_job(job: Job) -> None:
     _run_queue.put(job.job_id)
 
 
-def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool]:
+def _normalize_market(raw: Any) -> str:
+    m = str(raw or "us").strip().lower()
+    if m in ("br", "brazil", "brasil", "bra", "sites br", "sites_br", "sites-br"):
+        return "br"
+    return "us"
+
+
+def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, str, bool]:
     force = bool(body.get("force") or body.get("refresh"))
     # Default ON: modo sem pesquisar concorrentes
     if "site_only" in body or "solo" in body or "only_site" in body:
@@ -285,7 +304,15 @@ def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool]:
         include_linkedin = bool(body.get("linkedin"))
     else:
         include_linkedin = True
-    return force, site_only, include_google_ads, include_linkedin
+    market = _normalize_market(body.get("market") or body.get("spy_market") or os.environ.get("SPY_MARKET") or "us")
+    compare_all = bool(
+        body.get("compare_all")
+        or body.get("all")
+        or body.get("mode_all")
+    )
+    if compare_all:
+        site_only = True
+    return force, site_only, include_google_ads, include_linkedin, market, compare_all
 
 
 def _job_payload(job: Job) -> dict[str, Any]:
@@ -295,6 +322,8 @@ def _job_payload(job: Job) -> dict[str, Any]:
         "slug": job.parsed.slug,
         "url": job.parsed.url,
         "site_only": job.site_only,
+        "compare_all": bool(job.compare_all),
+        "market": (job.market or "us").upper(),
         "include_google_ads": job.include_google_ads,
         "include_linkedin": job.include_linkedin,
         "force": job.force,
@@ -317,7 +346,8 @@ def hello():
         "ok": True,
         "app": "spy-usa",
         "version": APP_VERSION,
-        "market": "US",
+        "market": _normalize_market(os.environ.get("SPY_MARKET") or "us").upper(),
+        "markets": ["US", "BR"],
         "live_ready": all(keys.values()),
         "keys": keys,
         "steps": [{"id": s["id"], "label": s["label"]} for s in STEP_DEFS],
@@ -348,12 +378,19 @@ def _start_jobs_from_raw(
     site_only: bool,
     include_google_ads: bool,
     include_linkedin: bool,
+    market: str = "us",
+    compare_all: bool = False,
 ) -> list[Job]:
     companies = parse_company_list(raw)
     if not companies:
         return []
 
-    if not site_only and len(companies) > 1:
+    market = _normalize_market(market)
+    if compare_all:
+        site_only = True
+
+    # All / discovery com N URLs → 1 job (primary + peers)
+    if (compare_all or not site_only) and len(companies) > 1:
         primary = companies[0]
         primary.competitors = [
             (c.url or c.company or c.slug).rstrip("/")
@@ -373,6 +410,8 @@ def _start_jobs_from_raw(
             site_only=site_only,
             include_google_ads=include_google_ads,
             include_linkedin=include_linkedin,
+            market=market,
+            compare_all=compare_all,
         )
         _enqueue_job(job)
         created.append(job)
@@ -388,7 +427,7 @@ def analyze():
     if not raw:
         return jsonify({"error": "Informe um domínio ou URL (ex: semrush.com)"}), 400
 
-    force, site_only, include_google_ads, include_linkedin = _flags_from_body(body)
+    force, site_only, include_google_ads, include_linkedin, market, compare_all = _flags_from_body(body)
 
     missing = [k for k, ok in _live_keys_ready().items() if not ok]
     if missing:
@@ -400,6 +439,8 @@ def analyze():
         site_only=site_only,
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
+        market=market,
+        compare_all=compare_all,
     )
     if not created:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400
@@ -411,6 +452,11 @@ def analyze():
         "batch": len(payloads) > 1,
         "jobs": payloads,
         "count": len(payloads),
+        "market": market.upper(),
+        "compare_all": compare_all,
+        "site_only": site_only,
+        "include_google_ads": include_google_ads,
+        "include_linkedin": include_linkedin,
     })
 
 
@@ -426,16 +472,25 @@ def rerun(run_id: str):
     site_only = True
     include_google_ads = True
     include_linkedin = True
+    market = "us"
+    compare_all = False
+    peer_urls: list[str] = []
     if meta:
         url = (meta.get("url") or meta.get("company") or "").strip()
         site_only = bool(meta.get("site_only", True))
         include_google_ads = bool(meta.get("include_google_ads", True))
         include_linkedin = bool(meta.get("include_linkedin", True))
+        market = _normalize_market(meta.get("market") or "us")
+        compare_all = bool(meta.get("compare_all"))
+        peer_urls = [str(x).strip() for x in (meta.get("peer_urls") or []) if str(x).strip()]
     if job_mem and not url:
         url = job_mem.parsed.url or job_mem.parsed.company
         site_only = job_mem.site_only
         include_google_ads = job_mem.include_google_ads
         include_linkedin = job_mem.include_linkedin
+        market = _normalize_market(job_mem.market or "us")
+        compare_all = bool(job_mem.compare_all)
+        peer_urls = list(job_mem.parsed.competitors or [])
 
     if not url:
         return jsonify({"error": "Run sem URL para refazer"}), 400
@@ -444,12 +499,18 @@ def rerun(run_id: str):
     if missing:
         return jsonify({"error": "API keys ausentes: " + ", ".join(missing), "missing": missing}), 503
 
+    raw = url
+    if peer_urls:
+        raw = "\n".join([url] + peer_urls)
+
     created = _start_jobs_from_raw(
-        url,
+        raw,
         force=True,
         site_only=site_only,
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
+        market=market,
+        compare_all=compare_all,
     )
     if not created:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400

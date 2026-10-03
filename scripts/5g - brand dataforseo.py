@@ -147,11 +147,13 @@ def main() -> None:
         )
 
     rows = brand_reports_batch(entities)
+    from market import LOCATION_CODE, MARKET_SHORT  # noqa: E402
+
     payload = {
         "slug": slug,
         "source": "dataforseo_google_ads",
-        "market": "US",
-        "location_code": 2840,
+        "market": MARKET_SHORT,
+        "location_code": LOCATION_CODE,
         "rows": rows,
         "client_keyword": next((r.get("brand_keyword") for r in rows if r.get("is_client")), ""),
         "latest_label": next((r.get("latest_label") for r in rows if r.get("is_client")), None),

@@ -77,6 +77,15 @@
     .opts { display: grid; gap: 8px; }
     .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 500; }
     .check .hint { color: #94a3b8; font-weight: 400; }
+    .seg { display: flex; gap: 8px; flex-wrap: wrap; }
+    .seg label {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 7px 12px; font-size: 13px; font-weight: 600; color: var(--ink);
+      background: #fff; cursor: pointer;
+    }
+    .seg input { accent-color: var(--teal); }
+    .filter-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .status {
       margin-top: 22px;
       border: 1px solid var(--line);
@@ -180,7 +189,7 @@
 <body>
   <div class="wrap">
     <h1 class="brand">Spy USA</h1>
-    <p class="lede">Marketing analysis for US companies — SEO, Brand, Google Ads, Meta, LinkedIn Ads Library, Instagram, YouTube, TikTok.</p>
+    <p class="lede">Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok. Mercado US ou BR.</p>
 
     <form id="form">
       <label>
@@ -189,6 +198,18 @@
         <textarea id="url" name="url" placeholder="semrush.com&#10;ahrefs.com&#10;hubspot.com" required autocomplete="off"></textarea>
       </label>
       <div class="opts">
+        <div>
+          <div class="filter-label">Mercado</div>
+          <div class="seg" style="margin-top:6px">
+            <label><input type="radio" name="market" id="marketUs" value="us" checked /> Sites US</label>
+            <label><input type="radio" name="market" id="marketBr" value="br" /> Sites BR</label>
+          </div>
+        </div>
+        <label class="check">
+          <input id="compareAll" type="checkbox" />
+          All
+          <span class="hint">(todas as empresas na mesma tabela / resumo)</span>
+        </label>
         <label class="check">
           <input id="siteOnly" type="checkbox" checked />
           Modo sem pesquisar concorrentes
@@ -241,7 +262,7 @@
         const r = await fetch("/api/hello");
         const j = await r.json();
         $("hello").textContent = j.live_ready
-          ? `Ready · market US · v${j.version}`
+          ? `Ready · markets US/BR · v${j.version}`
           : `Missing keys: ${Object.entries(j.keys || {}).filter(([,v]) => !v).map(([k]) => k).join(", ")}`;
       } catch {
         $("hello").textContent = "Server offline";
@@ -258,7 +279,16 @@
     }
 
     function modeLabel(r) {
-      return r.site_only === false ? "com concorrentes" : "sem concorrentes";
+      const mkt = (r.market || "US").toString().toUpperCase();
+      const parts = [mkt];
+      if (r.compare_all) parts.push("All");
+      parts.push(r.site_only === false ? "com concorrentes" : "sem concorrentes");
+      return parts.join(" · ");
+    }
+
+    function selectedMarket() {
+      const br = $("marketBr");
+      return br && br.checked ? "br" : "us";
     }
 
     async function loadHistory() {
@@ -415,6 +445,8 @@
         const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
         activeJobIds = list.map((j) => j.job_id);
         const flags = [
+          (data.market || selectedMarket()).toString().toUpperCase(),
+          data.compare_all ? "All" : "",
           data.site_only ? "sem concorrentes" : "com concorrentes",
           data.include_google_ads ? "google-ads" : "no-google-ads",
           data.include_linkedin ? "linkedin" : "no-linkedin",
@@ -475,12 +507,21 @@
       }
     }
 
+    $("compareAll").addEventListener("change", () => {
+      if ($("compareAll").checked) {
+        $("siteOnly").checked = true;
+      }
+    });
+
     $("form").addEventListener("submit", (e) => {
       e.preventDefault();
+      const compareAll = $("compareAll").checked;
       startAnalyze({
         url: $("url").value.trim(),
         force: $("force").checked,
-        site_only: $("siteOnly").checked,
+        site_only: compareAll ? true : $("siteOnly").checked,
+        compare_all: compareAll,
+        market: selectedMarket(),
         include_google_ads: $("googleAds").checked,
         include_linkedin: $("linkedinAds").checked,
       });

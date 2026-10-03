@@ -596,7 +596,7 @@ def lookup_google_ads(company_name: str) -> dict:
     domain = normalize_domain(company_name)
     if not domain:
         domain = normalize_domain(root_url(company_name))
-    # Transparency geo: DataForSEO/US location code + English locale (2840 / 2840)
+    # Transparency geo: DataForSEO location code for active SPY_MARKET
     geo = int(LOCATION_BRAZIL) if "LOCATION_BRAZIL" in globals() else 2840
     data = {
         "f.req": (
@@ -604,7 +604,9 @@ def lookup_google_ads(company_name: str) -> dict:
             + str(geo)
             + '],"12":{"1":"'
             + domain
-            + '","2":true}},"7":{"1":1,"2":0,"3":2840}}'
+            + '","2":true}},"7":{"1":1,"2":0,"3":'
+            + str(geo)
+            + "}}"
         ),
     }
     params = {

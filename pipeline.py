@@ -72,13 +72,22 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
     rows_raw = data.get("rows") or []
     from urllib.parse import quote
 
+    try:
+        sys.path.insert(0, str(FINAL_DIR))
+        from market import SEMRUSH_DB, MARKET_SHORT  # noqa: E402
+        db = SEMRUSH_DB or "us"
+        mkt = MARKET_SHORT or "US"
+    except Exception:
+        db = "us"
+        mkt = "US"
+
     rows = []
     for r in rows_raw:
         vol = r.get("latest_volume")
         g1 = r.get("growth_1y_pct")
         kw = (r.get("brand_keyword") or "").strip()
         kw_url = (
-            f"https://www.semrush.com/analytics/keywordoverview/?q={quote(kw)}&db=us"
+            f"https://www.semrush.com/analytics/keywordoverview/?q={quote(kw)}&db={db}"
             if kw
             else ""
         )
@@ -106,7 +115,7 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
     client = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
     report["brand_dataforseo"] = {
         "source": "dataforseo",
-        "market": "US",
+        "market": mkt,
         "latest_label": data.get("latest_label") or client.get("latest_label"),
         "client_keyword": data.get("client_keyword") or client.get("brand_keyword"),
         "leader": (rows[0].get("name") if rows else "—"),
@@ -116,7 +125,7 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         "insight": (
             f"Brand keyword «{data.get('client_keyword') or client.get('brand_keyword') or '—'}» "
             f"· latest month {data.get('latest_label') or client.get('latest_label') or 'n/a'} "
-            f"(DataForSEO Google Ads US). Growth vs same month 1y/2y/3y/5y."
+            f"(DataForSEO Google Ads {mkt}). Growth vs same month 1y/2y/3y/5y."
         ),
         "analysis_title": "Brand Search — DataForSEO",
         "raw": data,
@@ -255,30 +264,68 @@ def clear_slug_cache(slug: str) -> dict[str, Any]:
     return {"slug": safe, "deleted": deleted, "cleared": bool(deleted)}
 
 
-def build_solo_national_xlsx(slug: str, client_url: str, client_name: str) -> Path:
-    """Minimal concorrentes XLSX with only the client (Semrush US traffic, no competitor discovery)."""
+def _normalize_market(market: str) -> str:
+    m = (market or "us").strip().lower()
+    if m in ("br", "brazil", "brasil", "bra"):
+        return "br"
+    return "us"
+
+
+def build_solo_national_xlsx(
+    slug: str,
+    client_url: str,
+    client_name: str,
+    *,
+    peer_urls: Optional[list[str]] = None,
+    market: str = "us",
+) -> Path:
+    """Concorrentes XLSX sem discovery: só o cliente, ou cliente + peers (modo All)."""
     sys.path.insert(0, str(FINAL_DIR))
     sys.path.insert(0, str(FINAL_DIR / "vendor"))
     from workspace_paths import setup_workspace  # noqa: E402
 
     setup_workspace()
-    from find_concorrentes import build_3period_traffic  # noqa: E402
+    from find_concorrentes import build_3period_traffic, normalize_domain  # noqa: E402
     from find_concorrentes_all import _write_growth_sheet, _write_traffic_sheet  # noqa: E402
     from find_concorrentes import read_briefing_from_xlsx  # noqa: E402
     from openpyxl import Workbook
     from openpyxl.styles import Font
     from datetime import datetime
 
+    market = _normalize_market(market)
     briefing_path = find_briefing_xlsx(slug)
     if not briefing_path:
         raise RuntimeError(f"Briefing not found for solo mode: {slug}")
     briefing = read_briefing_from_xlsx(briefing_path)
     url = briefing.get("url") or client_url
     profile = briefing.get("perfil") or "—"
+    client_dom = normalize_domain(url)
 
-    emit_log = f"[SOLO] Semrush traffic for {url} only (no competitors)"
-    print(emit_log, flush=True)
-    traffic = build_3period_traffic(url, [], profile)
+    peers: list[dict] = []
+    seen: set[str] = {client_dom} if client_dom else set()
+    for raw in peer_urls or []:
+        dom = normalize_domain(raw or "")
+        if not dom or dom in seen:
+            continue
+        seen.add(dom)
+        peers.append({
+            "domain": dom,
+            "url": f"https://{dom}/",
+            "titulo": dom,
+            "similaridade": "Alto",
+            "perfil": "—",
+            "fonte": "input",
+            "nicho": "—",
+        })
+        if len(peers) >= 8:
+            break
+
+    mode_label = "compare_all" if peers else "site_only"
+    print(
+        f"[SOLO] Semrush traffic ({market}) for {url} + {len(peers)} peer(s) [{mode_label}]",
+        flush=True,
+    )
+    traffic = build_3period_traffic(url, peers, profile)
 
     out_dir = CONCORRENTES_DIR / slug
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -287,19 +334,29 @@ def build_solo_national_xlsx(slug: str, client_url: str, client_name: str) -> Pa
     wb = Workbook()
     ws = wb.active
     ws.title = "Resumo"
-    ws.append(["Spy USA — site only (no competitors)"])
+    ws.append(["Spy — site only / compare all (no discovery)"])
     ws["A1"].font = Font(bold=True, size=14)
     ws.append([])
     ws.append(["Cliente", client_name])
     ws.append(["URL", url])
     ws.append(["Slug", slug])
-    ws.append(["Mode", "site_only"])
-    ws.append(["Market", "US"])
+    ws.append(["Mode", mode_label])
+    ws.append(["Market", market.upper()])
+    ws.append(["Peers", str(len(peers))])
     ws.append(["Data", datetime.now().strftime("%d/%m/%Y %H:%M")])
 
     ws_c = wb.create_sheet("Concorrentes Unificado")
     ws_c.append(["Dominio", "URL", "Titulo", "Similaridade", "Perfil", "Fonte", "Nicho (LLM)"])
-    # empty competitors — metrics script allows SPY_SITE_ONLY
+    for p in peers:
+        ws_c.append([
+            p["domain"],
+            p["url"],
+            p["titulo"],
+            p["similaridade"],
+            p["perfil"],
+            p["fonte"],
+            p["nicho"],
+        ])
 
     _write_traffic_sheet(wb, traffic)
     _write_growth_sheet(wb, traffic)
@@ -400,6 +457,8 @@ def _save_report(
     include_google_ads: bool = True,
     include_linkedin: bool = True,
     force: bool = False,
+    market: str = "us",
+    compare_all: bool = False,
 ) -> Path:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_dir = RUNS_DIR / run_id
@@ -407,6 +466,7 @@ def _save_report(
     import json
     from datetime import datetime, timezone
 
+    market = _normalize_market(market)
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     meta = {
         "id": run_id,
@@ -414,8 +474,10 @@ def _save_report(
         "url": parsed.url,
         "company": parsed.company,
         "status": "done",
-        "market": "US",
+        "market": market.upper(),
         "site_only": bool(site_only),
+        "compare_all": bool(compare_all),
+        "peer_urls": list(parsed.competitors or []),
         "include_google_ads": bool(include_google_ads),
         "include_linkedin": bool(include_linkedin),
         "force": bool(force),
@@ -445,6 +507,8 @@ def run_pipeline(
     site_only: bool = False,
     include_google_ads: bool = True,
     include_linkedin: bool = True,
+    market: str = "us",
+    compare_all: bool = False,
 ) -> dict:
     required = (
         "OPENROUTER_API_KEY",
@@ -457,15 +521,31 @@ def run_pipeline(
     if missing:
         raise RuntimeError("Missing API keys: " + ", ".join(missing))
 
+    market = _normalize_market(market)
+    if compare_all:
+        site_only = True
     url = normalize_url(parsed.url) or parsed.url
     if not url:
         raise ValueError("Company URL is required.")
     slug = parsed.slug or slugify_client(url)
     client_name = parsed.company or slug
-    script_env = {"SPY_SITE_ONLY": "1" if site_only else "0", "SPY_MARKET": "us"}
+    peer_urls = list(parsed.competitors or []) if (compare_all or site_only) else list(parsed.competitors or [])
+    # compare_all: peers entram no XLSX; discovery off
+    script_env = {
+        "SPY_SITE_ONLY": "1" if site_only else "0",
+        "SPY_MARKET": market,
+        "SPY_COMPARE_ALL": "1" if compare_all else "0",
+    }
+    # Ensure parent process market helpers (report_builder) see the same market
+    os.environ["SPY_MARKET"] = market
 
     def on_log(line: str) -> None:
         emit("log", line=line)
+
+    def _tag_report(report: dict) -> dict:
+        report["market"] = market.upper()
+        report["compare_all"] = bool(compare_all)
+        return report
 
     if force:
         clear_slug_cache(slug)
@@ -483,6 +563,7 @@ def run_pipeline(
             _emit_progress(emit, set_step, sid, "done", "Cached")
         report = _attach_brand_dfs(report, slug)
         report = _attach_similarweb(report, slug)
+        report = _tag_report(report)
         if run_id:
             _save_report(
                 run_id, report, parsed,
@@ -490,6 +571,8 @@ def run_pipeline(
                 include_google_ads=include_google_ads,
                 include_linkedin=include_linkedin,
                 force=force,
+                market=market,
+                compare_all=compare_all,
             )
         emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
         return report
@@ -497,8 +580,9 @@ def run_pipeline(
     emit(
         "pipeline_meta",
         mode="live",
-        market="US",
+        market=market.upper(),
         site_only=site_only,
+        compare_all=compare_all,
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
         total_steps=TOTAL_STEPS,
@@ -507,14 +591,16 @@ def run_pipeline(
 
     # 1) Briefing + optional competitors
     if site_only:
-        _emit_progress(
-            emit, set_step, "briefing_concorrentes", "running",
-            f"Briefing + modo sem concorrentes: {url}",
+        detail = (
+            f"Briefing + All ({1 + len(peer_urls)} empresas): {url}"
+            if compare_all and peer_urls
+            else f"Briefing + modo sem concorrentes: {url}"
         )
+        _emit_progress(emit, set_step, "briefing_concorrentes", "running", detail)
     else:
         _emit_progress(
             emit, set_step, "briefing_concorrentes", "running",
-            f"Briefing + US competitors: {url}",
+            f"Briefing + {market.upper()} competitors: {url}",
         )
 
     _run_script(
@@ -529,18 +615,31 @@ def run_pipeline(
         raise RuntimeError(f"Briefing not generated for '{slug}'.")
 
     if site_only:
-        build_solo_national_xlsx(slug, url, client_name)
+        peers_for_xlsx = peer_urls if compare_all else []
+        build_solo_national_xlsx(
+            slug, url, client_name,
+            peer_urls=peers_for_xlsx,
+            market=market,
+        )
         early = build_early_briefing_competitors(
             find_briefing_xlsx(slug),
             find_concorrentes_xlsx(slug),
             client_name=client_name,
-            preferred_competitors=[],
+            preferred_competitors=peers_for_xlsx,
             fallback_url=url,
         )
-        early["competitors_note"] = "Modo sem pesquisar concorrentes — discovery skipped."
-        early["competitors_count"] = 0
+        if compare_all and peers_for_xlsx:
+            early["competitors_note"] = (
+                f"Modo All — {len(peers_for_xlsx)} empresa(s) informada(s) na mesma tabela (sem discovery)."
+            )
+            early["competitors_count"] = len(peers_for_xlsx)
+            done_msg = f"All: {1 + len(peers_for_xlsx)} empresas"
+        else:
+            early["competitors_note"] = "Modo sem pesquisar concorrentes — discovery skipped."
+            early["competitors_count"] = 0
+            done_msg = "Sem concorrentes (0)"
         emit("partial", section="briefing_concorrentes", data=early, client=client_name)
-        _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Sem concorrentes (0)")
+        _emit_progress(emit, set_step, "briefing_concorrentes", "done", done_msg)
     else:
         _run_script(
             [sys.executable, str(SCRIPT_CONCORRENTES), slug, "nacional"],
@@ -710,6 +809,7 @@ def run_pipeline(
     report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
     report = _attach_brand_dfs(report, slug)
     report = _attach_similarweb(report, slug)
+    report = _tag_report(report)
     for sid in ("instagram", "youtube", "tiktok"):
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")
@@ -722,6 +822,8 @@ def run_pipeline(
             include_google_ads=include_google_ads,
             include_linkedin=include_linkedin,
             force=force,
+            market=market,
+            compare_all=compare_all,
         )
         html_url = f"/runs/{run_id}/report.html"
 

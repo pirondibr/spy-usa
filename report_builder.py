@@ -12,22 +12,33 @@ try:
     import sys
     from pathlib import Path as _P
     sys.path.insert(0, str(_P(__file__).resolve().parent / "scripts"))
-    from market import (
-        META_COUNTRY,
-        META_ADS_COST_PER_AD as _META_COST,
-        ADS_COST_PER_AD as _ADS_COST,
-        CURRENCY_PREFIX,
-        DEFAULT_TLD,
-    )
-    ADS_COST_PER_AD = _ADS_COST
-    META_ADS_COST_PER_AD = _META_COST
+    from market import market_config as _market_config
 except Exception:
-    ADS_COST_PER_AD = 200
-    META_ADS_COST_PER_AD = 80
-    META_COUNTRY = "US"
-    CURRENCY_PREFIX = "$"
-    DEFAULT_TLD = ".com"
+    def _market_config(market=None):  # type: ignore
+        return {
+            "market": "us",
+            "semrush_db": "us",
+            "meta_country": "US",
+            "currency_prefix": "$",
+            "google_ads_region": "US",
+        }
 
+
+def _mkt() -> dict:
+    import os
+    return _market_config(os.environ.get("SPY_MARKET") or "us")
+
+
+# Back-compat names (resolved dynamically where it matters)
+def _META_COUNTRY() -> str:
+    return str(_mkt().get("meta_country") or "US")
+
+
+META_COUNTRY = "US"  # legacy default; prefer _META_COUNTRY()
+ADS_COST_PER_AD = 200
+META_ADS_COST_PER_AD = 80
+CURRENCY_PREFIX = "$"
+DEFAULT_TLD = ".com"
 
 
 def _clean_domain(domain: str) -> str:
@@ -48,45 +59,53 @@ def _google_transparency_url(domain: str, existing: str = "") -> str:
     dom = _clean_domain(domain)
     if not dom:
         return ""
-    return f"https://adstransparency.google.com/?region=US&domain={dom}"
+    region = str(_mkt().get("google_ads_region") or "US")
+    return f"https://adstransparency.google.com/?region={region}&domain={dom}"
 
 
 def _meta_ads_library_url(domain: str, name: str = "", existing: str = "") -> str:
     if (existing or "").strip():
         return existing.strip()
     from urllib.parse import quote
+    country = _META_COUNTRY()
     q = (name or domain or "").strip()
     if not q:
-        return f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country={META_COUNTRY}"
+        return f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country={country}"
     return (
         "https://www.facebook.com/ads/library/?active_status=active&ad_type=all"
-        f"&country={META_COUNTRY}&q={quote(q)}&search_type=keyword_unordered"
+        f"&country={country}&q={quote(q)}&search_type=keyword_unordered"
     )
 
 
+def _semrush_db() -> str:
+    return str(_mkt().get("semrush_db") or "us")
+
+
 def _semrush_overview_url(domain: str) -> str:
-    """Link Semrush Domain Overview (US database)."""
+    """Link Semrush Domain Overview (active market DB)."""
     from urllib.parse import quote
 
     dom = _clean_domain(domain)
     if not dom:
         return ""
+    db = _semrush_db()
     return (
         "https://www.semrush.com/analytics/overview/"
-        f"?q={quote(dom)}&searchType=domain&db=us"
+        f"?q={quote(dom)}&searchType=domain&db={db}"
     )
 
 
 def _semrush_keyword_url(keyword: str) -> str:
-    """Link Semrush Keyword Overview (US) for brand search volume."""
+    """Link Semrush Keyword Overview for brand search volume."""
     from urllib.parse import quote
 
     kw = (keyword or "").strip()
     if not kw:
         return ""
+    db = _semrush_db()
     return (
         "https://www.semrush.com/analytics/keywordoverview/"
-        f"?q={quote(kw)}&db=us"
+        f"?q={quote(kw)}&db={db}"
     )
 
 
@@ -165,9 +184,21 @@ def _fmt_traffic(n: Optional[float | int]) -> str:
     return _fmt_int(v)
 
 
+def _currency_prefix() -> str:
+    return str(_mkt().get("currency_prefix") or "$")
+
+
+def _ads_cost() -> int:
+    return 600 if (_mkt().get("market") == "br") else 200
+
+
+def _meta_ads_cost() -> int:
+    return 250 if (_mkt().get("market") == "br") else 80
+
+
 def _fmt_money(n: float) -> str:
     v = int(round(n))
-    return f"{CURRENCY_PREFIX}{_fmt_int(v)}"
+    return f"{_currency_prefix()}{_fmt_int(v)}"
 
 
 def _fmt_pct(n: Optional[float], digits: int = 0) -> str:
@@ -1164,11 +1195,11 @@ def build_report_from_xlsx(
         reverse=True,
     )
     total_ads = sum(e.get("google_ads") or 0 for e in ads_rows_sorted)
-    total_invest = total_ads * ADS_COST_PER_AD
+    total_invest = total_ads * _ads_cost()
     gads_table = []
     for e in ads_rows_sorted:
         ads = e.get("google_ads") or 0
-        invest = ads * ADS_COST_PER_AD
+        invest = ads * _ads_cost()
         pct = (ads / total_ads * 100) if total_ads else 0
         gads_table.append({
             "name": e["name"],
@@ -1177,7 +1208,7 @@ def build_report_from_xlsx(
             "ads": ads,
             "ads_fmt": _fmt_int(ads) if ads else "0",
             "investimento": invest,
-            "investimento_fmt": _fmt_money(invest) if ads else f"{CURRENCY_PREFIX}0",
+            "investimento_fmt": _fmt_money(invest) if ads else f"{_currency_prefix()}0",
             "pct": round(pct),
             "pct_fmt": f"{round(pct)}%",
             "url": _google_transparency_url(e.get("domain") or "", e.get("google_ads_url") or ""),
@@ -1351,12 +1382,12 @@ def build_report_from_xlsx(
     ]
     meta_sorted = sorted(meta_entities, key=lambda x: (x.get("meta_ads") or 0), reverse=True)
     total_meta_ads = sum(e.get("meta_ads") or 0 for e in meta_sorted)
-    total_meta_invest = total_meta_ads * META_ADS_COST_PER_AD
+    total_meta_invest = total_meta_ads * _meta_ads_cost()
     max_meta = max((e.get("meta_ads") or 0 for e in meta_sorted), default=1) or 1
     meta_table = []
     for e in meta_sorted:
         ads_n = e.get("meta_ads") or 0
-        invest = ads_n * META_ADS_COST_PER_AD
+        invest = ads_n * _meta_ads_cost()
         meta_table.append({
             "name": e["name"],
             "domain": e["domain"],
@@ -1364,7 +1395,7 @@ def build_report_from_xlsx(
             "ads": ads_n,
             "ads_fmt": _fmt_int(ads_n),
             "investimento": invest,
-            "investimento_fmt": _fmt_money(invest) if invest else f"{CURRENCY_PREFIX}0",
+            "investimento_fmt": _fmt_money(invest) if invest else f"{_currency_prefix()}0",
             "pct": (ads_n / total_meta_ads * 100) if total_meta_ads else 0,
             "pct_fmt": ("%.1f%%" % ((ads_n / total_meta_ads * 100) if total_meta_ads and ads_n else 0)),
             "is_client": bool(e.get("is_client")),
@@ -1385,16 +1416,16 @@ def build_report_from_xlsx(
     meta_section = {
         "total_fmt": _fmt_int(total_meta_ads) if total_meta_ads else "0",
         "total": total_meta_ads,
-        "total_invest_fmt": _fmt_money(total_meta_invest) if total_meta_invest else f"{CURRENCY_PREFIX}0",
+        "total_invest_fmt": _fmt_money(total_meta_invest) if total_meta_invest else f"{_currency_prefix()}0",
         "leader": meta_leader,
         "client_rank": meta_client_rank,
         "rows": meta_table,
-        "insight": "Estimated Meta spend: $%s per active ad." % META_ADS_COST_PER_AD,
+        "insight": "Estimated Meta spend: %s%s per active ad." % (_currency_prefix(), _meta_ads_cost()),
         "analysis_title": "Analise Cliente vs concorrentes (Meta Ads)",
         "pro_hook": "Na versão Pro comparamos criativos Meta, formatos e o que o líder testa e você ainda não.",
         "unit": "anúncios",
         "show_investment": True,
-        "cost_per_ad": META_ADS_COST_PER_AD,
+        "cost_per_ad": _meta_ads_cost(),
     }
     linkedin_section = _count_section(
         "linkedin_ads", "linkedin_ads_url", "LinkedIn Ads", "anúncios",
@@ -1446,7 +1477,7 @@ def build_report_from_xlsx(
         "competitors_raw": competitors_all,
         "filter_meta": filter_meta,
         "google_ads": {
-            "total_invest_fmt": _fmt_money(total_invest) if total_invest else f"{CURRENCY_PREFIX}0",
+            "total_invest_fmt": _fmt_money(total_invest) if total_invest else f"{_currency_prefix()}0",
             "total_ads": total_ads,
             "total_ads_fmt": _fmt_int(total_ads),
             "leader": leader_ads,
