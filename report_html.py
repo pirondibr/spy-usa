@@ -502,6 +502,7 @@ def _collect_summary_kpis(
     score_by_company: bool = True,
     score_centered: bool = False,
     inherit_block_color: bool = False,
+    label_above: bool = False,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Build KPI cards for the given channel list. Returns (items, compare_all)."""
     market = _report_market(report, run_meta)
@@ -583,19 +584,16 @@ def _collect_summary_kpis(
                         f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
                         f'{(" " + link) if link != "—" else ""}</span></li>'
                     )
+            label_html = f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
             if score_centered and not score_by_company:
-                head = (
-                    f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
-                    f'<div class="kpi-score-center">{badge}</div>'
-                )
+                head = f'{"" if label_above else label_html}<div class="kpi-score-center">{badge}</div>'
             elif score_centered:
-                head = f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                head = "" if label_above else label_html
             else:
                 head = (
-                    f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
-                    f"{badge}</div>"
+                    f'<div class="kpi-top">{label_html}{badge}</div>'
                 )
-            html = (
+            card = (
                 f'<div class="kpi kpi-multi{(" kpi-score-centered" if score_centered else "")}"'
                 f'{group_attr} data-score="{_esc(score)}" '
                 f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
@@ -603,30 +601,40 @@ def _collect_summary_kpis(
                 f"{head}"
                 f'<ul class="kpi-list">{"".join(lines)}</ul></div>'
             )
+            html = (
+                f'<div class="kpi-unit-wrap">{label_html}{card}</div>'
+                if label_above
+                else card
+            )
         else:
             value = _main_datum(section, kind)
             u = _unit_for(value, unit)
             url = _summary_channel_url(key, section, client, market=market)
             link = _link_cell(url, f"{link_label} ↗")
+            label_html = f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
             if score_centered:
-                html = (
+                card = (
                     f'<div class="kpi kpi-score-centered"{group_attr} data-score="{_esc(score)}" '
                     f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
                     f'data-metric="{metric if metric is not None else -1}">'
-                    f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                    f'{"" if label_above else label_html}'
                     f'<div class="kpi-score-center">{badge}</div>'
                     f'<div class="kpi-val">{_esc(value)}'
                     f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
                     f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
                     f"</div>"
                 )
+                html = (
+                    f'<div class="kpi-unit-wrap">{label_html}{card}</div>'
+                    if label_above
+                    else card
+                )
             else:
                 html = (
                     f'<div class="kpi"{group_attr} data-score="{_esc(score)}" '
                     f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
                     f'data-metric="{metric if metric is not None else -1}">'
-                    f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
-                    f"{badge}</div>"
+                    f'<div class="kpi-top">{label_html}{badge}</div>'
                     f'<div class="kpi-val">{_esc(value)}'
                     f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
                     f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
@@ -843,6 +851,7 @@ def _summary_channels_blocks(
         score_by_company=True,
         score_centered=True,
         inherit_block_color=True,
+        label_above=True,
     )
     if not built:
         return ""
@@ -1732,6 +1741,14 @@ h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px
 .summary-block-title{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--group)}
 .summary-block .kpi{--group:inherit;box-shadow:inset 0 3px 0 var(--group)}
 .summary-block .kpi:hover{box-shadow:inset 0 3px 0 var(--group),var(--shadow)}
+.kpi-unit-wrap{display:flex;flex-direction:column;gap:7px;min-width:0}
+@media (min-width:640px){.kpi-unit-wrap:has(.kpi-multi){grid-column:span 2}}
+.kpi-unit-wrap > .kpi-label{
+  display:block;padding:0 2px;font-size:13px;font-weight:750;letter-spacing:-.01em;
+  color:var(--group);text-decoration:none;line-height:1.25}
+.kpi-unit-wrap > .kpi-label:hover{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.summary-block .kpi-unit-wrap > .kpi-label{color:var(--group)}
+.kpi-unit-wrap .kpi{height:100%}
 .scoreboard-wrap{margin:0}
 .scoreboard{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
 .scoreboard thead th{background:#f8fafc;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
