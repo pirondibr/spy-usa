@@ -83,6 +83,9 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "include_linkedin": bool(job.include_linkedin),
         "include_youtube_influencers": bool(getattr(job, "include_youtube_influencers", False)),
         "include_instagram_influencers": bool(getattr(job, "include_instagram_influencers", False)),
+        "include_reddit": bool(getattr(job, "include_reddit", False)),
+        "include_twitter": bool(getattr(job, "include_twitter", False)),
+        "include_linkedin_profile": bool(getattr(job, "include_linkedin_profile", False)),
         "force": bool(job.force),
         "created_at": job.created_at,
         "updated_at": _now_iso(),
@@ -161,6 +164,9 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "include_linkedin": job.include_linkedin,
             "include_youtube_influencers": bool(job.include_youtube_influencers),
             "include_instagram_influencers": bool(job.include_instagram_influencers),
+            "include_reddit": bool(getattr(job, "include_reddit", False)),
+            "include_twitter": bool(getattr(job, "include_twitter", False)),
+            "include_linkedin_profile": bool(getattr(job, "include_linkedin_profile", False)),
             "force": job.force,
             "created_at": job.created_at,
             "html_url": job.html_url or (
@@ -187,6 +193,9 @@ class Job:
     include_linkedin: bool = True
     include_youtube_influencers: bool = False
     include_instagram_influencers: bool = False
+    include_reddit: bool = False
+    include_twitter: bool = False
+    include_linkedin_profile: bool = False
     market: str = "us"
     compare_all: bool = False
     queue: Queue = field(default_factory=Queue)
@@ -263,6 +272,9 @@ def _worker(job: Job) -> None:
             include_linkedin=job.include_linkedin,
             include_youtube_influencers=bool(job.include_youtube_influencers),
             include_instagram_influencers=bool(job.include_instagram_influencers),
+            include_reddit=bool(job.include_reddit),
+            include_twitter=bool(job.include_twitter),
+            include_linkedin_profile=bool(job.include_linkedin_profile),
             market=job.market or "us",
             compare_all=bool(job.compare_all),
         )
@@ -294,37 +306,33 @@ def _normalize_market(raw: Any) -> str:
     return "us"
 
 
-def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, bool, bool, str, bool]:
+def _flag(body: dict, *keys: str, default: bool = False) -> bool:
+    for k in keys:
+        if k in body:
+            return bool(body.get(k))
+    return default
+
+
+def _flags_from_body(body: dict) -> tuple:
     force = bool(body.get("force") or body.get("refresh"))
     # Default ON: modo sem pesquisar concorrentes
     if "site_only" in body or "solo" in body or "only_site" in body:
         site_only = bool(body.get("site_only") or body.get("solo") or body.get("only_site"))
     else:
         site_only = True
-    if "include_google_ads" in body:
-        include_google_ads = bool(body.get("include_google_ads"))
-    elif "google_ads" in body:
-        include_google_ads = bool(body.get("google_ads"))
-    else:
-        include_google_ads = True
-    if "include_linkedin" in body:
-        include_linkedin = bool(body.get("include_linkedin"))
-    elif "linkedin" in body:
-        include_linkedin = bool(body.get("linkedin"))
-    else:
-        include_linkedin = True
-    if "include_youtube_influencers" in body:
-        include_youtube_influencers = bool(body.get("include_youtube_influencers"))
-    elif "youtube_influencers" in body:
-        include_youtube_influencers = bool(body.get("youtube_influencers"))
-    else:
-        include_youtube_influencers = False
-    if "include_instagram_influencers" in body:
-        include_instagram_influencers = bool(body.get("include_instagram_influencers"))
-    elif "instagram_influencers" in body:
-        include_instagram_influencers = bool(body.get("instagram_influencers"))
-    else:
-        include_instagram_influencers = False
+    include_google_ads = _flag(body, "include_google_ads", "google_ads", default=True)
+    include_linkedin = _flag(body, "include_linkedin", "linkedin", default=True)
+    include_youtube_influencers = _flag(
+        body, "include_youtube_influencers", "youtube_influencers", default=False
+    )
+    include_instagram_influencers = _flag(
+        body, "include_instagram_influencers", "instagram_influencers", default=False
+    )
+    include_reddit = _flag(body, "include_reddit", "reddit", default=False)
+    include_twitter = _flag(body, "include_twitter", "twitter", "twitter_profile", default=False)
+    include_linkedin_profile = _flag(
+        body, "include_linkedin_profile", "linkedin_profile", default=False
+    )
     market = _normalize_market(body.get("market") or body.get("spy_market") or os.environ.get("SPY_MARKET") or "us")
     compare_all = bool(
         body.get("compare_all")
@@ -340,6 +348,9 @@ def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, bool, bool, st
         include_linkedin,
         include_youtube_influencers,
         include_instagram_influencers,
+        include_reddit,
+        include_twitter,
+        include_linkedin_profile,
         market,
         compare_all,
     )
@@ -358,6 +369,9 @@ def _job_payload(job: Job) -> dict[str, Any]:
         "include_linkedin": job.include_linkedin,
         "include_youtube_influencers": bool(job.include_youtube_influencers),
         "include_instagram_influencers": bool(job.include_instagram_influencers),
+        "include_reddit": bool(job.include_reddit),
+        "include_twitter": bool(job.include_twitter),
+        "include_linkedin_profile": bool(job.include_linkedin_profile),
         "force": job.force,
         "status": job.status,
         "stream": f"/api/jobs/{job.job_id}/stream",
@@ -412,6 +426,9 @@ def _start_jobs_from_raw(
     include_linkedin: bool,
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
+    include_reddit: bool = False,
+    include_twitter: bool = False,
+    include_linkedin_profile: bool = False,
     market: str = "us",
     compare_all: bool = False,
 ) -> list[Job]:
@@ -446,6 +463,9 @@ def _start_jobs_from_raw(
             include_linkedin=include_linkedin,
             include_youtube_influencers=include_youtube_influencers,
             include_instagram_influencers=include_instagram_influencers,
+            include_reddit=include_reddit,
+            include_twitter=include_twitter,
+            include_linkedin_profile=include_linkedin_profile,
             market=market,
             compare_all=compare_all,
         )
@@ -470,6 +490,9 @@ def analyze():
         include_linkedin,
         include_youtube_influencers,
         include_instagram_influencers,
+        include_reddit,
+        include_twitter,
+        include_linkedin_profile,
         market,
         compare_all,
     ) = _flags_from_body(body)
@@ -486,6 +509,9 @@ def analyze():
         include_linkedin=include_linkedin,
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
         market=market,
         compare_all=compare_all,
     )
@@ -506,6 +532,9 @@ def analyze():
         "include_linkedin": include_linkedin,
         "include_youtube_influencers": include_youtube_influencers,
         "include_instagram_influencers": include_instagram_influencers,
+        "include_reddit": include_reddit,
+        "include_twitter": include_twitter,
+        "include_linkedin_profile": include_linkedin_profile,
     })
 
 
@@ -523,6 +552,9 @@ def rerun(run_id: str):
     include_linkedin = True
     include_youtube_influencers = False
     include_instagram_influencers = False
+    include_reddit = False
+    include_twitter = False
+    include_linkedin_profile = False
     market = "us"
     compare_all = False
     peer_urls: list[str] = []
@@ -533,6 +565,9 @@ def rerun(run_id: str):
         include_linkedin = bool(meta.get("include_linkedin", True))
         include_youtube_influencers = bool(meta.get("include_youtube_influencers", False))
         include_instagram_influencers = bool(meta.get("include_instagram_influencers", False))
+        include_reddit = bool(meta.get("include_reddit", False))
+        include_twitter = bool(meta.get("include_twitter", False))
+        include_linkedin_profile = bool(meta.get("include_linkedin_profile", False))
         market = _normalize_market(meta.get("market") or "us")
         compare_all = bool(meta.get("compare_all"))
         peer_urls = [str(x).strip() for x in (meta.get("peer_urls") or []) if str(x).strip()]
@@ -543,6 +578,9 @@ def rerun(run_id: str):
         include_linkedin = job_mem.include_linkedin
         include_youtube_influencers = bool(job_mem.include_youtube_influencers)
         include_instagram_influencers = bool(job_mem.include_instagram_influencers)
+        include_reddit = bool(getattr(job_mem, "include_reddit", False))
+        include_twitter = bool(getattr(job_mem, "include_twitter", False))
+        include_linkedin_profile = bool(getattr(job_mem, "include_linkedin_profile", False))
         market = _normalize_market(job_mem.market or "us")
         compare_all = bool(job_mem.compare_all)
         peer_urls = list(job_mem.parsed.competitors or [])
@@ -566,6 +604,9 @@ def rerun(run_id: str):
         include_linkedin=include_linkedin,
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
         market=market,
         compare_all=compare_all,
     )
@@ -613,6 +654,9 @@ def job_status(job_id: str):
         "include_linkedin": job.include_linkedin,
         "include_youtube_influencers": bool(job.include_youtube_influencers),
         "include_instagram_influencers": bool(job.include_instagram_influencers),
+        "include_reddit": bool(job.include_reddit),
+        "include_twitter": bool(job.include_twitter),
+        "include_linkedin_profile": bool(job.include_linkedin_profile),
     })
 
 

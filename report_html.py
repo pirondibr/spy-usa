@@ -45,6 +45,9 @@ SECTION_GROUPS = {
     "instagram": "social",
     "instagram_influencers": "social",
     "tiktok": "social",
+    "reddit": "social",
+    "twitter": "social",
+    "linkedin_profile": "social",
 }
 
 
@@ -230,7 +233,11 @@ def _summary_channel_url(
         return f"https://adstransparency.google.com/?region={google_region}&domain={quote(domain)}"
     if key == "similarweb":
         return site or (f"https://{domain}/" if domain else "")
-    if key in ("youtube", "instagram", "tiktok", "youtube_influencers", "instagram_influencers"):
+    if key in (
+        "youtube", "instagram", "tiktok",
+        "youtube_influencers", "instagram_influencers",
+        "reddit", "twitter", "linkedin_profile",
+    ):
         return site
     return site or (f"https://{domain}/" if domain else "")
 
@@ -251,6 +258,9 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         ("Instagram", "instagram", "count"),
         ("Instagram Influencers", "instagram_influencers", "seo"),
         ("TikTok", "tiktok", "count"),
+        ("Reddit", "reddit", "seo"),
+        ("Twitter / X", "twitter", "seo"),
+        ("LinkedIn Profile", "linkedin_profile", "seo"),
     ]
     unit_fallback = {
         "ads": "ads",
@@ -273,6 +283,9 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         "instagram_influencers": "Profile",
         "tiktok": "Profile",
         "brand_dataforseo": "Semrush",
+        "reddit": "Search",
+        "twitter": "Profile",
+        "linkedin_profile": "Profile",
     }
     market = _report_market(report, run_meta)
     compare_all = bool(report.get("compare_all") or (run_meta or {}).get("compare_all"))
@@ -475,6 +488,138 @@ def _section_instagram_influencers(section: Optional[dict[str, Any]]) -> str:
     return f"""
     <section>
       <h2>Instagram Influencers</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
+def _section_reddit(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = [
+        "#", "Company", "Posts (1st page)", "Comments", "Google total",
+        "Top posts", "Search",
+    ]
+
+    def _top_posts_cell(items: list) -> str:
+        return _top_list(
+            items,
+            lambda t: t.get("title") or "post",
+            lambda t: " · ".join(
+                x for x in [
+                    f"r/{t['subreddit']}" if t.get("subreddit") else "",
+                    f"{_compact_num(t.get('comments'))} comments"
+                    if t.get("comments") is not None else "",
+                ] if x
+            ),
+        )
+
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        table_rows.append([
+            str(i),
+            name,
+            _esc(str(r.get("posts_first_page") or 0)),
+            _esc(r.get("total_comments_fmt") or r.get("traffic_fmt") or "0"),
+            _esc(r.get("total_results_fmt") or "n/d"),
+            _top_posts_cell(list(r.get("top_posts") or [])),
+            _link_cell(r.get("url"), "Google"),
+        ])
+    usage = section.get("usage_total") or {}
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = (
+        f"comments on 1st page · fetch urls {_esc(str(usage.get('fetch_urls', '—')))} · "
+        f"SB credits {_esc(str(usage.get('scrapingbee_credits', '—')))} · "
+        f"leader {_esc(section.get('leader') or '—')}"
+    )
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "Reddit"
+    return f"""
+    <section>
+      <h2>Reddit</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
+def _section_twitter(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = ["#", "Company", "Handle", "Followers", "Source", "Profile", "Search"]
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        handle = str(r.get("handle") or "").lstrip("@")
+        handle_label = f"@{handle}" if handle else "Profile"
+        table_rows.append([
+            str(i),
+            name,
+            _esc(f"@{handle}") if handle else "—",
+            _esc(r.get("followers_fmt") or r.get("traffic_fmt") or "—"),
+            _esc(r.get("followers_source") or "—"),
+            _link_cell(r.get("url"), handle_label),
+            _link_cell(r.get("search_url"), "Google"),
+        ])
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = f"followers · leader {_esc(section.get('leader') or '—')}"
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "Twitter / X"
+    return f"""
+    <section>
+      <h2>Twitter / X</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
+def _section_linkedin_profile(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = ["#", "Company", "Kind", "Followers", "Title", "Profile", "Search"]
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        title = _esc(r.get("title") or "—")
+        if r.get("snippet"):
+            title += f'<div class="muted">{_esc(str(r.get("snippet"))[:120])}</div>'
+        table_rows.append([
+            str(i),
+            name,
+            _esc(r.get("kind") or "—"),
+            _esc(r.get("followers_fmt") or r.get("traffic_fmt") or "—"),
+            title,
+            _link_cell(r.get("url"), "LinkedIn"),
+            _link_cell(r.get("search_url"), "Google"),
+        ])
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = f"followers · leader {_esc(section.get('leader') or '—')}"
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "LinkedIn Profile"
+    return f"""
+    <section>
+      <h2>LinkedIn Profile</h2>
       <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
       {_rows_table(headers, table_rows)}
       {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
@@ -805,6 +950,10 @@ def render_report_html(
          _section_instagram_influencers(report.get("instagram_influencers"))),
         ("tiktok", "TikTok", _section_rank(
             "TikTok", report.get("tiktok"), "count", link_label="Profile")),
+        ("reddit", "Reddit", _section_reddit(report.get("reddit"))),
+        ("twitter", "Twitter / X", _section_twitter(report.get("twitter"))),
+        ("linkedin_profile", "LinkedIn Profile",
+         _section_linkedin_profile(report.get("linkedin_profile"))),
     ]
     blocks = [b for b in blocks if b[2]]
 

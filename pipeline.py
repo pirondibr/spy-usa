@@ -29,6 +29,9 @@ SCRIPT_SIMILARWEB = FINAL_DIR / "5h - similarweb.py"
 SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
 SCRIPT_YT_INFLUENCERS = FINAL_DIR / "5i - youtube influencers.py"
 SCRIPT_IG_INFLUENCERS = FINAL_DIR / "5j - instagram influencers.py"
+SCRIPT_REDDIT = FINAL_DIR / "5k - reddit mentions.py"
+SCRIPT_TWITTER = FINAL_DIR / "5l - twitter profile.py"
+SCRIPT_LI_PROFILE = FINAL_DIR / "5m - linkedin profile.py"
 
 _DATA_DIR = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
 _OUT_ROOT = (Path(_DATA_DIR) / "outputs") if _DATA_DIR else (APP_DIR / "outputs")
@@ -53,6 +56,9 @@ STEP_DEFS = [
     {"id": "tiktok", "label": "TikTok", "index": 11, "eta_live": 40},
     {"id": "youtube_influencers", "label": "YouTube Influencers", "index": 12, "eta_live": 90},
     {"id": "instagram_influencers", "label": "Instagram Influencers", "index": 13, "eta_live": 60},
+    {"id": "reddit", "label": "Reddit", "index": 14, "eta_live": 45},
+    {"id": "twitter", "label": "Twitter / X", "index": 15, "eta_live": 40},
+    {"id": "linkedin_profile", "label": "LinkedIn Profile", "index": 16, "eta_live": 20},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
 
@@ -348,6 +354,148 @@ def _attach_instagram_influencers(report: dict, slug: str) -> dict:
     }
     return report
 
+
+def _load_json_metric(slug: str, filename: str) -> Optional[dict]:
+    path = METRICAS_DIR / slug / filename
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _attach_reddit(report: dict, slug: str) -> dict:
+    data = _load_json_metric(slug, f"reddit-mentions-{slug}.json")
+    if not data:
+        return report
+    rows_out: list[dict] = []
+    for r in data.get("rows") or []:
+        comments = int(r.get("total_comments") or 0)
+        rows_out.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": comments,
+            "traffic_fmt": _fmt_views(comments),
+            "total_comments": comments,
+            "total_comments_fmt": _fmt_views(comments),
+            "posts_first_page": int(r.get("posts_first_page") or 0),
+            "total_results": r.get("total_results"),
+            "total_results_fmt": _fmt_views(r.get("total_results")) if r.get("total_results") is not None else "n/d",
+            "top_posts": r.get("top_posts") or [],
+            "url": r.get("search_url") or "",
+            "query": r.get("query") or "",
+            "error": r.get("error"),
+        })
+    client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
+    usage = data.get("usage_total") or {}
+    report["reddit"] = {
+        "source": data.get("source") or "tinyfish",
+        "market": data.get("market") or "US",
+        "leader": client.get("name") if client else "—",
+        "total_traffic_fmt": client.get("total_comments_fmt") if client else "—",
+        "unit": "comments (1st page)",
+        "rows": rows_out,
+        "usage_total": usage,
+        "insight": (
+            f"Reddit site:reddit.com «{client.get('name') or '—'}»: "
+            f"{client.get('posts_first_page') or 0} posts on 1st page · "
+            f"{_fmt_views(client.get('total_comments'))} comments · "
+            f"Google total {client.get('total_results_fmt') or 'n/d'}."
+        ),
+        "analysis_title": "Reddit",
+    }
+    return report
+
+
+def _attach_twitter(report: dict, slug: str) -> dict:
+    data = _load_json_metric(slug, f"twitter-profile-{slug}.json")
+    if not data:
+        return report
+    rows_out: list[dict] = []
+    for r in data.get("rows") or []:
+        followers = r.get("followers")
+        rows_out.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": int(followers or 0),
+            "traffic_fmt": r.get("followers_text") or _fmt_views(followers or 0),
+            "followers": followers,
+            "followers_fmt": r.get("followers_text") or (_fmt_views(followers) if followers is not None else "—"),
+            "handle": r.get("handle") or "",
+            "url": r.get("profile_url") or "",
+            "search_url": r.get("search_url") or "",
+            "followers_source": r.get("followers_source"),
+            "error": r.get("error"),
+        })
+    client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
+    usage = data.get("usage_total") or {}
+    report["twitter"] = {
+        "source": data.get("source") or "tinyfish+scrapingbee",
+        "market": data.get("market") or "US",
+        "leader": client.get("name") if client else "—",
+        "total_traffic_fmt": client.get("followers_fmt") if client else "—",
+        "unit": "followers",
+        "rows": rows_out,
+        "usage_total": usage,
+        "insight": (
+            f"X/Twitter @{client.get('handle') or '—'}: "
+            f"{client.get('followers_fmt') or '—'} followers"
+            f"{(' · via ' + str(client.get('followers_source'))) if client.get('followers_source') else ''}."
+        ),
+        "analysis_title": "Twitter / X",
+    }
+    return report
+
+
+def _attach_linkedin_profile(report: dict, slug: str) -> dict:
+    data = _load_json_metric(slug, f"linkedin-profile-{slug}.json")
+    if not data:
+        return report
+    rows_out: list[dict] = []
+    for r in data.get("rows") or []:
+        followers = r.get("followers")
+        rows_out.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": int(followers or 0),
+            "traffic_fmt": r.get("followers_text") or _fmt_views(followers or 0),
+            "followers": followers,
+            "followers_fmt": r.get("followers_text") or (_fmt_views(followers) if followers is not None else "—"),
+            "kind": r.get("kind") or "",
+            "url": r.get("profile_url") or "",
+            "search_url": r.get("search_url") or "",
+            "title": r.get("title") or "",
+            "snippet": r.get("snippet") or "",
+            "followers_source": r.get("followers_source"),
+            "error": r.get("error"),
+        })
+    client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
+    report["linkedin_profile"] = {
+        "source": data.get("source") or "tinyfish_search",
+        "market": data.get("market") or "US",
+        "leader": client.get("name") if client else "—",
+        "total_traffic_fmt": client.get("followers_fmt") if client else "—",
+        "unit": "followers",
+        "rows": rows_out,
+        "usage_total": data.get("usage_total") or {},
+        "insight": (
+            f"LinkedIn {client.get('kind') or 'profile'}: "
+            f"{client.get('followers_fmt') or '—'} followers"
+            f"{(' · ' + str(client.get('title'))) if client.get('title') else ''}."
+        ),
+        "analysis_title": "LinkedIn Profile",
+    }
+    return report
+
 def find_metricas_xlsx(slug: str) -> Optional[Path]:
     folder = METRICAS_DIR / slug
     if not folder.exists():
@@ -611,6 +759,9 @@ def _save_report(
     include_linkedin: bool = True,
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
+    include_reddit: bool = False,
+    include_twitter: bool = False,
+    include_linkedin_profile: bool = False,
     force: bool = False,
     market: str = "us",
     compare_all: bool = False,
@@ -637,6 +788,9 @@ def _save_report(
         "include_linkedin": bool(include_linkedin),
         "include_youtube_influencers": bool(include_youtube_influencers),
         "include_instagram_influencers": bool(include_instagram_influencers),
+        "include_reddit": bool(include_reddit),
+        "include_twitter": bool(include_twitter),
+        "include_linkedin_profile": bool(include_linkedin_profile),
         "force": bool(force),
         "created_at": created_at,
         "html_url": f"/runs/{run_id}/report.html",
@@ -666,6 +820,9 @@ def run_pipeline(
     include_linkedin: bool = True,
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
+    include_reddit: bool = False,
+    include_twitter: bool = False,
+    include_linkedin_profile: bool = False,
     market: str = "us",
     compare_all: bool = False,
 ) -> dict:
@@ -722,12 +879,16 @@ def run_pipeline(
             "seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta",
             "linkedin", "instagram", "youtube", "tiktok",
             "youtube_influencers", "instagram_influencers",
+            "reddit", "twitter", "linkedin_profile",
         ):
             _emit_progress(emit, set_step, sid, "done", "Cached")
         report = _attach_brand_dfs(report, slug)
         report = _attach_similarweb(report, slug)
         report = _attach_youtube_influencers(report, slug)
         report = _attach_instagram_influencers(report, slug)
+        report = _attach_reddit(report, slug)
+        report = _attach_twitter(report, slug)
+        report = _attach_linkedin_profile(report, slug)
         report = _tag_report(report)
         if run_id:
             _save_report(
@@ -737,6 +898,9 @@ def run_pipeline(
                 include_linkedin=include_linkedin,
                 include_youtube_influencers=include_youtube_influencers,
                 include_instagram_influencers=include_instagram_influencers,
+                include_reddit=include_reddit,
+                include_twitter=include_twitter,
+                include_linkedin_profile=include_linkedin_profile,
                 force=force,
                 market=market,
                 compare_all=compare_all,
@@ -754,6 +918,9 @@ def run_pipeline(
         include_linkedin=include_linkedin,
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
         total_steps=TOTAL_STEPS,
         eta_label="~3–8 min" if site_only else "~10–15 min",
     )
@@ -1047,6 +1214,74 @@ def run_pipeline(
     else:
         _emit_progress(emit, set_step, "instagram_influencers", "done", "Skipped")
 
+    # 12) Reddit mentions (optional)
+    if include_reddit:
+        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+            emit("log", line="[REDDIT] Skipped: TINYFISH_API_KEY missing")
+            _emit_progress(emit, set_step, "reddit", "done", "Skipped (no TinyFish key)")
+        else:
+            _emit_progress(emit, set_step, "reddit", "running", "Reddit (site:reddit.com + comments)...")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_REDDIT), slug],
+                    FINAL_DIR, on_log, timeout_sec=240, env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[REDDIT] Partial failure: {e}")
+            report = _attach_reddit(report, slug)
+            report = _tag_report(report)
+            emit("partial", section="reddit", data=report.get("reddit") or {}, client=client_name)
+            _emit_progress(emit, set_step, "reddit", "done", "Reddit ready")
+    else:
+        _emit_progress(emit, set_step, "reddit", "done", "Skipped")
+
+    # 13) Twitter / X profile (optional)
+    if include_twitter:
+        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+            emit("log", line="[TW] Skipped: TINYFISH_API_KEY missing")
+            _emit_progress(emit, set_step, "twitter", "done", "Skipped (no TinyFish key)")
+        else:
+            _emit_progress(emit, set_step, "twitter", "running", "Twitter/X profile...")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_TWITTER), slug],
+                    FINAL_DIR, on_log, timeout_sec=180, env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[TW] Partial failure: {e}")
+            report = _attach_twitter(report, slug)
+            report = _tag_report(report)
+            emit("partial", section="twitter", data=report.get("twitter") or {}, client=client_name)
+            _emit_progress(emit, set_step, "twitter", "done", "Twitter ready")
+    else:
+        _emit_progress(emit, set_step, "twitter", "done", "Skipped")
+
+    # 14) LinkedIn company/profile (optional)
+    if include_linkedin_profile:
+        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+            emit("log", line="[LI] Skipped: TINYFISH_API_KEY missing")
+            _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped (no TinyFish key)")
+        else:
+            _emit_progress(emit, set_step, "linkedin_profile", "running", "LinkedIn profile...")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_LI_PROFILE), slug],
+                    FINAL_DIR, on_log, timeout_sec=120, env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[LI] Partial failure: {e}")
+            report = _attach_linkedin_profile(report, slug)
+            report = _tag_report(report)
+            emit(
+                "partial",
+                section="linkedin_profile",
+                data=report.get("linkedin_profile") or {},
+                client=client_name,
+            )
+            _emit_progress(emit, set_step, "linkedin_profile", "done", "LinkedIn Profile ready")
+    else:
+        _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped")
+
     html_url = ""
     if run_id:
         _save_report(
@@ -1056,6 +1291,9 @@ def run_pipeline(
             include_linkedin=include_linkedin,
             include_youtube_influencers=include_youtube_influencers,
             include_instagram_influencers=include_instagram_influencers,
+            include_reddit=include_reddit,
+            include_twitter=include_twitter,
+            include_linkedin_profile=include_linkedin_profile,
             force=force,
             market=market,
             compare_all=compare_all,
