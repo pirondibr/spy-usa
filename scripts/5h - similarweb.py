@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Etapa SimilarWeb Traffic (RapidAPI) do Spy USA.
+"""Etapa SimilarWeb Traffic (Apify Actor) do Spy USA.
 
 Uso:
     python "5h - similarweb.py" semrush
@@ -159,9 +159,9 @@ def main() -> None:
     client_row = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
     payload = {
         "slug": slug,
-        "source": "similarweb_rapidapi",
+        "source": "apify_similarweb",
         "market": "global",
-        "endpoint": "traffic",
+        "endpoint": "NRzGu7xR83tudau6J",
         "rows": rows,
         "client_domain": client_row.get("domain"),
         "latest_label": client_row.get("snapshot_label"),

@@ -3,3 +3,4 @@ openpyxl>=3.1
 gunicorn>=22.0
 requests>=2.31
 beautifulsoup4>=4.12
+apify-client>=1.8

@@ -8,7 +8,7 @@ HTML tables only (no chatbot). Adapted from [radar-agent-demo](https://github.co
 - DataForSEO location `2840` (US) / `2076` (BR)
 - Meta Ads Library `country=US|BR`
 - ScrapingBee `country_code=us|br`
-- SimilarWeb via RapidAPI (`SIMILARWEB_RAPIDAPI_KEY`)
+- SimilarWeb via Apify Actor (`APIFY_TOKEN`, actor `NRzGu7xR83tudau6J`)
 - Mode **All**: N empresas informadas entram juntas nas tabelas e no resumo
 
 ## Local

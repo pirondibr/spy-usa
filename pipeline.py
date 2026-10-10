@@ -222,7 +222,7 @@ def _attach_similarweb(report: dict, slug: str) -> dict:
     ok_rows = [r for r in rows if not r.get("error")]
     leader = ok_rows[0] if ok_rows else client
     report["similarweb"] = {
-        "source": "similarweb_rapidapi",
+        "source": data.get("source") or "apify_similarweb",
         "market": "global",
         "latest_label": data.get("latest_label") or client.get("snapshot_label"),
         "client_domain": data.get("client_domain") or client.get("domain"),
@@ -1304,8 +1304,8 @@ def run_pipeline(
     )
     _emit_progress(emit, set_step, "brand_dfs", "done", "Brand DataForSEO ready")
 
-    # 3c) SimilarWeb Traffic (RapidAPI)
-    _emit_progress(emit, set_step, "similarweb", "running", "SimilarWeb Traffic (RapidAPI)...")
+    # 3c) SimilarWeb Traffic (Apify)
+    _emit_progress(emit, set_step, "similarweb", "running", "SimilarWeb Traffic (Apify)...")
     try:
         _run_script(
             [sys.executable, str(SCRIPT_SIMILARWEB), slug],
