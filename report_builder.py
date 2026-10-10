@@ -227,6 +227,38 @@ def _safe_int(val) -> Optional[int]:
     return int(round(f)) if f is not None else None
 
 
+def _parse_meta_dual(val) -> tuple[Optional[int], Optional[int]]:
+    """Parse Meta cell '63/1234' (ctrl+f / total) or plain number."""
+    if val is None or val == "" or val == "—":
+        return None, None
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return int(val), None
+    s = str(val).strip().replace(" ", "")
+    if "/" in s:
+        left, right = s.split("/", 1)
+
+        def _n(x: str) -> Optional[int]:
+            x = x.replace(".", "").replace(",", "")
+            if not x or x in ("—", "-", "n/d", "None"):
+                return None
+            try:
+                return int(float(x))
+            except Exception:
+                return None
+
+        return _n(left), _n(right)
+    return _safe_int(val), None
+
+
+def _fmt_meta_dual(ctrl_f: Optional[int], total: Optional[int]) -> str:
+    if ctrl_f is None and total is None:
+        return "0"
+    left = _fmt_int(ctrl_f) if ctrl_f is not None else "—"
+    if total is None:
+        return left
+    return f"{left}/{_fmt_int(total)}"
+
+
 def _domain_label(domain: str) -> str:
     d = (domain or "").strip().lower()
     d = d.replace("www.", "")
@@ -921,6 +953,7 @@ def build_report_from_xlsx(
             if not domain:
                 continue
             dom_key = domain.lower()
+            meta_ctrl, meta_total = _parse_meta_dual(_get(row, idx, "meta ads"))
             entities.append({
                 "domain": domain,
                 "name": _domain_label(domain),
@@ -932,7 +965,8 @@ def build_report_from_xlsx(
                 "marca": _safe_int(_get(row, idx, "marca atual")),
                 "google_ads": _safe_int(_get(row, idx, "google ads")),
                 "google_ads_url": str(_get(row, idx, "google ads url") or ""),
-                "meta_ads": _safe_int(_get(row, idx, "meta ads")),
+                "meta_ads": meta_ctrl,
+                "meta_ads_total": meta_total,
                 "meta_ads_url": str(_get(row, idx, "meta ads url") or ""),
                 "linkedin_ads": _safe_int(_get(row, idx, "linkedin ads", "linkedin ads")),
                 "linkedin_ads_url": str(_get(row, idx, "linkedin ads url", "linkedin ads url") or ""),
@@ -1387,13 +1421,16 @@ def build_report_from_xlsx(
     meta_table = []
     for e in meta_sorted:
         ads_n = e.get("meta_ads") or 0
+        ads_total = e.get("meta_ads_total")
         invest = ads_n * _meta_ads_cost()
+        dual_fmt = _fmt_meta_dual(ads_n if ads_n or ads_total is not None else None, ads_total)
         meta_table.append({
             "name": e["name"],
             "domain": e["domain"],
             "site_url": _site_url(e),
             "ads": ads_n,
-            "ads_fmt": _fmt_int(ads_n),
+            "ads_total": ads_total,
+            "ads_fmt": dual_fmt,
             "investimento": invest,
             "investimento_fmt": _fmt_money(invest) if invest else f"{_currency_prefix()}0",
             "pct": (ads_n / total_meta_ads * 100) if total_meta_ads else 0,
@@ -1401,7 +1438,7 @@ def build_report_from_xlsx(
             "is_client": bool(e.get("is_client")),
             "similaridade": _row_sim(e),
             "value": ads_n,
-            "value_fmt": _fmt_int(ads_n),
+            "value_fmt": dual_fmt,
             "bar": max(1, int(round(ads_n / max_meta * 100))) if ads_n else 1,
             "url": _meta_ads_library_url(
                 e.get("domain") or "",
@@ -1420,10 +1457,15 @@ def build_report_from_xlsx(
         "leader": meta_leader,
         "client_rank": meta_client_rank,
         "rows": meta_table,
-        "insight": "Estimated Meta spend: %s%s per active ad." % (_currency_prefix(), _meta_ads_cost()),
+        "insight": (
+            "Meta: número oficial = ocorrências do nome (Ctrl+F) na busca keyword; "
+            "número após a barra = total de resultados da Ad Library (não oficial). "
+            "Spend estimado usa só o oficial (~%s%s/ad)."
+            % (_currency_prefix(), _meta_ads_cost())
+        ),
         "analysis_title": "Analise Cliente vs concorrentes (Meta Ads)",
         "pro_hook": "Na versão Pro comparamos criativos Meta, formatos e o que o líder testa e você ainda não.",
-        "unit": "anúncios",
+        "unit": "",
         "show_investment": True,
         "cost_per_ad": _meta_ads_cost(),
     }

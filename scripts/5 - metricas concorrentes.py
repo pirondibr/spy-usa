@@ -29,6 +29,7 @@ import time
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 try:
     from market import (
@@ -657,16 +658,73 @@ def _count_name_occurrences(html: str, needle: str) -> int:
     return len(re.findall(re.escape(needle), text, flags=re.IGNORECASE))
 
 
+def _meta_keyword_total_via_graphql(query: str) -> tuple[int | None, int]:
+    """Unofficial total ACTIVE results for keyword search (Ad Library count)."""
+    q = (query or "").replace("\\", " ").replace('"', "").strip()
+    if not q:
+        return None, 0
+    params = {
+        "api_key": SCRAPINGBEE_API_KEY,
+        "url": "https://www.facebook.com/api/graphql/",
+        "country_code": SCRAPINGBEE_COUNTRY,
+        "premium_proxy": "true",
+        "render_js": "false",
+    }
+    variables = (
+        '{"activeStatus":"ACTIVE","adType":"ALL","audienceTimeframe":"LAST_7_DAYS",'
+        '"bylines":[],"contentLanguages":[],"countries":["ALL"],"country":"ALL",'
+        '"deeplinkAdID":null,"excludedIDs":[],"fetchPageInfo":true,"fetchSharedDisclaimers":true,'
+        '"hasDeeplinkAdID":false,"isAboutTab":false,"isAudienceTab":false,"isLandingPage":false,'
+        '"isTargetedCountry":false,"location":null,"mediaType":"ALL","multiCountryFilterMode":null,'
+        '"pageIDs":[],"potentialReachInput":[],"publisherPlatforms":[],'
+        f'"queryString":"{q}","regions":[],'
+        '"searchType":"KEYWORD_UNORDERED","shouldFetchCount":true,'
+        '"sortData":{"mode":"SORT_BY_TOTAL_IMPRESSIONS","direction":"DESCENDING"},'
+        '"source":null,"startDate":null,"viewAllPageID":null}'
+    )
+    data = {"variables": variables, "doc_id": META_DOC_ID_ADS_COUNT}
+    credits = 0
+    for attempt in range(2):
+        try:
+            r = requests.post(SCRAPINGBEE_URL, params=params, data=data, timeout=45)
+            credits += int(r.headers.get("Spb-cost", 1) or 1)
+            if r.status_code == 401:
+                raise RuntimeError("ScrapingBee sem creditos (401) no Meta keyword total")
+            r.raise_for_status()
+            js = _parse_meta_graphql_response(r.text)
+            if not js:
+                time.sleep(1.2 + attempt)
+                continue
+            count = (
+                ((js.get("data") or {}).get("ad_library_main") or {})
+                .get("search_results_connection", {})
+                .get("count")
+            )
+            # Meta often returns soft GraphQL errors but still includes count
+            if count is not None:
+                return int(count), credits
+            if js.get("errors"):
+                time.sleep(1.2 + attempt)
+                continue
+            return 0, credits
+        except RuntimeError:
+            raise
+        except Exception:
+            time.sleep(1.2 + attempt)
+    return None, credits
+
+
 def _meta_keyword_name_count_via_scrapingbee(
     query: str,
     needles: list[str],
-) -> tuple[int | None, int, str]:
+) -> tuple[int | None, int | None, int, str]:
     """
     Open Ad Library keyword search and count how many times the company name
     appears in visible text (browser Ctrl+F on innerText after scroll).
+    Returns (ctrl_f_count, page_total_hint, credits, library_url).
     """
     if not query or not needles:
-        return None, 0, ""
+        return None, None, 0, ""
     library_url = _meta_keyword_library_url(query)
     js_needles = json.dumps(needles)
     evaluate_js = (
@@ -681,6 +739,12 @@ def _meta_keyword_name_count_via_scrapingbee(
         "   while ((i = t.indexOf(n, i)) !== -1) { c += 1; i += Math.max(n.length, 1); }"
         "   return c;"
         " };"
+        " const parseTotal = (text) => {"
+        "   const m = String(text).match(/([\\d,.\\s]+)\\s*\\+?\\s*results?/i);"
+        "   if (!m) return null;"
+        "   const n = parseInt(String(m[1]).replace(/[^\\d]/g, ''), 10);"
+        "   return Number.isFinite(n) ? n : null;"
+        " };"
         " return (async () => {"
         "   let lastH = 0, stable = 0;"
         "   for (let i = 0; i < 30; i++) {"
@@ -691,10 +755,10 @@ def _meta_keyword_name_count_via_scrapingbee(
         "     else { stable = 0; lastH = h; }"
         "   }"
         "   const text = (document.body && (document.body.innerText || document.body.textContent)) || '';"
-        "   let best = {needle: needles[0] || '', count: 0};"
+        "   let best = {needle: needles[0] || '', count: 0, total: parseTotal(text)};"
         "   for (const n of needles) {"
         "     const c = countOcc(text, n);"
-        "     if (c > best.count) best = {needle: n, count: c};"
+        "     if (c > best.count) best = {needle: n, count: c, total: best.total};"
         "   }"
         "   return best;"
         " })();"
@@ -730,16 +794,17 @@ def _meta_keyword_name_count_via_scrapingbee(
             html = r.text or ""
             best_n = max((_count_name_occurrences(html, n) for n in needles), default=0)
             print(f"[META/SB] keyword '{query}' ctrl+f(html)={best_n}", flush=True)
-            return best_n, credits, library_url
+            return best_n, None, credits, library_url
     except RuntimeError:
         raise
     except Exception as e:
         print(f"[META/SB] keyword fetch falhou ({query}): {e}", flush=True)
-        return None, credits, library_url
+        return None, None, credits, library_url
 
     # ScrapingBee json_response: evaluate result lives in js_scenario_report / evaluate_results
     best_n = 0
     best_needle = needles[0]
+    page_total: int | None = None
     report = payload.get("js_scenario_report") or {}
     evals = report.get("evaluate") or report.get("evaluate_results") or payload.get("evaluate_results") or []
     if isinstance(evals, list):
@@ -753,6 +818,8 @@ def _meta_keyword_name_count_via_scrapingbee(
             if isinstance(val, dict) and "count" in val:
                 best_n = int(val.get("count") or 0)
                 best_needle = str(val.get("needle") or best_needle)
+                if isinstance(val.get("total"), (int, float)):
+                    page_total = int(val["total"])
                 break
             if isinstance(val, (int, float)):
                 best_n = int(val)
@@ -767,14 +834,48 @@ def _meta_keyword_name_count_via_scrapingbee(
                 best_needle = needle
 
     print(
-        f"[META/SB] keyword '{query}' needle='{best_needle}' ctrl+f={best_n}",
+        f"[META/SB] keyword '{query}' needle='{best_needle}' "
+        f"ctrl+f={best_n} page_total={page_total}",
         flush=True,
     )
-    return best_n, credits, library_url
+    return best_n, page_total, credits, library_url
+
+
+def _fmt_meta_dual(ctrl_f: int | None, total: int | None) -> str:
+    """Display official/unofficial as 63/1234 (Ctrl+F / total results)."""
+    if ctrl_f is None and total is None:
+        return ""
+    left = "—" if ctrl_f is None else str(int(ctrl_f))
+    right = "—" if total is None else str(int(total))
+    return f"{left}/{right}"
+
+
+def _parse_meta_dual(val: Any) -> tuple[int | None, int | None]:
+    """Parse '63/1234' or plain int from XLSX Meta Ads cell."""
+    if val is None or val == "" or val == "—":
+        return None, None
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return int(val), None
+    s = str(val).strip().replace(" ", "")
+    if "/" in s:
+        left, right = s.split("/", 1)
+        def _n(x: str) -> int | None:
+            x = x.replace(".", "").replace(",", "")
+            if not x or x in ("—", "-", "n/d", "None"):
+                return None
+            try:
+                return int(float(x))
+            except Exception:
+                return None
+        return _n(left), _n(right)
+    try:
+        return int(float(re.sub(r"[^\d.]", "", s))), None
+    except Exception:
+        return None, None
 
 
 def lookup_meta_ads(comp: dict) -> dict:
-    """Meta Ads: keyword search + Ctrl+F count of company name (no page_id resolve)."""
+    """Meta Ads: official=Ctrl+F name hits; unofficial=keyword total results."""
     brand = extract_website_name(comp.get("url") or comp.get("domain", ""))
     base_url = comp.get("url") or comp.get("domain", "")
     domain = normalize_domain(base_url or comp.get("domain", ""))
@@ -790,16 +891,33 @@ def lookup_meta_ads(comp: dict) -> dict:
         needles = [query] + needles
 
     credits = 0
-    count: int | None = None
+    ctrl_f: int | None = None
+    total: int | None = None
     library_url = _meta_keyword_library_url(query)
+
+    # Cheap unofficial total via GraphQL count
     try:
-        count, used, library_url = _meta_keyword_name_count_via_scrapingbee(query, needles)
+        total, used_t = _meta_keyword_total_via_graphql(query)
+        credits += used_t
+    except Exception as e:
+        print(f"[META/SB] keyword total falhou ({query}): {e}", flush=True)
+
+    try:
+        ctrl_f, page_total, used, library_url = _meta_keyword_name_count_via_scrapingbee(
+            query, needles
+        )
         credits += used
+        if total is None and page_total is not None:
+            total = page_total
     except Exception as e:
         print(f"[META/SB] keyword count falhou ({query}): {e}", flush=True)
 
+    dual = _fmt_meta_dual(ctrl_f, total)
+    print(f"[META/SB] '{query}' -> {dual} (official=ctrl+f)", flush=True)
     return {
-        "meta_ads": count,
+        "meta_ads": ctrl_f,  # official metric for scoring/ranking
+        "meta_ads_total": total,  # unofficial library result count
+        "meta_ads_fmt": dual,
         "meta_url": library_url,
         "page_id": "",
         "page_name": query,
@@ -820,13 +938,15 @@ def load_meta_map(competitors: list[dict]) -> dict[str, dict]:
             result = lookup_meta_ads(comp)
         except Exception as e:
             print(f"[META/SB] ({i}/{n}) {dom} ERRO: {e}", flush=True)
-            result = {"meta_ads": None, "meta_url": "", "spb_credits": 0}
+            result = {"meta_ads": None, "meta_ads_total": None, "meta_url": "", "spb_credits": 0}
         out[comp["domain"]] = result
         total_credits += int(result.get("spb_credits") or 0)
+        dual = result.get("meta_ads_fmt") or _fmt_meta_dual(
+            result.get("meta_ads"), result.get("meta_ads_total")
+        )
         print(
-            f"[META/SB] ({i}/{n}) {dom} -> "
-            f"{result.get('meta_ads')} hits  q={result.get('page_name') or '—'}  "
-            f"method={result.get('method') or '—'}  "
+            f"[META/SB] ({i}/{n}) {dom} -> {dual or '—'}  "
+            f"q={result.get('page_name') or '—'}  "
             f"credits={result.get('spb_credits', 0)}  ({time.time() - t0:.1f}s)",
             flush=True,
         )
@@ -1304,6 +1424,9 @@ def build_metric_rows(
             "seo_atual": traffic.get("seo_atual"),
             "marca_atual": traffic.get("marca_atual"),
             "meta_ads": meta.get("meta_ads"),
+            "meta_ads_total": meta.get("meta_ads_total"),
+            "meta_ads_fmt": meta.get("meta_ads_fmt")
+            or _fmt_meta_dual(meta.get("meta_ads"), meta.get("meta_ads_total")),
             "meta_ads_url": meta.get("meta_url", ""),
             "google_ads": google.get("google_ads"),
             "google_ads_url": google.get("google_ads_url", ""),
@@ -1346,10 +1469,13 @@ def load_existing_channel_map(xlsx_path: Path) -> dict[str, dict]:
                     return row[j]
             return None
 
+        meta_ctrl, meta_total = _parse_meta_dual(col("Meta Ads"))
         out[dom] = {
             "google_ads": col("Google Ads"),
             "google_ads_url": col("Google Ads URL") or "",
-            "meta_ads": col("Meta Ads"),
+            "meta_ads": meta_ctrl,
+            "meta_ads_total": meta_total,
+            "meta_ads_fmt": _fmt_meta_dual(meta_ctrl, meta_total) if (meta_ctrl is not None or meta_total is not None) else "",
             "meta_url": col("Meta Ads URL") or "",
             "linkedin_ads": col("Linkedin Ads", "LinkedIn Ads"),
             "linkedin_search_url": col("Linkedin Ads URL", "LinkedIn Ads URL") or "",
@@ -1379,6 +1505,10 @@ def _merge_preserved_channels(
             continue
         if keep_meta and row.get("meta_ads") is None:
             row["meta_ads"] = prev.get("meta_ads")
+            row["meta_ads_total"] = prev.get("meta_ads_total")
+            row["meta_ads_fmt"] = prev.get("meta_ads_fmt") or _fmt_meta_dual(
+                prev.get("meta_ads"), prev.get("meta_ads_total")
+            )
             row["meta_ads_url"] = prev.get("meta_url") or row.get("meta_ads_url") or ""
         if keep_google and row.get("google_ads") is None:
             row["google_ads"] = prev.get("google_ads")
@@ -1454,7 +1584,7 @@ def write_metrics_xlsx(
     ws.append(["Escopo", briefing.get("escopo", "")])
     ws.append(["Top concorrentes", str(len(competitors))])
     ws.append(["Fonte nacional", str(national_xlsx)])
-    ws.append(["Meta Ads", "ScrapingBee + GraphQL Ad Library (typeahead page_id + count ACTIVE)"])
+    ws.append(["Meta Ads", "Keyword search: Ctrl+F name hits (official) / total results (unofficial)"])
     ws.append(["Google Ads", "Busca direta por empresa na Google Ads Transparency"])
     ws.append(["LinkedIn Ads", "ScrapingBee + LinkedIn Ad Library (accountOwner + h1 total)"])
     ws.append(["Data", datetime.now().strftime("%d/%m/%Y %H:%M")])
@@ -1494,7 +1624,9 @@ def write_metrics_xlsx(
     for i, row in enumerate(metric_rows, 1):
         ws_m.append([
             i, row["domain"], row["similaridade"], row["perfil"], row["fonte"],
-            row["seo_atual"], row["marca_atual"], row["meta_ads"], row["google_ads"], row["linkedin_ads"],
+            row["seo_atual"], row["marca_atual"],
+            (row.get("meta_ads_fmt") or _fmt_meta_dual(row.get("meta_ads"), row.get("meta_ads_total")) or row.get("meta_ads")),
+            row["google_ads"], row["linkedin_ads"],
             row["meta_ads_url"], row["google_ads_url"], row["linkedin_ads_url"],
             row["instagram_followers"], row["youtube_followers"], row["tiktok_followers"],
             row["instagram_url"], row["youtube_url"], row["tiktok_url"], row["url"],
@@ -1512,7 +1644,7 @@ def write_metrics_xlsx(
             cell.border = BORDER
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    widths = [4, 26, 13, 13, 14, 12, 12, 10, 10, 11, 34, 34, 34, 18, 18, 18, 34, 34, 34, 42]
+    widths = [4, 26, 13, 13, 14, 12, 12, 14, 10, 11, 34, 34, 34, 18, 18, 18, 34, 34, 34, 42]
     for i, w in enumerate(widths, 1):
         ws_m.column_dimensions[chr(64 + i)].width = w
     for col in ("K", "L", "M", "Q", "R", "S", "T"):
