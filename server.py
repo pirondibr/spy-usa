@@ -18,6 +18,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 
 from parse_input import ParsedInput, parse_company_list
 from pipeline import RUNS_DIR, STEP_DEFS, clear_slug_cache, run_pipeline
+from report_html import load_saved_report, render_report_html
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
@@ -664,6 +665,14 @@ def job_stream(job_id: str):
 
 @app.get("/runs/<run_id>/report.html")
 def run_report(run_id: str):
+    # Re-render from report.json so older runs pick up layout changes.
+    report = load_saved_report(run_id, RUNS_DIR)
+    if report is not None:
+        try:
+            html = render_report_html(report, run_meta=_read_run_meta(run_id) or {})
+            return Response(html, mimetype="text/html")
+        except Exception as e:
+            print(f"[REPORT] re-render failed for {run_id}: {e}", flush=True)
     path = RUNS_DIR / run_id / "report.html"
     if not path.exists():
         return "Report not found", 404
