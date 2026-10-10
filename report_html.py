@@ -404,17 +404,28 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
         return ""
     headers = [
         "#", "Company", "Official views", "Unofficial views",
-        "30d", "6m", "1y+", "About #", "Top links", "Search",
+        "30d", "6m", "1y+", "About #",
+        "Top links Official", "Top links Unofficial", "Search",
     ]
+
+    def _top_links_cell(items: list) -> str:
+        bits = []
+        for t in (items or [])[:5]:
+            title = _esc((t.get("title") or "video")[:48])
+            bits.append(_link_cell(t.get("url"), title))
+        return "<br>".join(bits) if bits else "—"
+
     table_rows: list[list[str]] = []
     for i, r in enumerate(rows_data, 1):
         name = _esc(r.get("name") or r.get("domain") or "—")
         if r.get("is_client"):
             name += ' <span class="you">you</span>'
-        top_bits = []
-        for t in (r.get("top5") or [])[:5]:
-            title = _esc((t.get("title") or "video")[:48])
-            top_bits.append(_link_cell(t.get("url"), title))
+        top_off = list(r.get("top5_official") or [])
+        top_unoff = list(r.get("top5_unofficial") or [])
+        # Back-compat: older runs only have combined top5
+        if not top_off and not top_unoff and r.get("top5"):
+            for t in r.get("top5") or []:
+                (top_off if t.get("is_official") else top_unoff).append(t)
         table_rows.append([
             str(i),
             name,
@@ -424,7 +435,8 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
             _esc(r.get("views_6m_fmt") or "0"),
             _esc(r.get("views_1y_plus_fmt") or "0"),
             _esc(str(r.get("about_count") or 0)),
-            "<br>".join(top_bits) if top_bits else "—",
+            _top_links_cell(top_off),
+            _top_links_cell(top_unoff),
             _link_cell(r.get("url"), "YouTube"),
         ])
     usage = section.get("usage_total") or {}

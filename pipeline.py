@@ -252,6 +252,8 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
             "about_count": r.get("about_count") or 0,
             "page_count": r.get("page_count") or 0,
             "top5": r.get("top5") or [],
+            "top5_official": r.get("top5_official") or [],
+            "top5_unofficial": r.get("top5_unofficial") or [],
             "url": r.get("search_url") or "",
             "usage": r.get("usage") or {},
             "error": r.get("error"),

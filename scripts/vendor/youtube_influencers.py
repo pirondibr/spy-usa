@@ -520,19 +520,26 @@ def summarize_videos(
             v.get("age_bucket") or "unknown", 0
         ) + (v.get("views") or 0)
 
-    ranked = sorted(pool, key=lambda x: x.get("views") or 0, reverse=True)
-    top5 = [
-        {
-            "title": v.get("title"),
-            "url": v.get("url"),
-            "views": v.get("views"),
-            "channel_name": v.get("channel_name"),
-            "is_official": v.get("is_official"),
-            "age_bucket": v.get("age_bucket"),
-            "upload_age": v.get("upload_age"),
-        }
-        for v in ranked[:5]
-    ]
+    def _top_links(items: list[dict], limit: int = 5) -> list[dict]:
+        ranked = sorted(items, key=lambda x: x.get("views") or 0, reverse=True)
+        return [
+            {
+                "title": v.get("title"),
+                "url": v.get("url"),
+                "views": v.get("views"),
+                "channel_name": v.get("channel_name"),
+                "is_official": bool(v.get("is_official")),
+                "age_bucket": v.get("age_bucket"),
+                "upload_age": v.get("upload_age"),
+            }
+            for v in ranked[:limit]
+        ]
+
+    official_pool = [v for v in pool if v.get("is_official")]
+    unofficial_pool = [v for v in pool if not v.get("is_official")]
+    top5_official = _top_links(official_pool)
+    top5_unofficial = _top_links(unofficial_pool)
+    top5 = (top5_official + top5_unofficial)[:5]
 
     return {
         "videos_all": enriched,
@@ -540,13 +547,15 @@ def summarize_videos(
         "counts": {
             "search_page": len(enriched),
             "about_product": len(pool),
-            "official": sum(1 for v in pool if v.get("is_official")),
-            "unofficial": sum(1 for v in pool if not v.get("is_official")),
+            "official": len(official_pool),
+            "unofficial": len(unofficial_pool),
         },
         "views_official": official_views,
         "views_unofficial": unofficial_views,
         "views_by_age": buckets,
         "top5": top5,
+        "top5_official": top5_official,
+        "top5_unofficial": top5_unofficial,
         "official_channel": official_hint,
     }
 

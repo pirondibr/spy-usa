@@ -187,6 +187,8 @@ def main() -> None:
             "about_count": (result.get("counts") or {}).get("about_product") or 0,
             "page_count": (result.get("counts") or {}).get("search_page") or 0,
             "top5": result.get("top5") or [],
+            "top5_official": result.get("top5_official") or [],
+            "top5_unofficial": result.get("top5_unofficial") or [],
             "official_channel": result.get("official_channel"),
             "usage": usage,
             "elapsed_sec": result.get("elapsed_sec"),
