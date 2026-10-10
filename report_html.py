@@ -340,20 +340,31 @@ def _section_instagram_influencers(section: Optional[dict[str, Any]]) -> str:
         return ""
     headers = [
         "#", "Company", "Influencers", "Total likes",
-        "Own posts", "Influencer posts", "Top likes", "Profile",
+        "Own posts", "Influencer posts",
+        "Top likes Page", "Top Likes Influencers", "Profile",
     ]
+
+    def _top_likes_cell(items: list) -> str:
+        bits = []
+        for t in (items or [])[:5]:
+            likes = t.get("likes")
+            likes_s = f"{int(likes):,}" if isinstance(likes, (int, float)) else "—"
+            who = _esc(t.get("username") or "")
+            label = f"{likes_s} · @{who}" if who else likes_s
+            bits.append(_link_cell(t.get("url"), label))
+        return "<br>".join(bits) if bits else "—"
+
     table_rows: list[list[str]] = []
     for i, r in enumerate(rows_data, 1):
         name = _esc(r.get("name") or r.get("domain") or "—")
         if r.get("is_client"):
             name += ' <span class="you">you</span>'
-        top_bits = []
-        for t in (r.get("top5") or [])[:5]:
-            likes = t.get("likes")
-            likes_s = f"{int(likes):,}" if isinstance(likes, (int, float)) else "—"
-            who = _esc(t.get("username") or "")
-            label = f"{likes_s} · @{who}" if who else likes_s
-            top_bits.append(_link_cell(t.get("url"), label))
+        top_page = r.get("top5_page") or []
+        top_inf = r.get("top5_influencers") or []
+        # Back-compat: older runs only have combined top5
+        if not top_page and not top_inf and r.get("top5"):
+            for t in r.get("top5") or []:
+                (top_inf if t.get("is_influencer") else top_page).append(t)
         handles = ", ".join(f"@{_esc(h)}" for h in (r.get("influencer_handles") or [])[:8])
         table_rows.append([
             str(i),
@@ -363,7 +374,8 @@ def _section_instagram_influencers(section: Optional[dict[str, Any]]) -> str:
             _esc(r.get("total_likes_fmt") or "0"),
             _esc(str(r.get("own_posts") or 0)),
             _esc(str(r.get("influencer_posts") or 0)),
-            "<br>".join(top_bits) if top_bits else "—",
+            _top_likes_cell(top_page),
+            _top_likes_cell(top_inf),
             _link_cell(r.get("url"), f"@{_esc(r.get('handle') or 'IG')}"),
         ])
     usage = section.get("usage_total") or {}

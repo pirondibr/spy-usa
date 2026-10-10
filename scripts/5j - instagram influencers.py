@@ -189,6 +189,8 @@ def main() -> None:
             "own_likes": result.get("own_likes") or 0,
             "influencer_likes": result.get("influencer_likes") or 0,
             "top5": result.get("top5") or [],
+            "top5_page": result.get("top5_page") or [],
+            "top5_influencers": result.get("top5_influencers") or [],
             "usage": usage,
             "elapsed_sec": result.get("elapsed_sec"),
             "ok": result.get("ok"),

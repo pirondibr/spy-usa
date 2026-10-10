@@ -317,6 +317,8 @@ def _attach_instagram_influencers(report: dict, slug: str) -> dict:
             "influencer_likes_fmt": _fmt_views(r.get("influencer_likes") or 0),
             "influencer_handles": r.get("influencer_handles") or [],
             "top5": r.get("top5") or [],
+            "top5_page": r.get("top5_page") or [],
+            "top5_influencers": r.get("top5_influencers") or [],
             "handle": r.get("handle") or "",
             "url": r.get("profile_url") or "",
             "followers_label": r.get("followers_label"),
@@ -994,7 +996,7 @@ def run_pipeline(
                     [sys.executable, str(SCRIPT_YT_INFLUENCERS), slug],
                     FINAL_DIR,
                     on_log,
-                    timeout_sec=600,
+                    timeout_sec=720,
                     env=script_env,
                 )
             except Exception as e:

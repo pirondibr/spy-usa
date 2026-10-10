@@ -316,18 +316,32 @@ def summarize(posts: list[dict], *, handle: str, profile_url: str) -> dict[str, 
     def _likes(p: dict) -> int:
         return int(p.get("likes") or 0)
 
-    ranked = sorted(posts, key=_likes, reverse=True)
-    top5 = [
-        {
-            "url": p.get("url"),
-            "likes": p.get("likes"),
-            "username": p.get("username"),
-            "is_influencer": bool(p.get("is_influencer")),
-            "kind": p.get("kind"),
-        }
-        for p in ranked[:5]
-        if p.get("likes") is not None or p.get("url")
-    ]
+    def _top_likes(items: list[dict], limit: int = 5) -> list[dict]:
+        ranked = sorted(items, key=_likes, reverse=True)
+        out = []
+        for p in ranked:
+            if p.get("likes") is None and not p.get("url"):
+                continue
+            out.append({
+                "url": p.get("url"),
+                "likes": p.get("likes"),
+                "username": p.get("username"),
+                "is_influencer": bool(p.get("is_influencer")),
+                "is_own": bool(p.get("is_own")),
+                "kind": p.get("kind"),
+            })
+            if len(out) >= limit:
+                break
+        return out
+
+    top5_page = _top_likes(own_posts)
+    top5_influencers = _top_likes(influencer_posts)
+    # legacy combined top5 (page first, then influencers) for older consumers
+    if top5_page or top5_influencers:
+        top5 = (top5_page + top5_influencers)[:5]
+    else:
+        top5 = _top_likes(posts)
+
     total_likes = sum(_likes(p) for p in posts if p.get("likes") is not None)
     influencer_likes = sum(_likes(p) for p in influencer_posts if p.get("likes") is not None)
     own_likes = sum(_likes(p) for p in own_posts if p.get("likes") is not None)
@@ -344,6 +358,8 @@ def summarize(posts: list[dict], *, handle: str, profile_url: str) -> dict[str, 
         "own_likes": own_likes,
         "influencer_likes": influencer_likes,
         "top5": top5,
+        "top5_page": top5_page,
+        "top5_influencers": top5_influencers,
         "posts": posts,
     }
 

@@ -122,6 +122,33 @@ def _brand_tokens(company: str, domain: str = "") -> list[str]:
     return out
 
 
+def _brand_in_text(text: str, tokens: list[str]) -> bool:
+    """True if any brand token appears in title/description (incl. #hashtag / compact)."""
+    blob = (text or "").lower()
+    if not blob or not tokens:
+        return False
+    compact = re.sub(r"[^a-z0-9]+", "", blob)
+    for tok in tokens:
+        t = (tok or "").strip().lower()
+        if not t or len(t) < 3:
+            continue
+        t_compact = re.sub(r"[^a-z0-9]+", "", t)
+        if not t_compact:
+            continue
+        if t in blob or f"#{t_compact}" in blob.replace(" ", ""):
+            return True
+        if len(t_compact) >= 4 and t_compact in compact:
+            return True
+    return False
+
+
+def _views_of(v: dict) -> Optional[int]:
+    n = _as_int(v.get("views"))
+    if n is not None:
+        return n
+    return _as_int(v.get("views_text"))
+
+
 def _handle_from_channel_url(url: str) -> str:
     m = re.search(r"youtube\.com/@([^/?&#]+)", (url or ""), flags=re.I)
     return (m.group(1) if m else "").lower()
@@ -171,8 +198,9 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
         "(youtube.com/results). Do NOT open page 2. Do NOT click into videos. "
         "Do NOT use Google. Extract EVERY visible video and short on the first page "
         "(typically 8–20 items). For each return title, url, channel_name, channel_url, "
-        "description/snippet text shown on the card if any, views as a number, views_text, "
-        "upload_age (e.g. '3 months ago'), is_short. "
+        "description/snippet text shown on the card (include hashtags), "
+        "views as an integer (parse '238 views' → 238, '1.2K views' → 1200), "
+        "views_text as shown, upload_age (e.g. '2 weeks ago'), is_short. "
         "Also identify the official brand channel if present (name + url). "
         f"Brand/search query: {query!r}."
     )
@@ -212,16 +240,41 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
             "required": ["videos"],
         },
     }
-    r = requests.post(
-        TINYFISH_AGENT_RUN,
-        headers={
-            "X-API-Key": _api_key(),
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        json=payload,
-        timeout=180,
-    )
+    try:
+        r = requests.post(
+            TINYFISH_AGENT_RUN,
+            headers={
+                "X-API-Key": _api_key(),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json=payload,
+            timeout=360,
+        )
+    except requests.Timeout:
+        elapsed = round(time.time() - t0, 2)
+        return {
+            "ok": False,
+            "error": "TinyFish Agent timeout (native YouTube search)",
+            "elapsed_sec": elapsed,
+            "num_of_steps": 0,
+            "cost_usd": 0.0,
+            "videos": [],
+            "official_channel": None,
+            "search_url": search_url,
+        }
+    except requests.RequestException as e:
+        elapsed = round(time.time() - t0, 2)
+        return {
+            "ok": False,
+            "error": f"TinyFish Agent request failed: {e}"[:300],
+            "elapsed_sec": elapsed,
+            "num_of_steps": 0,
+            "cost_usd": 0.0,
+            "videos": [],
+            "official_channel": None,
+            "search_url": search_url,
+        }
     elapsed = round(time.time() - t0, 2)
     if not r.ok:
         return {
@@ -232,6 +285,7 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
             "cost_usd": 0.0,
             "videos": [],
             "official_channel": None,
+            "search_url": search_url,
         }
     data = r.json() if r.content else {}
     steps = int(data.get("num_of_steps") or 0)
@@ -251,6 +305,10 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
         if not url and not v.get("url"):
             continue
         raw_url = str(v.get("url") or url)
+        views_text = str(v.get("views_text") or "")
+        views = _as_int(v.get("views"))
+        if views is None:
+            views = _as_int(views_text)
         videos.append({
             "kind": "video",
             "title": v.get("title") or "",
@@ -258,8 +316,8 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
             "video_id": video_id_from_url(url or raw_url),
             "snippet": v.get("description") or v.get("snippet") or "",
             "upload_age": v.get("upload_age") or "",
-            "views": _as_int(v.get("views")),
-            "views_text": v.get("views_text") or "",
+            "views": views,
+            "views_text": views_text,
             "channel_name": v.get("channel_name") or "",
             "channel_url": v.get("channel_url") or "",
             "source": "youtube_native",
@@ -313,31 +371,57 @@ def classify_about_product(
     *,
     company: str,
     product_hint: str = "",
+    domain: str = "",
 ) -> list[dict]:
-    """OpenRouter: about product? Doubt → no. Batch in one call."""
+    """Mark videos about the product/brand.
+
+    Rule: brand/token in title or description (incl. hashtags) → yes.
+    LLM only for ambiguous leftover rows; clear brand hits are never flipped to no.
+    """
     if not videos:
         return videos
+    tokens = _brand_tokens(company, domain or product_hint)
+
+    def _apply_brand_override(v: dict) -> bool:
+        blob = f"{v.get('title', '')} {v.get('snippet', '')}"
+        if _brand_in_text(blob, tokens):
+            v["about_product"] = True
+            v["about_reason"] = "brand_in_title_or_description"
+            return True
+        return False
+
+    # Pass 1: deterministic brand hit (covers HeyClicky / #heyclicky / Reviewing X)
+    pending: list[int] = []
+    for i, v in enumerate(videos):
+        if _apply_brand_override(v):
+            continue
+        pending.append(i)
+        v["about_product"] = False
+        v["about_reason"] = "no_brand_token_yet"
+
+    if not pending:
+        return videos
+
     key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if not key:
-        # Without LLM: heuristic — title/snippet must contain brand token
-        tokens = _brand_tokens(company)
-        for v in videos:
-            blob = f"{v.get('title','')} {v.get('snippet','')}".lower()
-            hit = any(t in blob for t in tokens if len(t) >= 4)
-            v["about_product"] = bool(hit)
-            v["about_reason"] = "heuristic_brand_token" if hit else "heuristic_no_brand"
+        for i in pending:
+            videos[i]["about_reason"] = "heuristic_no_brand"
         return videos
 
     lines = []
-    for i, v in enumerate(videos):
+    for i in pending:
+        v = videos[i]
         lines.append(
             f"[{i}] title={v.get('title')!r} description={v.get('snippet')!r}"
         )
     prompt = (
-        f"Company/product: {company!r}. Extra context: {product_hint!r}.\n"
-        "For each YouTube result, decide if the video is ABOUT this product/company "
-        "(review, demo, tutorial, mention as the subject). "
-        "If unsure or only a coincidental title match, answer no.\n"
+        f"Company/product brand: {company!r}. Domain/hint: {product_hint or domain!r}.\n"
+        "For each YouTube search result, is the video about this product/brand "
+        "(review, demo, tutorial, walkthrough, or clear product mention)?\n"
+        "YES when the brand/product name appears in the title or description "
+        "(including hashtags like #brand), or the video is clearly a review/demo of it.\n"
+        "NO only when the result is unrelated / different product with a coincidental word.\n"
+        "When unsure but the brand string appears, answer YES.\n"
         "Return ONLY JSON: {\"items\":[{\"i\":0,\"about\":true/false,\"reason\":\"short\"},...]}\n\n"
         + "\n".join(lines)
     )
@@ -367,20 +451,24 @@ def classify_about_product(
             for it in (parsed.get("items") or [])
             if isinstance(it, dict) and "i" in it
         }
-        for i, v in enumerate(videos):
+        for i in pending:
+            v = videos[i]
+            # Re-check brand in case LLM path races — never downgrade brand hits
+            if _apply_brand_override(v):
+                continue
             it = by_i.get(i)
             if not it:
                 v["about_product"] = False
                 v["about_reason"] = "llm_missing→no"
                 continue
-            about = bool(it.get("about"))
-            # doubt already instructed as no; still coerce null-ish
-            v["about_product"] = about
-            v["about_reason"] = str(it.get("reason") or "")[:120]
+            v["about_product"] = bool(it.get("about"))
+            v["about_reason"] = str(it.get("reason") or "llm")[:120]
     except Exception as e:
-        for v in videos:
-            v["about_product"] = False
-            v["about_reason"] = f"llm_error→no:{e}"[:120]
+        for i in pending:
+            v = videos[i]
+            if not _apply_brand_override(v):
+                v["about_product"] = False
+                v["about_reason"] = f"llm_error→no:{e}"[:120]
     return videos
 
 
@@ -401,18 +489,29 @@ def summarize_videos(
             domain,
             official_hint,
         )
+        views = _views_of(v)
         item = {
             **v,
             "age_days": days,
             "age_bucket": age_bucket(days),
             "is_official": official,
-            "views": _as_int(v.get("views")),
+            "views": views,
         }
         enriched.append(item)
 
     about = [v for v in enriched if v.get("about_product")]
-    pool = about if about else []  # only product-related for metrics
-    # If LLM marked everything no, still expose all but metrics on about-only
+    # Fallback: if classifier wiped everything but page has brand hits, use those
+    if not about:
+        tokens = _brand_tokens(company, domain)
+        about = [
+            v for v in enriched
+            if _brand_in_text(f"{v.get('title', '')} {v.get('snippet', '')}", tokens)
+        ]
+        for v in about:
+            v["about_product"] = True
+            if not (v.get("about_reason") or "").startswith("brand_"):
+                v["about_reason"] = "fallback_brand_in_title_or_description"
+    pool = about  # only product-related for metrics
     official_views = sum((v.get("views") or 0) for v in pool if v.get("is_official"))
     unofficial_views = sum((v.get("views") or 0) for v in pool if not v.get("is_official"))
     buckets = {"30d": 0, "6m": 0, "1y_plus": 0, "unknown": 0}
@@ -483,7 +582,10 @@ def analyze_company(
 
     videos = list(agent.get("videos") or [])
     videos = classify_about_product(
-        videos, company=company, product_hint=product_hint or domain
+        videos,
+        company=company,
+        product_hint=product_hint or domain,
+        domain=domain,
     )
     summary = summarize_videos(
         videos,
