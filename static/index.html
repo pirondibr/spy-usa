@@ -229,6 +229,11 @@
           <span class="hint">(busca nativa YouTube · 1ª página · ~1–2 min/empresa)</span>
         </label>
         <label class="check">
+          <input id="igInfluencers" type="checkbox" />
+          Instagram Influencers
+          <span class="hint">(Google search + download 1ª página · likes)</span>
+        </label>
+        <label class="check">
           <input id="force" type="checkbox" />
           Force refresh
         </label>
@@ -456,6 +461,7 @@
           data.include_google_ads ? "google-ads" : "no-google-ads",
           data.include_linkedin ? "linkedin" : "no-linkedin",
           data.include_youtube_influencers ? "yt-influencers" : "no-yt-influencers",
+          data.include_instagram_influencers ? "ig-influencers" : "no-ig-influencers",
           list.length > 1 ? `${list.length} empresas` : "",
         ].filter(Boolean).join(" · ");
         $("meta").textContent = list.map((j) => j.company || j.url).join(", ") + ` · ${flags}`;
@@ -531,6 +537,7 @@
         include_google_ads: $("googleAds").checked,
         include_linkedin: $("linkedinAds").checked,
         include_youtube_influencers: $("ytInfluencers").checked,
+        include_instagram_influencers: $("igInfluencers").checked,
       });
     });
 

@@ -28,6 +28,7 @@ SCRIPT_BRAND_DFS = FINAL_DIR / "5g - brand dataforseo.py"
 SCRIPT_SIMILARWEB = FINAL_DIR / "5h - similarweb.py"
 SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
 SCRIPT_YT_INFLUENCERS = FINAL_DIR / "5i - youtube influencers.py"
+SCRIPT_IG_INFLUENCERS = FINAL_DIR / "5j - instagram influencers.py"
 
 _DATA_DIR = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
 _OUT_ROOT = (Path(_DATA_DIR) / "outputs") if _DATA_DIR else (APP_DIR / "outputs")
@@ -51,6 +52,7 @@ STEP_DEFS = [
     {"id": "youtube", "label": "YouTube", "index": 10, "eta_live": 20},
     {"id": "tiktok", "label": "TikTok", "index": 11, "eta_live": 40},
     {"id": "youtube_influencers", "label": "YouTube Influencers", "index": 12, "eta_live": 90},
+    {"id": "instagram_influencers", "label": "Instagram Influencers", "index": 13, "eta_live": 60},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
 
@@ -275,6 +277,70 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
         ),
         "analysis_title": "YouTube Influencers",
         "pro_hook": "Na versão Pro mapeamos creators, scripts e oportunidades de menção no YouTube.",
+    }
+    return report
+
+
+def _load_instagram_influencers(slug: str) -> Optional[dict]:
+    path = METRICAS_DIR / slug / f"instagram-influencers-{slug}.json"
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _attach_instagram_influencers(report: dict, slug: str) -> dict:
+    data = _load_instagram_influencers(slug)
+    if not data:
+        return report
+    rows_out: list[dict] = []
+    for r in data.get("rows") or []:
+        total_likes = int(r.get("total_likes") or 0)
+        rows_out.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": total_likes,
+            "traffic_fmt": _fmt_views(total_likes),
+            "total_influencers": int(r.get("total_influencers") or 0),
+            "influencer_posts": int(r.get("influencer_posts") or 0),
+            "own_posts": int(r.get("own_posts") or 0),
+            "posts_first_page": int(r.get("posts_first_page") or 0),
+            "total_likes": total_likes,
+            "total_likes_fmt": _fmt_views(total_likes),
+            "own_likes_fmt": _fmt_views(r.get("own_likes") or 0),
+            "influencer_likes_fmt": _fmt_views(r.get("influencer_likes") or 0),
+            "influencer_handles": r.get("influencer_handles") or [],
+            "top5": r.get("top5") or [],
+            "handle": r.get("handle") or "",
+            "url": r.get("profile_url") or "",
+            "followers_label": r.get("followers_label"),
+            "error": r.get("error"),
+        })
+    client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
+    usage = data.get("usage_total") or {}
+    report["instagram_influencers"] = {
+        "source": "tinyfish_search+fetch",
+        "market": data.get("market") or "US",
+        "leader": client.get("name") if client else "—",
+        "total_traffic_fmt": client.get("total_likes_fmt") if client else "—",
+        "unit": "likes (1st page)",
+        "rows": rows_out,
+        "usage_total": usage,
+        "insight": (
+            f"Instagram @{client.get('handle') or '—'}: "
+            f"{client.get('total_influencers') or 0} influencers on 1st page · "
+            f"{_fmt_views(client.get('total_likes'))} total likes · "
+            f"own {client.get('own_posts') or 0} / influencer posts {client.get('influencer_posts') or 0} "
+            f"(Search+Fetch download)."
+        ),
+        "analysis_title": "Instagram Influencers",
+        "pro_hook": "Na versão Pro avaliamos creators, frequência de collabs e custo estimado por menção.",
     }
     return report
 
@@ -540,6 +606,7 @@ def _save_report(
     include_google_ads: bool = True,
     include_linkedin: bool = True,
     include_youtube_influencers: bool = False,
+    include_instagram_influencers: bool = False,
     force: bool = False,
     market: str = "us",
     compare_all: bool = False,
@@ -565,6 +632,7 @@ def _save_report(
         "include_google_ads": bool(include_google_ads),
         "include_linkedin": bool(include_linkedin),
         "include_youtube_influencers": bool(include_youtube_influencers),
+        "include_instagram_influencers": bool(include_instagram_influencers),
         "force": bool(force),
         "created_at": created_at,
         "html_url": f"/runs/{run_id}/report.html",
@@ -593,6 +661,7 @@ def run_pipeline(
     include_google_ads: bool = True,
     include_linkedin: bool = True,
     include_youtube_influencers: bool = False,
+    include_instagram_influencers: bool = False,
     market: str = "us",
     compare_all: bool = False,
 ) -> dict:
@@ -647,12 +716,14 @@ def run_pipeline(
         _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Cached report")
         for sid in (
             "seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta",
-            "linkedin", "instagram", "youtube", "tiktok", "youtube_influencers",
+            "linkedin", "instagram", "youtube", "tiktok",
+            "youtube_influencers", "instagram_influencers",
         ):
             _emit_progress(emit, set_step, sid, "done", "Cached")
         report = _attach_brand_dfs(report, slug)
         report = _attach_similarweb(report, slug)
         report = _attach_youtube_influencers(report, slug)
+        report = _attach_instagram_influencers(report, slug)
         report = _tag_report(report)
         if run_id:
             _save_report(
@@ -661,6 +732,7 @@ def run_pipeline(
                 include_google_ads=include_google_ads,
                 include_linkedin=include_linkedin,
                 include_youtube_influencers=include_youtube_influencers,
+                include_instagram_influencers=include_instagram_influencers,
                 force=force,
                 market=market,
                 compare_all=compare_all,
@@ -677,6 +749,7 @@ def run_pipeline(
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
         include_youtube_influencers=include_youtube_influencers,
+        include_instagram_influencers=include_instagram_influencers,
         total_steps=TOTAL_STEPS,
         eta_label="~3–8 min" if site_only else "~10–15 min",
     )
@@ -938,6 +1011,38 @@ def run_pipeline(
     else:
         _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped")
 
+    # 11) Instagram Influencers (optional) — Search + Fetch download
+    if include_instagram_influencers:
+        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+            emit("log", line="[IG-INF] Skipped: TINYFISH_API_KEY missing")
+            _emit_progress(emit, set_step, "instagram_influencers", "done", "Skipped (no TinyFish key)")
+        else:
+            _emit_progress(
+                emit, set_step, "instagram_influencers", "running",
+                "Instagram Influencers (Search + page download)...",
+            )
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_IG_INFLUENCERS), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=600,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[IG-INF] Partial failure: {e}")
+            report = _attach_instagram_influencers(report, slug)
+            report = _tag_report(report)
+            emit(
+                "partial",
+                section="instagram_influencers",
+                data=report.get("instagram_influencers") or {},
+                client=client_name,
+            )
+            _emit_progress(emit, set_step, "instagram_influencers", "done", "Instagram Influencers ready")
+    else:
+        _emit_progress(emit, set_step, "instagram_influencers", "done", "Skipped")
+
     html_url = ""
     if run_id:
         _save_report(
@@ -946,6 +1051,7 @@ def run_pipeline(
             include_google_ads=include_google_ads,
             include_linkedin=include_linkedin,
             include_youtube_influencers=include_youtube_influencers,
+            include_instagram_influencers=include_instagram_influencers,
             force=force,
             market=market,
             compare_all=compare_all,

@@ -155,7 +155,7 @@ def _summary_channel_url(
         return f"https://adstransparency.google.com/?region={google_region}&domain={quote(domain)}"
     if key == "similarweb":
         return site or (f"https://{domain}/" if domain else "")
-    if key in ("youtube", "instagram", "tiktok", "youtube_influencers"):
+    if key in ("youtube", "instagram", "tiktok", "youtube_influencers", "instagram_influencers"):
         return site
     return site or (f"https://{domain}/" if domain else "")
 
@@ -173,6 +173,7 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         ("YouTube", "youtube", "count"),
         ("YouTube Influencers", "youtube_influencers", "seo"),
         ("Instagram", "instagram", "count"),
+        ("Instagram Influencers", "instagram_influencers", "seo"),
         ("TikTok", "tiktok", "count"),
         ("Marca DataForSEO", "brand_dataforseo", "brand_dfs"),
     ]
@@ -194,6 +195,7 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         "youtube": "Profile",
         "youtube_influencers": "Search",
         "instagram": "Profile",
+        "instagram_influencers": "Profile",
         "tiktok": "Profile",
         "brand_dataforseo": "Semrush",
     }
@@ -323,6 +325,58 @@ def _section_rank(
     return f"""
     <section>
       <h2>{_esc(title)}</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
+def _section_instagram_influencers(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = [
+        "#", "Company", "Influencers", "Total likes",
+        "Own posts", "Influencer posts", "Top likes", "Profile",
+    ]
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        top_bits = []
+        for t in (r.get("top5") or [])[:5]:
+            likes = t.get("likes")
+            likes_s = f"{int(likes):,}" if isinstance(likes, (int, float)) else "—"
+            who = _esc(t.get("username") or "")
+            label = f"{likes_s} · @{who}" if who else likes_s
+            top_bits.append(_link_cell(t.get("url"), label))
+        handles = ", ".join(f"@{_esc(h)}" for h in (r.get("influencer_handles") or [])[:8])
+        table_rows.append([
+            str(i),
+            name,
+            f"{_esc(str(r.get('total_influencers') or 0))}"
+            + (f"<div class='muted'>{handles}</div>" if handles else ""),
+            _esc(r.get("total_likes_fmt") or "0"),
+            _esc(str(r.get("own_posts") or 0)),
+            _esc(str(r.get("influencer_posts") or 0)),
+            "<br>".join(top_bits) if top_bits else "—",
+            _link_cell(r.get("url"), f"@{_esc(r.get('handle') or 'IG')}"),
+        ])
+    usage = section.get("usage_total") or {}
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = (
+        f"1st page likes · fetch urls {_esc(str(usage.get('fetch_urls', '—')))} · "
+        f"leader {_esc(section.get('leader') or '—')}"
+    )
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "Instagram Influencers"
+    return f"""
+    <section>
+      <h2>Instagram Influencers</h2>
       <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
       {_rows_table(headers, table_rows)}
       {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
@@ -623,6 +677,7 @@ def render_report_html(
         _section_rank("YouTube", report.get("youtube"), "count", link_label="Profile"),
         _section_youtube_influencers(report.get("youtube_influencers")),
         _section_rank("Instagram", report.get("instagram"), "count", link_label="Profile"),
+        _section_instagram_influencers(report.get("instagram_influencers")),
         _section_rank("TikTok", report.get("tiktok"), "count", link_label="Profile"),
         _section_brand_dfs(report.get("brand_dataforseo")),
     ]
