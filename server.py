@@ -555,7 +555,7 @@ def rerun(run_id: str):
 
     raw = url
     if peer_urls:
-        raw = "\n".join([url] + peer_urls]
+        raw = "\n".join([url] + peer_urls)
 
     created = _start_jobs_from_raw(
         raw,
