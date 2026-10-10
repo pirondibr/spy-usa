@@ -412,10 +412,96 @@ def _parse_meta_graphql_response(raw: str) -> dict | None:
     return None
 
 
-def _meta_page_id_via_scrapingbee(query: str) -> tuple[str | None, int]:
-    """Resolve page_id pelo typeahead da Ad Library (doc do scraper atual)."""
+def _meta_brand_query_variants(brand: str, domain: str = "", company_query: str = "") -> list[str]:
+    """Search terms for Ad Library typeahead (order matters less — we score pages)."""
+    brand = (brand or "").strip()
+    domain = normalize_domain(domain or "")
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(term: str) -> None:
+        t = re.sub(r"\s+", " ", (term or "").strip())
+        if not t:
+            return
+        key = t.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(t)
+
+    _add(company_query)
+    # aiapply -> "ai apply" (common compound brands)
+    b = re.sub(r"[^a-z0-9]+", "", brand.lower())
+    if b:
+        _add(brand)
+        m = re.match(r"^(ai)([a-z]{3,})$", b)
+        if m:
+            _add(f"{m.group(1)} {m.group(2)}")
+        m = re.match(r"^([a-z]{3,})(ai)$", b)
+        if m:
+            _add(f"{m.group(1)} {m.group(2)}")
+        # Camel-ish: jobRight already handled; try spaced token from domain host label
+        spaced = re.sub(r"([a-z])([A-Z])", r"\1 \2", brand).strip()
+        _add(spaced)
+    if domain:
+        _add(domain)
+        _add(domain.split(".")[0])
+    return out[:5]
+
+
+def _score_meta_page(page: dict, *, brand: str, domain: str) -> float:
+    """Higher = better match for this brand/domain (avoid random typeahead #1)."""
+    if not page or page.get("page_is_deleted"):
+        return -1e9
+    brand_tok = normalize_token(brand)
+    domain_full = normalize_domain(domain)
+    domain_tok = normalize_token(extract_website_name(domain_full or brand))
+    name_tok = normalize_token(page.get("name") or "")
+    ig = str(page.get("ig_username") or "").strip().lower().lstrip("@")
+    alias = str(page.get("page_alias") or "").strip().lower()
+    ig_dom = normalize_domain(ig) if ig and "." in ig else ig
+    alias_dom = normalize_domain(alias) if alias and "." in alias else alias
+
+    score = 0.0
+    # Strongest: IG handle / page alias equals the website domain
+    if domain_full and ig_dom == domain_full:
+        score += 120
+    elif domain_tok and ig and normalize_token(ig) == domain_tok:
+        score += 90
+    if domain_full and alias_dom == domain_full:
+        score += 100
+    elif domain_tok and alias and normalize_token(alias) == domain_tok:
+        score += 70
+
+    if brand_tok and name_tok:
+        if name_tok == brand_tok or name_tok == domain_tok:
+            score += 55
+        elif brand_tok in name_tok or name_tok in brand_tok:
+            score += 35
+        elif domain_tok and (domain_tok in name_tok or name_tok in domain_tok):
+            score += 30
+        else:
+            # soft penalty for unrelated names (Aiapplyd vs aiapply)
+            if len(name_tok) >= 4 and brand_tok and not (
+                name_tok.startswith(brand_tok[:4]) or brand_tok.startswith(name_tok[:4])
+            ):
+                score -= 25
+
+    likes = int(page.get("likes") or 0)
+    ig_f = int(page.get("ig_followers") or 0)
+    # Soft popularity boost; prefer real pages over 7-like stubs
+    score += min(40.0, (likes ** 0.5) * 0.15 + (ig_f ** 0.5) * 0.08)
+    if likes < 50 and ig_f < 200:
+        score -= 30
+    if str(page.get("verification") or "").upper() in ("VERIFIED", "BLUE_VERIFIED"):
+        score += 10
+    return score
+
+
+def _meta_typeahead_pages(query: str) -> tuple[list[dict], int]:
+    """Return Ad Library typeahead page_results for a query."""
     if not query:
-        return None, 0
+        return [], 0
     params = {
         "api_key": SCRAPINGBEE_API_KEY,
         "url": "https://www.facebook.com/api/graphql/",
@@ -430,7 +516,6 @@ def _meta_page_id_via_scrapingbee(query: str) -> tuple[str | None, int]:
         }, separators=(",", ":")),
         "doc_id": META_DOC_ID_TYPEAHEAD,
     }
-    # Formato legado do scraper de referencia (string embutida)
     data_legacy = {
         "variables": (
             '{"queryString":"'
@@ -458,12 +543,20 @@ def _meta_page_id_via_scrapingbee(query: str) -> tuple[str | None, int]:
                 .get("page_results")
                 or []
             )
-            if pages and pages[0].get("page_id"):
-                return str(pages[0]["page_id"]), credits
+            if pages:
+                return list(pages), credits
         except RuntimeError:
             raise
         except Exception:
             continue
+    return [], credits
+
+
+def _meta_page_id_via_scrapingbee(query: str) -> tuple[str | None, int]:
+    """Back-compat: best-effort first page for a single query (no brand scoring)."""
+    pages, credits = _meta_typeahead_pages(query)
+    if pages and pages[0].get("page_id"):
+        return str(pages[0]["page_id"]), credits
     return None, credits
 
 
@@ -476,9 +569,10 @@ def _meta_ads_count_via_scrapingbee(page_id: str) -> tuple[int | None, int]:
         "premium_proxy": "true",
         "render_js": "false",
     }
+    # country=ALL matches Ad Library links we expose (global active ads, not US-only)
     variables = (
         '{"activeStatus":"ACTIVE","adType":"ALL","audienceTimeframe":"LAST_7_DAYS",'
-        '"bylines":[],"contentLanguages":[],"countries":["' + META_COUNTRY + '"],"country":"' + META_COUNTRY + '",'
+        '"bylines":[],"contentLanguages":[],"countries":["ALL"],"country":"ALL",'
         '"deeplinkAdID":null,"excludedIDs":[],"fetchPageInfo":true,"fetchSharedDisclaimers":true,'
         '"hasDeeplinkAdID":false,"isAboutTab":false,"isAudienceTab":false,"isLandingPage":false,'
         '"isTargetedCountry":false,"location":null,"mediaType":"ALL","multiCountryFilterMode":null,'
@@ -519,39 +613,106 @@ def _meta_ads_count_via_scrapingbee(page_id: str) -> tuple[int | None, int]:
 
 
 def lookup_meta_ads(comp: dict) -> dict:
-    """Meta Ads via ScrapingBee + GraphQL (mesmo fluxo do facebook_ads_meta_scraper_atual)."""
+    """Meta Ads via ScrapingBee + GraphQL — pick best page by domain/IG/name, not typeahead #1."""
     brand = extract_website_name(comp.get("url") or comp.get("domain", ""))
     base_url = comp.get("url") or comp.get("domain", "")
+    domain = normalize_domain(base_url or comp.get("domain", ""))
     company_query = company_query_for_competitor(comp)
 
-    # Evita scrape de homepage (lento/bloqueado) — usa so nome/dominio
-    search_terms: list[str] = []
-    for term in (company_query, brand, extract_website_name(base_url), comp.get("domain", "")):
-        t = str(term or "").strip()
-        if t and t not in search_terms:
-            search_terms.append(t)
-    search_terms = search_terms[:2]
+    search_terms = _meta_brand_query_variants(brand, domain=domain, company_query=company_query)
 
-    page_id = None
     credits = 0
+    by_id: dict[str, dict] = {}
     for term in search_terms:
         try:
-            pid, used = _meta_page_id_via_scrapingbee(term)
+            pages, used = _meta_typeahead_pages(term)
             credits += used
-            if pid:
-                page_id = pid
-                break
         except Exception as e:
             print(f"[META/SB] typeahead falhou ({term}): {e}", flush=True)
             continue
+        for p in pages:
+            pid = str(p.get("page_id") or "")
+            if not pid:
+                continue
+            # Keep richest copy
+            prev = by_id.get(pid)
+            if not prev or (int(p.get("likes") or 0) + int(p.get("ig_followers") or 0)) >= (
+                int(prev.get("likes") or 0) + int(prev.get("ig_followers") or 0)
+            ):
+                by_id[pid] = p
 
-    if not page_id:
+    if not by_id:
         return {"meta_ads": None, "meta_url": "", "spb_credits": credits}
+
+    ranked = sorted(
+        by_id.values(),
+        key=lambda p: _score_meta_page(p, brand=brand, domain=domain),
+        reverse=True,
+    )
+    best = ranked[0]
+    best_score = _score_meta_page(best, brand=brand, domain=domain)
+    # If top-2 are close, prefer the one with more active ads (tie-break)
+    page_id = str(best.get("page_id"))
+    if len(ranked) >= 2:
+        second = ranked[1]
+        second_score = _score_meta_page(second, brand=brand, domain=domain)
+        if best_score - second_score < 25:
+            try:
+                c1, u1 = _meta_ads_count_via_scrapingbee(str(best.get("page_id")))
+                credits += u1
+                c2, u2 = _meta_ads_count_via_scrapingbee(str(second.get("page_id")))
+                credits += u2
+                if (c2 or 0) > (c1 or 0) * 1.5 and (c2 or 0) >= 20:
+                    best = second
+                    page_id = str(second.get("page_id"))
+                    print(
+                        f"[META/SB] tie-break ads: {best.get('name')} "
+                        f"({c2}) > {ranked[0].get('name')} ({c1})",
+                        flush=True,
+                    )
+                    # reuse count below
+                    page_url = (
+                        "https://www.facebook.com/ads/library/"
+                        f"?active_status=active&ad_type=all&country=ALL&view_all_page_id={page_id}"
+                        "&search_type=page&media_type=all"
+                    )
+                    return {
+                        "meta_ads": c2,
+                        "meta_url": page_url,
+                        "page_id": page_id,
+                        "page_name": best.get("name"),
+                        "spb_credits": credits,
+                    }
+                # already have c1 for best
+                page_url = (
+                    "https://www.facebook.com/ads/library/"
+                    f"?active_status=active&ad_type=all&country=ALL&view_all_page_id={page_id}"
+                    "&search_type=page&media_type=all"
+                )
+                print(
+                    f"[META/SB] picked '{best.get('name')}' page_id={page_id} "
+                    f"score={best_score:.1f} ig={best.get('ig_username')!r} likes={best.get('likes')}",
+                    flush=True,
+                )
+                return {
+                    "meta_ads": c1,
+                    "meta_url": page_url,
+                    "page_id": page_id,
+                    "page_name": best.get("name"),
+                    "spb_credits": credits,
+                }
+            except Exception as e:
+                print(f"[META/SB] tie-break count falhou: {e}", flush=True)
 
     page_url = (
         "https://www.facebook.com/ads/library/"
         f"?active_status=active&ad_type=all&country=ALL&view_all_page_id={page_id}"
         "&search_type=page&media_type=all"
+    )
+    print(
+        f"[META/SB] picked '{best.get('name')}' page_id={page_id} "
+        f"score={best_score:.1f} ig={best.get('ig_username')!r} likes={best.get('likes')}",
+        flush=True,
     )
     try:
         count, used = _meta_ads_count_via_scrapingbee(page_id)
@@ -563,6 +724,7 @@ def lookup_meta_ads(comp: dict) -> dict:
         "meta_ads": count,
         "meta_url": page_url,
         "page_id": page_id,
+        "page_name": best.get("name"),
         "spb_credits": credits,
     }
 
