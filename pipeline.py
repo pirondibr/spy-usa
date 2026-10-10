@@ -650,7 +650,7 @@ def build_solo_national_xlsx(
             "fonte": "input",
             "nicho": "—",
         })
-        if len(peers) >= 8:
+        if len(peers) >= 11:  # primary + up to 11 peers (MAX_COMPANIES=12)
             break
 
     mode_label = "compare_all" if peers else "site_only"

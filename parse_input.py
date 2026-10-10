@@ -100,7 +100,7 @@ def _split_competitors(chunk: str) -> list[str]:
     return out[:3]
 
 
-MAX_COMPANIES = 5
+MAX_COMPANIES = 12
 
 
 def _token_to_parsed(token: str) -> Optional[ParsedInput]:
