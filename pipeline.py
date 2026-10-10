@@ -14,6 +14,11 @@ from typing import Any, Callable, Optional  # noqa: F401 — Any used in helpers
 from parse_input import ParsedInput, normalize_url, slugify_client
 from report_builder import build_early_briefing_competitors, build_report_from_xlsx
 from report_html import render_report_html
+from report_merge import (
+    assemble_compare_all_report,
+    companies_from_primary_and_peers,
+    load_company_report,
+)
 
 APP_DIR = Path(__file__).resolve().parent
 FINAL_DIR = APP_DIR / "scripts"
@@ -841,6 +846,210 @@ def _save_report(
     return html_path
 
 
+def _attach_all_sidecars(report: dict, slug: str) -> dict:
+    report = _attach_brand_dfs(report, slug)
+    report = _attach_similarweb(report, slug)
+    report = _attach_youtube_influencers(report, slug)
+    report = _attach_instagram_influencers(report, slug)
+    report = _attach_reddit(report, slug)
+    report = _attach_twitter(report, slug)
+    report = _attach_linkedin_profile(report, slug)
+    return report
+
+
+def _run_compare_all_pipeline(
+    parsed: ParsedInput,
+    emit: EmitFn,
+    set_step: EmitFn,
+    *,
+    run_id: str = "",
+    force: bool = False,
+    include_google_ads: bool = True,
+    include_linkedin: bool = True,
+    include_youtube_influencers: bool = False,
+    include_instagram_influencers: bool = False,
+    include_reddit: bool = False,
+    include_twitter: bool = False,
+    include_linkedin_profile: bool = False,
+    market: str = "us",
+) -> dict:
+    """Ensure per-slug caches, then merge into one compare_all report (no multi-peer scrape)."""
+    market = _normalize_market(market)
+    os.environ["SPY_MARKET"] = market
+    url = normalize_url(parsed.url) or parsed.url
+    if not url:
+        raise ValueError("Company URL is required.")
+    slug = parsed.slug or slugify_client(url)
+    client_name = parsed.company or slug
+    companies = companies_from_primary_and_peers(
+        url, client_name, slug, list(parsed.competitors or []),
+    )
+    if not companies:
+        raise ValueError("No companies for All mode.")
+
+    emit(
+        "pipeline_meta",
+        mode="live",
+        market=market.upper(),
+        site_only=True,
+        compare_all=True,
+        include_google_ads=include_google_ads,
+        include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
+        include_instagram_influencers=include_instagram_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
+        total_steps=TOTAL_STEPS,
+        eta_label=f"All · {len(companies)} empresas (cache merge)",
+    )
+    _emit_progress(
+        emit, set_step, "briefing_concorrentes", "running",
+        f"All: ensuring caches ({len(companies)} empresas)",
+    )
+
+    def _child_emit(event: str, **payload: Any) -> None:
+        # Nested individual runs must not finish/close the parent All job
+        if event in ("done", "pipeline_meta"):
+            return
+        emit(event, **payload)
+
+    fetched = 0
+    cached = 0
+    for i, company in enumerate(companies):
+        c_slug = company["slug"]
+        c_url = company["url"]
+        c_name = company["name"]
+        has_cache = bool(find_metricas_xlsx(c_slug))
+        need_fetch = bool(force) or not has_cache
+        if need_fetch:
+            emit(
+                "log",
+                line=(
+                    f"[ALL] ({i + 1}/{len(companies)}) Fetching {c_name} ({c_slug})"
+                    + (" · force" if force else " · no cache")
+                ),
+            )
+            _emit_progress(
+                emit, set_step, "briefing_concorrentes", "running",
+                f"All: fetching {c_name} ({i + 1}/{len(companies)})",
+            )
+            child = ParsedInput(
+                company=c_name,
+                url=c_url,
+                slug=c_slug,
+                competitors=[],
+            )
+            run_pipeline(
+                child,
+                _child_emit,
+                set_step,
+                run_id="",  # writes metricas cache only; All run saved later
+                force=force,
+                site_only=True,
+                include_google_ads=include_google_ads,
+                include_linkedin=include_linkedin,
+                include_youtube_influencers=include_youtube_influencers,
+                include_instagram_influencers=include_instagram_influencers,
+                include_reddit=include_reddit,
+                include_twitter=include_twitter,
+                include_linkedin_profile=include_linkedin_profile,
+                market=market,
+                compare_all=False,
+            )
+            fetched += 1
+        else:
+            cached += 1
+            emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
+
+    _emit_progress(
+        emit, set_step, "briefing_concorrentes", "done",
+        f"All: {len(companies)} empresas · fetched={fetched} cached={cached}",
+    )
+    emit("log", line=f"[ALL] Merging {len(companies)} company reports…")
+    _emit_progress(emit, set_step, "seo", "running", "Merging All report…")
+
+    attach_fns = [_attach_all_sidecars]
+    per_reports: list[dict] = []
+    for company in companies:
+        try:
+            per_reports.append(
+                load_company_report(
+                    company["slug"],
+                    url=company["url"],
+                    name=company["name"],
+                    find_metricas_xlsx=find_metricas_xlsx,
+                    build_report_from_xlsx=build_report_from_xlsx,
+                    attach_fns=attach_fns,
+                )
+            )
+        except Exception as e:
+            emit("log", line=f"[ALL] WARN load {company['slug']}: {e}")
+            per_reports.append({
+                "client": company["name"],
+                "briefing": {"url": company["url"], "summary": f"Cache incomplete: {e}"},
+            })
+
+    report = assemble_compare_all_report(companies, per_reports, market=market.upper())
+    report["compare_all"] = True
+    report["market"] = market.upper()
+
+    optional_off = {
+        "google_ads": not include_google_ads,
+        "linkedin": not include_linkedin,
+        "youtube_influencers": not include_youtube_influencers,
+        "instagram_influencers": not include_instagram_influencers,
+        "reddit": not include_reddit,
+        "twitter": not include_twitter,
+        "linkedin_profile": not include_linkedin_profile,
+    }
+    for sid in (
+        "seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta",
+        "linkedin", "instagram", "youtube", "tiktok",
+        "youtube_influencers", "instagram_influencers",
+        "reddit", "twitter", "linkedin_profile",
+    ):
+        has = bool((report.get(sid) or {}).get("rows"))
+        if optional_off.get(sid):
+            detail = "Skipped"
+        elif has:
+            detail = "Merged"
+        else:
+            detail = "No data"
+        _emit_progress(emit, set_step, sid, "done", detail)
+        if has:
+            emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
+
+    early = {
+        "briefing": report.get("briefing") or {},
+        "competitors": report.get("competitors") or [],
+        "competitors_count": report.get("competitors_count") or 0,
+        "competitors_note": report.get("competitors_note") or "",
+    }
+    emit("partial", section="briefing_concorrentes", data=early, client=client_name)
+
+    html_url = ""
+    if run_id:
+        _save_report(
+            run_id, report, parsed,
+            site_only=True,
+            include_google_ads=include_google_ads,
+            include_linkedin=include_linkedin,
+            include_youtube_influencers=include_youtube_influencers,
+            include_instagram_influencers=include_instagram_influencers,
+            include_reddit=include_reddit,
+            include_twitter=include_twitter,
+            include_linkedin_profile=include_linkedin_profile,
+            force=force,
+            market=market,
+            compare_all=True,
+        )
+        html_url = f"/runs/{run_id}/report.html"
+
+    emit("done", report=report, html_url=html_url)
+    return report
+
+
 def run_pipeline(
     parsed: ParsedInput,
     emit: EmitFn,
@@ -871,18 +1080,33 @@ def run_pipeline(
 
     market = _normalize_market(market)
     if compare_all:
-        site_only = True
+        return _run_compare_all_pipeline(
+            parsed,
+            emit,
+            set_step,
+            run_id=run_id,
+            force=force,
+            include_google_ads=include_google_ads,
+            include_linkedin=include_linkedin,
+            include_youtube_influencers=include_youtube_influencers,
+            include_instagram_influencers=include_instagram_influencers,
+            include_reddit=include_reddit,
+            include_twitter=include_twitter,
+            include_linkedin_profile=include_linkedin_profile,
+            market=market,
+        )
+
     url = normalize_url(parsed.url) or parsed.url
     if not url:
         raise ValueError("Company URL is required.")
     slug = parsed.slug or slugify_client(url)
     client_name = parsed.company or slug
-    peer_urls = list(parsed.competitors or []) if (compare_all or site_only) else list(parsed.competitors or [])
-    # compare_all: peers entram no XLSX; discovery off
+    peer_urls = list(parsed.competitors or []) if site_only else list(parsed.competitors or [])
+    # site_only peers only used by legacy solo xlsx path (All uses cache merge)
     script_env = {
         "SPY_SITE_ONLY": "1" if site_only else "0",
         "SPY_MARKET": market,
-        "SPY_COMPARE_ALL": "1" if compare_all else "0",
+        "SPY_COMPARE_ALL": "0",
     }
     # Ensure parent process market helpers (report_builder) see the same market
     os.environ["SPY_MARKET"] = market
