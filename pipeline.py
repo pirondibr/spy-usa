@@ -906,7 +906,7 @@ def run_pipeline(
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")
 
-    # 10) YouTube Influencers (optional) — TinyFish Search + Agent
+    # 10) YouTube Influencers (optional) — native YouTube search via TinyFish Agent
     if include_youtube_influencers:
         if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
             emit("log", line="[YT-INF] Skipped: TINYFISH_API_KEY missing")
@@ -914,7 +914,7 @@ def run_pipeline(
         else:
             _emit_progress(
                 emit, set_step, "youtube_influencers", "running",
-                "YouTube Influencers (TinyFish 1st page)...",
+                "YouTube Influencers (native search 1st page)...",
             )
             try:
                 _run_script(

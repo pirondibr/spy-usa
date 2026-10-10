@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""YouTube Influencers spy — TinyFish Search (free) + Agent (metered) + OpenRouter.
+"""YouTube Influencers spy — TinyFish Agent on native YouTube search + OpenRouter.
 
-First page of YouTube search only:
+First page of youtube.com/results only:
 - official vs unofficial view totals
 - age buckets: 30d / 6m / 1y+
 - top 5 links
@@ -19,7 +19,6 @@ from urllib.parse import quote_plus, urlparse, parse_qs
 
 import requests
 
-TINYFISH_SEARCH = "https://api.search.tinyfish.ai"
 TINYFISH_AGENT_RUN = "https://agent.tinyfish.ai/v1/automation/run"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash"
@@ -163,75 +162,17 @@ def is_official_channel(
     return False
 
 
-def tinyfish_search_youtube(query: str, *, location: str = "US") -> dict[str, Any]:
-    """Free Search API scoped to youtube.com — first page."""
-    t0 = time.time()
-    params = {
-        "query": query,
-        "include_domains": "youtube.com",
-        "location": location,
-        "language": "en" if location.upper() == "US" else "pt",
-        "page": 0,
-    }
-    r = requests.get(
-        TINYFISH_SEARCH,
-        params=params,
-        headers={"X-API-Key": _api_key()},
-        timeout=30,
-    )
-    r.raise_for_status()
-    data = r.json() if r.content else {}
-    results = data.get("results") or data.get("organic") or []
-    videos: list[dict] = []
-    for item in results:
-        url = normalize_watch_url(str(item.get("url") or ""))
-        if "/watch" not in url and "/shorts/" not in str(item.get("url") or ""):
-            # keep channel results separately
-            u = str(item.get("url") or "")
-            if "/@" in u or "/channel/" in u or "/c/" in u:
-                videos.append({
-                    "kind": "channel",
-                    "title": item.get("title") or "",
-                    "url": u,
-                    "snippet": item.get("snippet") or item.get("description") or "",
-                    "upload_age": item.get("date") or "",
-                    "source": "search",
-                })
-            continue
-        if "/shorts/" in str(item.get("url") or ""):
-            url = str(item.get("url") or "")
-        videos.append({
-            "kind": "video",
-            "title": item.get("title") or "",
-            "url": url,
-            "video_id": video_id_from_url(url),
-            "snippet": item.get("snippet") or item.get("description") or "",
-            "upload_age": item.get("date") or "",
-            "views": None,
-            "channel_name": "",
-            "channel_url": "",
-            "source": "search",
-            "is_short": "/shorts/" in url,
-        })
-    return {
-        "ok": True,
-        "query": query,
-        "items": videos,
-        "elapsed_sec": round(time.time() - t0, 2),
-        "cost_usd": 0.0,
-        "meter": "search_free",
-    }
-
-
 def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[str, Any]:
-    """Metered Agent — scrape first page of YouTube search for views/channels."""
+    """Metered Agent — native YouTube search first page only."""
     t0 = time.time()
     search_url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
     goal = (
-        "You are on the YouTube SEARCH RESULTS first page only. Do NOT open page 2. "
-        "Do NOT click into videos. Extract EVERY visible video and short on the first page "
+        "You are on the native YouTube SEARCH RESULTS first page only "
+        "(youtube.com/results). Do NOT open page 2. Do NOT click into videos. "
+        "Do NOT use Google. Extract EVERY visible video and short on the first page "
         "(typically 8–20 items). For each return title, url, channel_name, channel_url, "
-        "views as a number, views_text, upload_age (e.g. '3 months ago'), is_short. "
+        "description/snippet text shown on the card if any, views as a number, views_text, "
+        "upload_age (e.g. '3 months ago'), is_short. "
         "Also identify the official brand channel if present (name + url). "
         f"Brand/search query: {query!r}."
     )
@@ -259,6 +200,7 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
                             "url": {"type": "string"},
                             "channel_name": {"type": "string"},
                             "channel_url": {"type": "string"},
+                            "description": {"type": "string"},
                             "views": {"type": "number"},
                             "views_text": {"type": "string"},
                             "upload_age": {"type": "string"},
@@ -314,13 +256,13 @@ def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[st
             "title": v.get("title") or "",
             "url": url or raw_url,
             "video_id": video_id_from_url(url or raw_url),
-            "snippet": "",
+            "snippet": v.get("description") or v.get("snippet") or "",
             "upload_age": v.get("upload_age") or "",
             "views": _as_int(v.get("views")),
             "views_text": v.get("views_text") or "",
             "channel_name": v.get("channel_name") or "",
             "channel_url": v.get("channel_url") or "",
-            "source": "agent",
+            "source": "youtube_native",
             "is_short": bool(v.get("is_short")) or "/shorts/" in raw_url,
         })
     status = str(data.get("status") or "")
@@ -364,37 +306,6 @@ def _as_int(v: Any) -> Optional[int]:
     elif suf == "b":
         num *= 1_000_000_000
     return int(num)
-
-
-def merge_search_and_agent(
-    search_items: list[dict],
-    agent_videos: list[dict],
-) -> list[dict]:
-    by_id: dict[str, dict] = {}
-    for v in agent_videos:
-        vid = v.get("video_id") or video_id_from_url(v.get("url") or "")
-        if not vid:
-            continue
-        by_id[vid] = dict(v)
-        by_id[vid]["video_id"] = vid
-    for s in search_items:
-        if s.get("kind") == "channel":
-            continue
-        vid = s.get("video_id") or video_id_from_url(s.get("url") or "")
-        if not vid:
-            continue
-        if vid in by_id:
-            cur = by_id[vid]
-            if not cur.get("snippet") and s.get("snippet"):
-                cur["snippet"] = s["snippet"]
-            if not cur.get("upload_age") and s.get("upload_age"):
-                cur["upload_age"] = s["upload_age"]
-            if not cur.get("title") and s.get("title"):
-                cur["title"] = s["title"]
-        else:
-            by_id[vid] = dict(s)
-            by_id[vid]["video_id"] = vid
-    return list(by_id.values())
 
 
 def classify_about_product(
@@ -556,39 +467,33 @@ def analyze_company(
         raise ValueError("company/query required")
     loc = "US" if (market or "us").lower().startswith("us") else "BR"
     usage = {
-        "search_cost_usd": 0.0,
         "agent_cost_usd": 0.0,
         "agent_steps": 0,
         "openrouter": True if os.environ.get("OPENROUTER_API_KEY") else False,
         "estimated_total_usd": 0.0,
+        "source": "youtube_native_only",
     }
-
-    search = tinyfish_search_youtube(q, location=loc)
-    usage["search_cost_usd"] = float(search.get("cost_usd") or 0)
 
     agent = tinyfish_agent_youtube_search(q, country=loc)
     usage["agent_cost_usd"] = float(agent.get("cost_usd") or 0)
     usage["agent_steps"] = int(agent.get("num_of_steps") or 0)
-    usage["estimated_total_usd"] = round(
-        usage["search_cost_usd"] + usage["agent_cost_usd"], 4
-    )
+    usage["estimated_total_usd"] = round(usage["agent_cost_usd"], 4)
     usage["agent_run_id"] = agent.get("run_id")
     usage["agent_elapsed_sec"] = agent.get("elapsed_sec")
-    usage["search_elapsed_sec"] = search.get("elapsed_sec")
 
-    merged = merge_search_and_agent(search.get("items") or [], agent.get("videos") or [])
-    merged = classify_about_product(
-        merged, company=company, product_hint=product_hint or domain
+    videos = list(agent.get("videos") or [])
+    videos = classify_about_product(
+        videos, company=company, product_hint=product_hint or domain
     )
     summary = summarize_videos(
-        merged,
+        videos,
         company=company,
         domain=domain,
         official_hint=agent.get("official_channel"),
     )
 
     return {
-        "ok": bool(agent.get("ok") or merged),
+        "ok": bool(agent.get("ok") or videos),
         "company": company,
         "domain": domain,
         "query": q,

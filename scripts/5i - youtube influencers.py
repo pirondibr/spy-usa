@@ -198,12 +198,12 @@ def main() -> None:
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "tinyfish_search+agent",
+        "source": "youtube_native_tinyfish_agent",
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": round(total_cost, 4),
             "agent_steps": total_steps,
-            "note": "Search/Fetch free; Agent $0.016/step + ~$0.002/browser-min",
+            "note": "Native YouTube search only · Agent $0.016/step + ~$0.002/browser-min",
         },
         "rows": rows,
     }
