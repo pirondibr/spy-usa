@@ -206,11 +206,6 @@
           </div>
         </div>
         <label class="check">
-          <input id="compareAll" type="checkbox" />
-          All
-          <span class="hint">(todas as empresas na mesma tabela / resumo)</span>
-        </label>
-        <label class="check">
           <input id="siteOnly" type="checkbox" checked />
           Modo sem pesquisar concorrentes
           <span class="hint">(analisa só as empresas informadas)</span>
@@ -220,31 +215,31 @@
           Google Ads Library
         </label>
         <label class="check">
-          <input id="linkedinAds" type="checkbox" checked />
+          <input id="linkedinAds" type="checkbox" />
           LinkedIn Ads Library
         </label>
         <label class="check">
-          <input id="ytInfluencers" type="checkbox" />
+          <input id="ytInfluencers" type="checkbox" checked />
           YouTube Influencers
           <span class="hint">(busca nativa YouTube · 1ª página · ~1–2 min/empresa)</span>
         </label>
         <label class="check">
-          <input id="igInfluencers" type="checkbox" />
+          <input id="igInfluencers" type="checkbox" checked />
           Instagram Influencers
           <span class="hint">(Google search + download 1ª página · likes)</span>
         </label>
         <label class="check">
-          <input id="redditMentions" type="checkbox" />
+          <input id="redditMentions" type="checkbox" checked />
           Reddit
           <span class="hint">(site:reddit.com + comments 1ª página · Google total se disponível)</span>
         </label>
         <label class="check">
-          <input id="twitterProfile" type="checkbox" />
+          <input id="twitterProfile" type="checkbox" checked />
           Twitter / X
           <span class="hint">(perfil + followers via Google / ScrapingBee)</span>
         </label>
         <label class="check">
-          <input id="linkedinProfile" type="checkbox" />
+          <input id="linkedinProfile" type="checkbox" checked />
           LinkedIn Profile
           <span class="hint">(company/profile followers via Google snippet)</span>
         </label>
@@ -537,20 +532,13 @@
       }
     }
 
-    $("compareAll").addEventListener("change", () => {
-      if ($("compareAll").checked) {
-        $("siteOnly").checked = true;
-      }
-    });
-
     $("form").addEventListener("submit", (e) => {
       e.preventDefault();
-      const compareAll = $("compareAll").checked;
       startAnalyze({
         url: $("url").value.trim(),
         force: $("force").checked,
-        site_only: compareAll ? true : $("siteOnly").checked,
-        compare_all: compareAll,
+        site_only: $("siteOnly").checked,
+        compare_all: false,
         market: selectedMarket(),
         include_google_ads: $("googleAds").checked,
         include_linkedin: $("linkedinAds").checked,
