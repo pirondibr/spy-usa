@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Optional
@@ -1492,6 +1493,104 @@ def _section_similarweb(section: Optional[dict[str, Any]]) -> str:
     """
 
 
+def _runs_dir() -> Path:
+    data = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
+    root = Path(data) / "outputs" if data else Path(__file__).resolve().parent / "outputs"
+    return root / "runs"
+
+
+def _resolve_run_log(
+    report: dict[str, Any],
+    run_meta: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    payload = report.get("run_log")
+    if isinstance(payload, dict) and (payload.get("channels") or payload.get("lines")):
+        return payload
+    run_id = str((run_meta or {}).get("id") or "").strip()
+    if not run_id:
+        return None
+    # Fallback: load persisted sidecar files (older / partial saves)
+    try:
+        run_dir = _runs_dir() / run_id
+        stats_path = run_dir / "run_stats.json"
+        log_path = run_dir / "run.log"
+        stats: dict[str, Any] = {}
+        if stats_path.exists():
+            stats = json.loads(stats_path.read_text(encoding="utf-8"))
+        if log_path.exists() and "lines" not in stats:
+            stats["lines"] = [
+                ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()
+            ]
+        if stats.get("channels") or stats.get("lines"):
+            return stats
+    except Exception:
+        return None
+    return None
+
+
+def _section_run_log(payload: Optional[dict[str, Any]]) -> str:
+    if not payload:
+        return ""
+    channels = payload.get("channels") or []
+    lines = payload.get("lines") or []
+    totals = payload.get("totals") or {}
+    rates = str(payload.get("rates_note") or "").strip()
+
+    rows_html: list[str] = []
+    for ch in channels:
+        rows_html.append(
+            "<tr>"
+            f"<td>{_esc(ch.get('label') or ch.get('id') or '—')}</td>"
+            f"<td class=\"num\">{_esc(ch.get('sec_fmt') or '—')}</td>"
+            f"<td>{_esc(ch.get('apis_fmt') or '—')}</td>"
+            f"<td class=\"num\">{_esc(ch.get('cost_fmt') or '—')}</td>"
+            f"<td class=\"muted\">{_esc(ch.get('cost_note') or ch.get('detail') or '')}</td>"
+            "</tr>"
+        )
+    if not rows_html:
+        rows_html.append('<tr><td class="empty" colspan="5">Sem dados de canal</td></tr>')
+
+    summary_table = f"""
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Canal</th><th class="num">Tempo</th><th>APIs</th>
+          <th class="num">Custo est.</th><th>Detalhe</th>
+        </tr></thead>
+        <tbody>{''.join(rows_html)}</tbody>
+        <tfoot>
+          <tr class="runlog-total">
+            <th>Total</th>
+            <th class="num">{_esc(totals.get('sec_fmt') or '—')}</th>
+            <th></th>
+            <th class="num">{_esc(totals.get('cost_fmt') or '—')}</th>
+            <th></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    """
+
+    log_text = "\n".join(str(x) for x in lines)
+    log_block = (
+        f'<pre class="runlog-pre">{_esc(log_text)}</pre>'
+        if log_text.strip()
+        else '<p class="muted">Log vazio para este run.</p>'
+    )
+    rates_html = f'<p class="muted runlog-rates">{_esc(rates)}</p>' if rates else ""
+
+    return f"""
+    <section>
+      <h2>Log da execução</h2>
+      <p class="muted">Linhas capturadas durante o pipeline ({_esc(str(payload.get('line_count') or len(lines)))}).</p>
+      {log_block}
+      <h3 class="subhead">Resumo por canal — tempo e custo estimado</h3>
+      {summary_table}
+      {rates_html}
+    </section>
+    """
+
+
 def render_report_html(
     report: dict[str, Any],
     *,
@@ -1567,6 +1666,10 @@ def render_report_html(
     toc["overview"].append('<a href="#sec-competitors">Competitors</a>')
     for key, label, _ in blocks:
         toc[SECTION_GROUPS.get(key, "overview")].append(f'<a href="#sec-{key}">{_esc(label)}</a>')
+    run_log_payload = _resolve_run_log(report, meta)
+    run_log_html = _section_run_log(run_log_payload)
+    if run_log_html:
+        toc["overview"].append('<a href="#sec-runlog">Log</a>')
     toc_html = "".join(
         f'<div class="toc-group" data-group="{g}">'
         f'<div class="toc-title">{_esc(GROUP_LABELS[g])}</div>{"".join(links)}</div>'
@@ -1641,6 +1744,7 @@ def render_report_html(
     </div>
 
     {cards}
+    {f'<div class="card" id="sec-runlog" data-group="overview">{run_log_html}</div>' if run_log_html else ''}
     <footer class="foot">Spy USA{(' · run ' + _esc(meta.get('id'))) if meta.get('id') else ''}</footer>
   </main>
 </div>
@@ -1820,6 +1924,12 @@ a.ext:hover{text-decoration:underline}
   border-left:3px solid var(--group);border-radius:10px;padding:12px 14px}
 .insight strong{color:var(--text)}
 .note{color:#b45309;font-size:13px}
+.runlog-pre{margin:0 0 16px;max-height:360px;overflow:auto;padding:12px 14px;border:1px solid var(--border);
+  border-radius:12px;background:#0f172a;color:#e2e8f0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  white-space:pre-wrap;word-break:break-word}
+.runlog-rates{margin:10px 0 0;font-size:12px}
+table tfoot tr.runlog-total th{background:#f1f5f9;border-top:1px solid var(--border);font-size:12px;
+  text-transform:none;letter-spacing:0;color:var(--text);padding:12px}
 p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 12px;border-radius:8px}
 .brief p{margin:0 0 10px}
 .brief-lead{font-size:15px}

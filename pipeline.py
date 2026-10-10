@@ -19,6 +19,7 @@ from report_merge import (
     companies_from_primary_and_peers,
     load_company_report,
 )
+from run_log import RunRecorder, attach_run_log, write_run_log_files
 
 APP_DIR = Path(__file__).resolve().parent
 FINAL_DIR = APP_DIR / "scripts"
@@ -761,6 +762,29 @@ def _fmt_eta(seconds: int) -> str:
     return f"~{seconds}s"
 
 
+def _wrap_emit_logger(emit: EmitFn, recorder: RunRecorder) -> EmitFn:
+    def _emit(event: str, **payload: Any) -> None:
+        if event == "log" and payload.get("line") is not None:
+            recorder.add_line(str(payload.get("line") or ""))
+        emit(event, **payload)
+
+    return _emit
+
+
+def _wrap_set_step_timer(set_step: EmitFn, recorder: RunRecorder) -> EmitFn:
+    def _set(step_id: str, state: str, detail: str = "") -> None:
+        meta = next((s for s in STEP_DEFS if s["id"] == step_id), None)
+        recorder.mark_step(
+            step_id,
+            state,
+            detail=detail,
+            label=(meta or {}).get("label") or step_id,
+        )
+        set_step(step_id, state, detail)
+
+    return _set
+
+
 def _emit_progress(
     emit: EmitFn,
     set_step: EmitFn,
@@ -784,6 +808,22 @@ def _emit_progress(
         eta_label=_fmt_eta(eta),
         progress_label=f"Step {index}/{TOTAL_STEPS}",
     )
+
+
+def _persist_report_with_log(
+    run_id: str,
+    report: dict,
+    parsed: ParsedInput,
+    recorder: RunRecorder,
+    **save_kw: Any,
+) -> Path:
+    attach_run_log(report, recorder)
+    path = _save_report(run_id, report, parsed, **save_kw)
+    try:
+        write_run_log_files(RUNS_DIR / run_id, report.get("run_log") or {})
+    except Exception as e:
+        print(f"[RUN_LOG] persist failed: {e}", flush=True)
+    return path
 
 
 def _save_report(
@@ -887,6 +927,11 @@ def _run_compare_all_pipeline(
     if not companies:
         raise ValueError("No companies for All mode.")
 
+    recorder = RunRecorder()
+    ui_set_step = set_step
+    emit = _wrap_emit_logger(emit, recorder)
+    set_step = _wrap_set_step_timer(ui_set_step, recorder)
+
     emit(
         "pipeline_meta",
         mode="live",
@@ -943,7 +988,7 @@ def _run_compare_all_pipeline(
             run_pipeline(
                 child,
                 _child_emit,
-                set_step,
+                ui_set_step,  # child timings must not overwrite All channel timers
                 run_id="",  # writes metricas cache only; All run saved later
                 force=force,
                 site_only=True,
@@ -1030,8 +1075,8 @@ def _run_compare_all_pipeline(
 
     html_url = ""
     if run_id:
-        _save_report(
-            run_id, report, parsed,
+        _persist_report_with_log(
+            run_id, report, parsed, recorder,
             site_only=True,
             include_google_ads=include_google_ads,
             include_linkedin=include_linkedin,
@@ -1045,6 +1090,8 @@ def _run_compare_all_pipeline(
             compare_all=True,
         )
         html_url = f"/runs/{run_id}/report.html"
+    else:
+        attach_run_log(report, recorder)
 
     emit("done", report=report, html_url=html_url)
     return report
@@ -1111,6 +1158,10 @@ def run_pipeline(
     # Ensure parent process market helpers (report_builder) see the same market
     os.environ["SPY_MARKET"] = market
 
+    recorder = RunRecorder()
+    emit = _wrap_emit_logger(emit, recorder)
+    set_step = _wrap_set_step_timer(set_step, recorder)
+
     def on_log(line: str) -> None:
         emit("log", line=line)
 
@@ -1118,6 +1169,21 @@ def run_pipeline(
         report["market"] = market.upper()
         report["compare_all"] = bool(compare_all)
         return report
+
+    def _save_kw() -> dict[str, Any]:
+        return dict(
+            site_only=site_only,
+            include_google_ads=include_google_ads,
+            include_linkedin=include_linkedin,
+            include_youtube_influencers=include_youtube_influencers,
+            include_instagram_influencers=include_instagram_influencers,
+            include_reddit=include_reddit,
+            include_twitter=include_twitter,
+            include_linkedin_profile=include_linkedin_profile,
+            force=force,
+            market=market,
+            compare_all=compare_all,
+        )
 
     if force:
         clear_slug_cache(slug)
@@ -1147,20 +1213,9 @@ def run_pipeline(
         report = _attach_linkedin_profile(report, slug)
         report = _tag_report(report)
         if run_id:
-            _save_report(
-                run_id, report, parsed,
-                site_only=site_only,
-                include_google_ads=include_google_ads,
-                include_linkedin=include_linkedin,
-                include_youtube_influencers=include_youtube_influencers,
-                include_instagram_influencers=include_instagram_influencers,
-                include_reddit=include_reddit,
-                include_twitter=include_twitter,
-                include_linkedin_profile=include_linkedin_profile,
-                force=force,
-                market=market,
-                compare_all=compare_all,
-            )
+            _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
+        else:
+            attach_run_log(report, recorder)
         emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
         return report
 
@@ -1540,21 +1595,10 @@ def run_pipeline(
 
     html_url = ""
     if run_id:
-        _save_report(
-            run_id, report, parsed,
-            site_only=site_only,
-            include_google_ads=include_google_ads,
-            include_linkedin=include_linkedin,
-            include_youtube_influencers=include_youtube_influencers,
-            include_instagram_influencers=include_instagram_influencers,
-            include_reddit=include_reddit,
-            include_twitter=include_twitter,
-            include_linkedin_profile=include_linkedin_profile,
-            force=force,
-            market=market,
-            compare_all=compare_all,
-        )
+        _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
         html_url = f"/runs/{run_id}/report.html"
+    else:
+        attach_run_log(report, recorder)
 
     emit("done", report=report, html_url=html_url)
     return report
