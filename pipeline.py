@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional  # noqa: F401 — Any used in helpers
 
 from parse_input import ParsedInput, normalize_url, slugify_client
 from report_builder import build_early_briefing_competitors, build_report_from_xlsx
@@ -27,6 +27,7 @@ SCRIPT_LINKEDIN = FINAL_DIR / "5e - linkedin ads.py"
 SCRIPT_BRAND_DFS = FINAL_DIR / "5g - brand dataforseo.py"
 SCRIPT_SIMILARWEB = FINAL_DIR / "5h - similarweb.py"
 SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
+SCRIPT_YT_INFLUENCERS = FINAL_DIR / "5i - youtube influencers.py"
 
 _DATA_DIR = (os.environ.get("RADAR_DATA_DIR") or os.environ.get("SPY_DATA_DIR") or "").strip()
 _OUT_ROOT = (Path(_DATA_DIR) / "outputs") if _DATA_DIR else (APP_DIR / "outputs")
@@ -49,6 +50,7 @@ STEP_DEFS = [
     {"id": "instagram", "label": "Instagram", "index": 9, "eta_live": 120},
     {"id": "youtube", "label": "YouTube", "index": 10, "eta_live": 20},
     {"id": "tiktok", "label": "TikTok", "index": 11, "eta_live": 40},
+    {"id": "youtube_influencers", "label": "YouTube Influencers", "index": 12, "eta_live": 90},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
 
@@ -194,6 +196,87 @@ def _attach_similarweb(report: dict, slug: str) -> dict:
     }
     return report
 
+
+def _fmt_views(n: Any) -> str:
+    try:
+        v = int(n or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"{v / 1_000:.1f}K"
+    return f"{v:,}"
+
+
+def _load_youtube_influencers(slug: str) -> Optional[dict]:
+    path = METRICAS_DIR / slug / f"youtube-influencers-{slug}.json"
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _attach_youtube_influencers(report: dict, slug: str) -> dict:
+    data = _load_youtube_influencers(slug)
+    if not data:
+        return report
+    rows_out: list[dict] = []
+    for r in data.get("rows") or []:
+        off = int(r.get("views_official") or 0)
+        unoff = int(r.get("views_unofficial") or 0)
+        total = off + unoff
+        rows_out.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": total,
+            "traffic_fmt": _fmt_views(total),
+            "views_official": off,
+            "views_official_fmt": _fmt_views(off),
+            "views_unofficial": unoff,
+            "views_unofficial_fmt": _fmt_views(unoff),
+            "views_30d": int(r.get("views_30d") or 0),
+            "views_30d_fmt": _fmt_views(r.get("views_30d") or 0),
+            "views_6m": int(r.get("views_6m") or 0),
+            "views_6m_fmt": _fmt_views(r.get("views_6m") or 0),
+            "views_1y_plus": int(r.get("views_1y_plus") or 0),
+            "views_1y_plus_fmt": _fmt_views(r.get("views_1y_plus") or 0),
+            "about_count": r.get("about_count") or 0,
+            "page_count": r.get("page_count") or 0,
+            "top5": r.get("top5") or [],
+            "url": r.get("search_url") or "",
+            "usage": r.get("usage") or {},
+            "error": r.get("error"),
+        })
+    client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
+    usage = data.get("usage_total") or {}
+    report["youtube_influencers"] = {
+        "source": "tinyfish",
+        "market": data.get("market") or "US",
+        "leader": client.get("name") if client else "—",
+        "total_traffic_fmt": client.get("traffic_fmt") if client else "—",
+        "unit": "views (1st page)",
+        "rows": rows_out,
+        "usage_total": usage,
+        "insight": (
+            f"YouTube 1st-page search for «{client.get('name') or '—'}»: "
+            f"official {_fmt_views(client.get('views_official'))} · "
+            f"unofficial {_fmt_views(client.get('views_unofficial'))} · "
+            f"30d {_fmt_views(client.get('views_30d'))} / "
+            f"6m {_fmt_views(client.get('views_6m'))} / "
+            f"1y+ {_fmt_views(client.get('views_1y_plus'))} "
+            f"(product-relevant only; TinyFish ≈ ${usage.get('estimated_usd', 0)})."
+        ),
+        "analysis_title": "YouTube Influencers",
+        "pro_hook": "Na versão Pro mapeamos creators, scripts e oportunidades de menção no YouTube.",
+    }
+    return report
 
 def find_metricas_xlsx(slug: str) -> Optional[Path]:
     folder = METRICAS_DIR / slug
@@ -456,6 +539,7 @@ def _save_report(
     site_only: bool = False,
     include_google_ads: bool = True,
     include_linkedin: bool = True,
+    include_youtube_influencers: bool = False,
     force: bool = False,
     market: str = "us",
     compare_all: bool = False,
@@ -480,6 +564,7 @@ def _save_report(
         "peer_urls": list(parsed.competitors or []),
         "include_google_ads": bool(include_google_ads),
         "include_linkedin": bool(include_linkedin),
+        "include_youtube_influencers": bool(include_youtube_influencers),
         "force": bool(force),
         "created_at": created_at,
         "html_url": f"/runs/{run_id}/report.html",
@@ -507,6 +592,7 @@ def run_pipeline(
     site_only: bool = False,
     include_google_ads: bool = True,
     include_linkedin: bool = True,
+    include_youtube_influencers: bool = False,
     market: str = "us",
     compare_all: bool = False,
 ) -> dict:
@@ -559,10 +645,14 @@ def run_pipeline(
             preferred_competitors=parsed.competitors,
         )
         _emit_progress(emit, set_step, "briefing_concorrentes", "done", "Cached report")
-        for sid in ("seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta", "linkedin", "instagram", "youtube", "tiktok"):
+        for sid in (
+            "seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta",
+            "linkedin", "instagram", "youtube", "tiktok", "youtube_influencers",
+        ):
             _emit_progress(emit, set_step, sid, "done", "Cached")
         report = _attach_brand_dfs(report, slug)
         report = _attach_similarweb(report, slug)
+        report = _attach_youtube_influencers(report, slug)
         report = _tag_report(report)
         if run_id:
             _save_report(
@@ -570,6 +660,7 @@ def run_pipeline(
                 site_only=site_only,
                 include_google_ads=include_google_ads,
                 include_linkedin=include_linkedin,
+                include_youtube_influencers=include_youtube_influencers,
                 force=force,
                 market=market,
                 compare_all=compare_all,
@@ -585,6 +676,7 @@ def run_pipeline(
         compare_all=compare_all,
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
         total_steps=TOTAL_STEPS,
         eta_label="~3–8 min" if site_only else "~10–15 min",
     )
@@ -814,6 +906,38 @@ def run_pipeline(
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")
 
+    # 10) YouTube Influencers (optional) — TinyFish Search + Agent
+    if include_youtube_influencers:
+        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+            emit("log", line="[YT-INF] Skipped: TINYFISH_API_KEY missing")
+            _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped (no TinyFish key)")
+        else:
+            _emit_progress(
+                emit, set_step, "youtube_influencers", "running",
+                "YouTube Influencers (TinyFish 1st page)...",
+            )
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_YT_INFLUENCERS), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=600,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[YT-INF] Partial failure: {e}")
+            report = _attach_youtube_influencers(report, slug)
+            report = _tag_report(report)
+            emit(
+                "partial",
+                section="youtube_influencers",
+                data=report.get("youtube_influencers") or {},
+                client=client_name,
+            )
+            _emit_progress(emit, set_step, "youtube_influencers", "done", "YouTube Influencers ready")
+    else:
+        _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped")
+
     html_url = ""
     if run_id:
         _save_report(
@@ -821,6 +945,7 @@ def run_pipeline(
             site_only=site_only,
             include_google_ads=include_google_ads,
             include_linkedin=include_linkedin,
+            include_youtube_influencers=include_youtube_influencers,
             force=force,
             market=market,
             compare_all=compare_all,

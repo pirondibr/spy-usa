@@ -80,6 +80,7 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "peer_urls": list(job.parsed.competitors or []),
         "include_google_ads": bool(job.include_google_ads),
         "include_linkedin": bool(job.include_linkedin),
+        "include_youtube_influencers": bool(getattr(job, "include_youtube_influencers", False)),
         "force": bool(job.force),
         "created_at": job.created_at,
         "updated_at": _now_iso(),
@@ -156,6 +157,7 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "site_only": job.site_only,
             "include_google_ads": job.include_google_ads,
             "include_linkedin": job.include_linkedin,
+            "include_youtube_influencers": bool(job.include_youtube_influencers),
             "force": job.force,
             "created_at": job.created_at,
             "html_url": job.html_url or (
@@ -180,6 +182,7 @@ class Job:
     site_only: bool = False
     include_google_ads: bool = True
     include_linkedin: bool = True
+    include_youtube_influencers: bool = False
     market: str = "us"
     compare_all: bool = False
     queue: Queue = field(default_factory=Queue)
@@ -254,6 +257,7 @@ def _worker(job: Job) -> None:
             site_only=job.site_only,
             include_google_ads=job.include_google_ads,
             include_linkedin=job.include_linkedin,
+            include_youtube_influencers=bool(job.include_youtube_influencers),
             market=job.market or "us",
             compare_all=bool(job.compare_all),
         )
@@ -285,7 +289,7 @@ def _normalize_market(raw: Any) -> str:
     return "us"
 
 
-def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, str, bool]:
+def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, bool, str, bool]:
     force = bool(body.get("force") or body.get("refresh"))
     # Default ON: modo sem pesquisar concorrentes
     if "site_only" in body or "solo" in body or "only_site" in body:
@@ -304,6 +308,12 @@ def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, str, bool]:
         include_linkedin = bool(body.get("linkedin"))
     else:
         include_linkedin = True
+    if "include_youtube_influencers" in body:
+        include_youtube_influencers = bool(body.get("include_youtube_influencers"))
+    elif "youtube_influencers" in body:
+        include_youtube_influencers = bool(body.get("youtube_influencers"))
+    else:
+        include_youtube_influencers = False
     market = _normalize_market(body.get("market") or body.get("spy_market") or os.environ.get("SPY_MARKET") or "us")
     compare_all = bool(
         body.get("compare_all")
@@ -312,7 +322,15 @@ def _flags_from_body(body: dict) -> tuple[bool, bool, bool, bool, str, bool]:
     )
     if compare_all:
         site_only = True
-    return force, site_only, include_google_ads, include_linkedin, market, compare_all
+    return (
+        force,
+        site_only,
+        include_google_ads,
+        include_linkedin,
+        include_youtube_influencers,
+        market,
+        compare_all,
+    )
 
 
 def _job_payload(job: Job) -> dict[str, Any]:
@@ -326,6 +344,7 @@ def _job_payload(job: Job) -> dict[str, Any]:
         "market": (job.market or "us").upper(),
         "include_google_ads": job.include_google_ads,
         "include_linkedin": job.include_linkedin,
+        "include_youtube_influencers": bool(job.include_youtube_influencers),
         "force": job.force,
         "status": job.status,
         "stream": f"/api/jobs/{job.job_id}/stream",
@@ -378,6 +397,7 @@ def _start_jobs_from_raw(
     site_only: bool,
     include_google_ads: bool,
     include_linkedin: bool,
+    include_youtube_influencers: bool = False,
     market: str = "us",
     compare_all: bool = False,
 ) -> list[Job]:
@@ -410,6 +430,7 @@ def _start_jobs_from_raw(
             site_only=site_only,
             include_google_ads=include_google_ads,
             include_linkedin=include_linkedin,
+            include_youtube_influencers=include_youtube_influencers,
             market=market,
             compare_all=compare_all,
         )
@@ -427,7 +448,15 @@ def analyze():
     if not raw:
         return jsonify({"error": "Informe um domínio ou URL (ex: semrush.com)"}), 400
 
-    force, site_only, include_google_ads, include_linkedin, market, compare_all = _flags_from_body(body)
+    (
+        force,
+        site_only,
+        include_google_ads,
+        include_linkedin,
+        include_youtube_influencers,
+        market,
+        compare_all,
+    ) = _flags_from_body(body)
 
     missing = [k for k, ok in _live_keys_ready().items() if not ok]
     if missing:
@@ -439,6 +468,7 @@ def analyze():
         site_only=site_only,
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
         market=market,
         compare_all=compare_all,
     )
@@ -457,6 +487,7 @@ def analyze():
         "site_only": site_only,
         "include_google_ads": include_google_ads,
         "include_linkedin": include_linkedin,
+        "include_youtube_influencers": include_youtube_influencers,
     })
 
 
@@ -472,6 +503,7 @@ def rerun(run_id: str):
     site_only = True
     include_google_ads = True
     include_linkedin = True
+    include_youtube_influencers = False
     market = "us"
     compare_all = False
     peer_urls: list[str] = []
@@ -480,6 +512,7 @@ def rerun(run_id: str):
         site_only = bool(meta.get("site_only", True))
         include_google_ads = bool(meta.get("include_google_ads", True))
         include_linkedin = bool(meta.get("include_linkedin", True))
+        include_youtube_influencers = bool(meta.get("include_youtube_influencers", False))
         market = _normalize_market(meta.get("market") or "us")
         compare_all = bool(meta.get("compare_all"))
         peer_urls = [str(x).strip() for x in (meta.get("peer_urls") or []) if str(x).strip()]
@@ -488,6 +521,7 @@ def rerun(run_id: str):
         site_only = job_mem.site_only
         include_google_ads = job_mem.include_google_ads
         include_linkedin = job_mem.include_linkedin
+        include_youtube_influencers = bool(job_mem.include_youtube_influencers)
         market = _normalize_market(job_mem.market or "us")
         compare_all = bool(job_mem.compare_all)
         peer_urls = list(job_mem.parsed.competitors or [])
@@ -509,6 +543,7 @@ def rerun(run_id: str):
         site_only=site_only,
         include_google_ads=include_google_ads,
         include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
         market=market,
         compare_all=compare_all,
     )
@@ -554,6 +589,7 @@ def job_status(job_id: str):
         "site_only": job.site_only,
         "include_google_ads": job.include_google_ads,
         "include_linkedin": job.include_linkedin,
+        "include_youtube_influencers": bool(job.include_youtube_influencers),
     })
 
 

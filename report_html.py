@@ -155,7 +155,7 @@ def _summary_channel_url(
         return f"https://adstransparency.google.com/?region={google_region}&domain={quote(domain)}"
     if key == "similarweb":
         return site or (f"https://{domain}/" if domain else "")
-    if key in ("youtube", "instagram", "tiktok"):
+    if key in ("youtube", "instagram", "tiktok", "youtube_influencers"):
         return site
     return site or (f"https://{domain}/" if domain else "")
 
@@ -171,6 +171,7 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         ("SEO Orgânico", "seo", "seo"),
         ("SimilarWeb", "similarweb", "similarweb"),
         ("YouTube", "youtube", "count"),
+        ("YouTube Influencers", "youtube_influencers", "seo"),
         ("Instagram", "instagram", "count"),
         ("TikTok", "tiktok", "count"),
         ("Marca DataForSEO", "brand_dataforseo", "brand_dfs"),
@@ -191,6 +192,7 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         "seo": "Semrush",
         "similarweb": "Site",
         "youtube": "Profile",
+        "youtube_influencers": "Search",
         "instagram": "Profile",
         "tiktok": "Profile",
         "brand_dataforseo": "Semrush",
@@ -321,6 +323,55 @@ def _section_rank(
     return f"""
     <section>
       <h2>{_esc(title)}</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
+def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = [
+        "#", "Company", "Official views", "Unofficial views",
+        "30d", "6m", "1y+", "About #", "Top links", "Search",
+    ]
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        top_bits = []
+        for t in (r.get("top5") or [])[:5]:
+            title = _esc((t.get("title") or "video")[:48])
+            top_bits.append(_link_cell(t.get("url"), title))
+        table_rows.append([
+            str(i),
+            name,
+            _esc(r.get("views_official_fmt") or "0"),
+            _esc(r.get("views_unofficial_fmt") or "0"),
+            _esc(r.get("views_30d_fmt") or "0"),
+            _esc(r.get("views_6m_fmt") or "0"),
+            _esc(r.get("views_1y_plus_fmt") or "0"),
+            _esc(str(r.get("about_count") or 0)),
+            "<br>".join(top_bits) if top_bits else "—",
+            _link_cell(r.get("url"), "YouTube"),
+        ])
+    usage = section.get("usage_total") or {}
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = (
+        f"product-relevant 1st page · TinyFish ≈ ${_esc(str(usage.get('estimated_usd', '—')))} "
+        f"· leader {_esc(section.get('leader') or '—')}"
+    )
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "YouTube Influencers"
+    return f"""
+    <section>
+      <h2>YouTube Influencers</h2>
       <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
       {_rows_table(headers, table_rows)}
       {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
@@ -570,6 +621,7 @@ def render_report_html(
         _section_rank(f"SEO Organic ({market})", report.get("seo"), "seo", link_label="Semrush"),
         _section_similarweb(report.get("similarweb")),
         _section_rank("YouTube", report.get("youtube"), "count", link_label="Profile"),
+        _section_youtube_influencers(report.get("youtube_influencers")),
         _section_rank("Instagram", report.get("instagram"), "count", link_label="Profile"),
         _section_rank("TikTok", report.get("tiktok"), "count", link_label="Profile"),
         _section_brand_dfs(report.get("brand_dataforseo")),
