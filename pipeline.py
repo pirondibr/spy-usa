@@ -91,10 +91,37 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         db = "us"
         mkt = "US"
 
+    def _dfs_growth(new, old):
+        """Same rule as brand_dataforseo._pct: 0/missing baseline → floor 100."""
+        if new is None:
+            return None
+        try:
+            new_i = int(new)
+        except (TypeError, ValueError):
+            return None
+        if old is None or old == 0:
+            if new_i == 0:
+                return 0.0
+            return round(((new_i - 100) / 100) * 100, 2)
+        try:
+            old_i = int(old)
+        except (TypeError, ValueError):
+            return None
+        if old_i == 0:
+            return round(((new_i - 100) / 100) * 100, 2) if new_i else 0.0
+        return round(((new_i - old_i) / old_i) * 100, 2)
+
+    def _fmt_g(g):
+        return f"{g:+.1f}%" if isinstance(g, (int, float)) else "n/a"
+
     rows = []
     for r in rows_raw:
         vol = r.get("latest_volume")
-        g1 = r.get("growth_1y_pct")
+        # Recompute growth so 0-baseline brands get a rate (volume stays 0 in report)
+        g1 = _dfs_growth(vol, r.get("volume_1y"))
+        g2 = _dfs_growth(vol, r.get("volume_2y"))
+        g3 = _dfs_growth(vol, r.get("volume_3y"))
+        g5 = _dfs_growth(vol, r.get("volume_5y"))
         kw = (r.get("brand_keyword") or "").strip()
         kw_url = (
             f"https://www.semrush.com/analytics/keywordoverview/?q={quote(kw)}&db={db}"
@@ -109,33 +136,38 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
             "brand_keyword": r.get("brand_keyword"),
             "traffic": vol or 0,
             "traffic_fmt": f"{vol:,}" if isinstance(vol, int) else (str(vol) if vol is not None else "—"),
-            "growth_fmt": (f"{g1:+.1f}%" if isinstance(g1, (int, float)) else "n/a"),
+            "growth_fmt": _fmt_g(g1),
             "latest_label": r.get("latest_label"),
             "volume_1y": r.get("volume_1y"),
             "volume_2y": r.get("volume_2y"),
             "volume_3y": r.get("volume_3y"),
             "volume_5y": r.get("volume_5y"),
-            "growth_1y_pct": r.get("growth_1y_pct"),
-            "growth_2y_pct": r.get("growth_2y_pct"),
-            "growth_3y_pct": r.get("growth_3y_pct"),
-            "growth_5y_pct": r.get("growth_5y_pct"),
+            "growth_1y_pct": g1,
+            "growth_2y_pct": g2,
+            "growth_3y_pct": g3,
+            "growth_5y_pct": g5,
             "site_title": r.get("site_title"),
             "url": kw_url,
         })
-    client = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
+    client = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
+    client_raw = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
     report["brand_dataforseo"] = {
         "source": "dataforseo",
         "market": mkt,
-        "latest_label": data.get("latest_label") or client.get("latest_label"),
-        "client_keyword": data.get("client_keyword") or client.get("brand_keyword"),
+        "latest_label": data.get("latest_label") or client_raw.get("latest_label"),
+        "client_keyword": data.get("client_keyword") or client_raw.get("brand_keyword"),
         "leader": (rows[0].get("name") if rows else "—"),
-        "total_traffic_fmt": rows[0].get("traffic_fmt") if rows else "—",
+        "total_traffic_fmt": client.get("traffic_fmt") if client else (rows[0].get("traffic_fmt") if rows else "—"),
+        "growth_fmt": client.get("growth_fmt") if client else "n/a",
+        "growth_1y_pct": client.get("growth_1y_pct") if client else None,
         "unit": "monthly searches",
         "rows": rows,
         "insight": (
-            f"Brand keyword «{data.get('client_keyword') or client.get('brand_keyword') or '—'}» "
-            f"· latest month {data.get('latest_label') or client.get('latest_label') or 'n/a'} "
-            f"(DataForSEO Google Ads {mkt}). Growth vs same month 1y/2y/3y/5y."
+            f"Brand keyword «{data.get('client_keyword') or client_raw.get('brand_keyword') or '—'}» "
+            f"· latest month {data.get('latest_label') or client_raw.get('latest_label') or 'n/a'} "
+            f"· growth 1y {client.get('growth_fmt') or 'n/a'} "
+            f"(DataForSEO Google Ads {mkt}). "
+            f"Baseline 0 treated as 100 for growth math only."
         ),
         "analysis_title": "Brand Search — DataForSEO",
         "raw": data,

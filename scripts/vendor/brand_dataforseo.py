@@ -131,9 +131,29 @@ def resolve_brand_keyword(
 
 
 def _pct(new: Optional[int], old: Optional[int]) -> Optional[float]:
-    if new is None or old in (None, 0):
+    """Growth %: ((new - old) / old) * 100.
+
+    New brands with 0 (or missing) historical volume: treat baseline as 100
+    for the math only — the report still shows volume 0 / —.
+    """
+    if new is None:
         return None
-    return round(((new - old) / old) * 100, 2)
+    try:
+        new_i = int(new)
+    except (TypeError, ValueError):
+        return None
+    # Missing / zero baseline → virtual floor of 100 searches
+    if old is None or old == 0:
+        if new_i == 0:
+            return 0.0
+        return round(((new_i - 100) / 100) * 100, 2)
+    try:
+        old_i = int(old)
+    except (TypeError, ValueError):
+        return None
+    if old_i == 0:
+        return round(((new_i - 100) / 100) * 100, 2) if new_i else 0.0
+    return round(((new_i - old_i) / old_i) * 100, 2)
 
 
 def _pick_month(

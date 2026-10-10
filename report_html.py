@@ -162,12 +162,23 @@ def _main_datum(
         return str(section.get("total_traffic_fmt") or "—")
     if kind == "brand_dfs":
         if row:
-            return str(
+            vol = str(
                 row.get("traffic_fmt")
                 or row.get("latest_volume")
                 or "0"
             )
-        return str(section.get("total_traffic_fmt") or "—")
+            g = row.get("growth_1y_pct")
+            if not isinstance(g, (int, float)):
+                g = _dfs_growth_pct(row.get("traffic") or row.get("latest_volume"), row.get("volume_1y"))
+            if isinstance(g, (int, float)):
+                return f"{vol} · {g:+.1f}%"
+            return vol
+        vol = str(section.get("total_traffic_fmt") or "—")
+        g = section.get("growth_1y_pct")
+        if isinstance(g, (int, float)):
+            return f"{vol} · {g:+.1f}%"
+        gf = section.get("growth_fmt")
+        return f"{vol} · {gf}" if gf and gf != "n/a" else vol
     if kind == "similarweb":
         if row:
             return str(row.get("traffic_fmt") or "0")
@@ -457,10 +468,24 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         ):
             continue
         unit = (section.get("unit") or unit_fallback.get(kind) or "").strip()
+        # DataForSEO summary already embeds Δ1y in the value
+        if key == "brand_dataforseo":
+            unit = ""
         link_label = link_labels.get(key, "Open")
         group = SECTION_GROUPS.get(key, "overview")
         anchor = f"#sec-{key}"
         client = _client_row(section)
+        # Ensure growth is available for summary even on older report.json
+        if key == "brand_dataforseo" and client is not None:
+            if not isinstance(client.get("growth_1y_pct"), (int, float)):
+                client["growth_1y_pct"] = _dfs_growth_pct(
+                    client.get("traffic") or client.get("latest_volume"),
+                    client.get("volume_1y"),
+                )
+            if isinstance(client.get("growth_1y_pct"), (int, float)):
+                client["growth_fmt"] = f"{client['growth_1y_pct']:+.1f}%"
+                section["growth_1y_pct"] = client["growth_1y_pct"]
+                section["growth_fmt"] = client["growth_fmt"]
         metric = _channel_metric_value(key, section, client)
         score = _channel_score(key, metric)
         rank = _SCORE_RANK.get(score, 0)
@@ -868,6 +893,27 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
     """
 
 
+def _dfs_growth_pct(new: Any, old: Any) -> Optional[float]:
+    """Growth % with 0/missing baseline treated as 100 (display volume stays 0)."""
+    if new is None:
+        return None
+    try:
+        new_i = int(new)
+    except (TypeError, ValueError):
+        return None
+    if old is None or old == 0:
+        if new_i == 0:
+            return 0.0
+        return round(((new_i - 100) / 100) * 100, 2)
+    try:
+        old_i = int(old)
+    except (TypeError, ValueError):
+        return None
+    if old_i == 0:
+        return round(((new_i - 100) / 100) * 100, 2) if new_i else 0.0
+    return round(((new_i - old_i) / old_i) * 100, 2)
+
+
 def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
     if not section:
         return ""
@@ -888,36 +934,76 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
             return "n/a"
         return f"{v:+.1f}%"
 
-    headers = ["#", "Company", "Keyword", "Latest", "Vol", "1y", "2y", "3y", "5y", "Δ1y", "Link"]
+    def _growth_for(r: dict, years: str) -> Optional[float]:
+        key = f"growth_{years}_pct"
+        g = r.get(key)
+        if isinstance(g, (int, float)):
+            # Recompute when baseline was 0 (old runs stored n/a / None / wrong)
+            vol_old = r.get(f"volume_{years}")
+            if vol_old in (None, 0) or g is None:
+                return _dfs_growth_pct(r.get("traffic") or r.get("latest_volume"), vol_old)
+            return float(g)
+        return _dfs_growth_pct(r.get("traffic") or r.get("latest_volume"), r.get(f"volume_{years}"))
+
+    headers = [
+        "#", "Company", "Keyword", "Latest", "Vol",
+        "1y", "2y", "3y", "5y",
+        "Δ1y", "Δ2y", "Δ3y", "Δ5y", "Link",
+    ]
     table_rows: list[list[str]] = []
+    client_g1: Optional[float] = None
     for i, r in enumerate(rows_data, 1):
         name = _esc(r.get("name") or r.get("domain") or "—")
         if r.get("is_client"):
             name += ' <span class="you">you</span>'
+        g1 = _growth_for(r, "1y")
+        g2 = _growth_for(r, "2y")
+        g3 = _growth_for(r, "3y")
+        g5 = _growth_for(r, "5y")
+        if r.get("is_client") or client_g1 is None:
+            client_g1 = g1
+        # Keep volume 0 as 0 (not —)
+        def _vol_cell(v: Any) -> str:
+            if v is None:
+                return "—"
+            return _fmt_vol(v)
+
         table_rows.append([
             str(i),
             name,
             _esc(r.get("brand_keyword") or "—"),
             _esc(r.get("latest_label") or "—"),
             _esc(r.get("traffic_fmt") or _fmt_vol(r.get("latest_volume") or r.get("traffic"))),
-            _esc(_fmt_vol(r.get("volume_1y"))),
-            _esc(_fmt_vol(r.get("volume_2y"))),
-            _esc(_fmt_vol(r.get("volume_3y"))),
-            _esc(_fmt_vol(r.get("volume_5y"))),
-            _esc(_fmt_g(r.get("growth_1y_pct"))),
+            _esc(_vol_cell(r.get("volume_1y"))),
+            _esc(_vol_cell(r.get("volume_2y"))),
+            _esc(_vol_cell(r.get("volume_3y"))),
+            _esc(_vol_cell(r.get("volume_5y"))),
+            _esc(_fmt_g(g1)),
+            _esc(_fmt_g(g2)),
+            _esc(_fmt_g(g3)),
+            _esc(_fmt_g(g5)),
             _link_cell(r.get("url"), "Semrush"),
         ])
 
     latest = _esc(section.get("latest_label") or "—")
     kw = _esc(section.get("client_keyword") or "—")
-    hero = _esc(section.get("total_traffic_fmt") or "—")
-    hero_sub = f"keyword {kw} · latest {latest} · DataForSEO US"
+    hero_vol = _esc(section.get("total_traffic_fmt") or "—")
+    if client_g1 is None:
+        client_g1 = section.get("growth_1y_pct")
+    hero_g = _fmt_g(client_g1) if isinstance(client_g1, (int, float)) else (
+        str(section.get("growth_fmt") or "n/a")
+    )
+    hero = f"{hero_vol} <span class='kpi-unit'>· {_esc(hero_g)} Δ1y</span>"
+    hero_sub = (
+        f"keyword {kw} · latest {latest} · DataForSEO · "
+        f"growth uses baseline 100 when historical volume is 0"
+    )
     insight = section.get("insight") or ""
     analysis = section.get("analysis_title") or ""
     return f"""
     <section>
       <h2>Brand Search — DataForSEO (US)</h2>
-      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{_esc(hero_sub)}</div></div>
       {_rows_table(headers, table_rows)}
       {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
     </section>
