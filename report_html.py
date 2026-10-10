@@ -449,10 +449,11 @@ _SUMMARY_CHANNELS_V1: list[tuple[str, str, str]] = [
     ("LinkedIn Profile", "linkedin_profile", "seo"),
 ]
 
-# Fixed Resumo blocks (label, report key, datum kind)
-_SUMMARY_BLOCKS: list[tuple[str, list[tuple[str, str, str]]]] = [
+# Fixed Resumo blocks: (title, css slug, channels[(label, key, kind), ...])
+_SUMMARY_BLOCKS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
     (
         "Popularidade",
+        "popularidade",
         [
             ("SimilarWeb", "similarweb", "similarweb"),
             ("DataForSEO", "brand_dataforseo", "brand_dfs"),
@@ -461,6 +462,7 @@ _SUMMARY_BLOCKS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ),
     (
         "Paid Ads",
+        "paid",
         [
             ("Meta Ads", "meta", "ads"),
             ("Google Ads", "google_ads", "ads"),
@@ -469,6 +471,7 @@ _SUMMARY_BLOCKS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ),
     (
         "Orgânico",
+        "organico",
         [
             ("SEO Orgânico", "seo", "seo"),
             ("Reddit", "reddit", "seo"),
@@ -481,6 +484,7 @@ _SUMMARY_BLOCKS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ),
     (
         "Influenciadores",
+        "influenciadores",
         [
             ("YouTube Influencers", "youtube_influencers", "seo"),
             ("Instagram Influencers", "instagram_influencers", "seo"),
@@ -494,6 +498,10 @@ def _collect_summary_kpis(
     channels: list[tuple[str, str, str]],
     *,
     run_meta: Optional[dict[str, Any]] = None,
+    show_you: bool = True,
+    score_by_company: bool = True,
+    score_centered: bool = False,
+    inherit_block_color: bool = False,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Build KPI cards for the given channel list. Returns (items, compare_all)."""
     market = _report_market(report, run_meta)
@@ -522,6 +530,7 @@ def _collect_summary_kpis(
             unit = ""
         link_label = _SUMMARY_LINK_LABELS.get(key, "Open")
         group = SECTION_GROUPS.get(key, "overview")
+        group_attr = "" if inherit_block_color else f' data-group="{group}"'
         anchor = f"#sec-{key}"
         client = _client_row(section)
         if key == "brand_dataforseo" and client is not None:
@@ -537,6 +546,7 @@ def _collect_summary_kpis(
         metric = _channel_metric_value(key, section, client)
         score = _channel_score(key, metric)
         rank = _SCORE_RANK.get(score, 0)
+        badge = _score_badge(score)
 
         if compare_all and len(rows_data) > 1:
             lines: list[str] = []
@@ -545,20 +555,52 @@ def _collect_summary_kpis(
                 value = _main_datum(section, kind, r)
                 u = _unit_for(value, unit)
                 url = _summary_channel_url(key, section, r, market=market)
-                you = ' <span class="you">you</span>' if r.get("is_client") else ""
+                you = (
+                    ' <span class="you">you</span>'
+                    if show_you and r.get("is_client")
+                    else ""
+                )
                 link = _link_cell(url, "↗")
                 row_score = _channel_score(key, _channel_metric_value(key, section, r))
-                lines.append(
-                    f'<li><span class="kpi-name">{_esc(name)}{you} {_score_badge(row_score)}</span>'
-                    f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
-                    f'{(" " + link) if link != "—" else ""}</span></li>'
+                if score_by_company and score_centered:
+                    # name | score (center) | value
+                    lines.append(
+                        f'<li class="kpi-row">'
+                        f'<span class="kpi-name">{_esc(name)}{you}</span>'
+                        f'<span class="kpi-score-mid">{_score_badge(row_score)}</span>'
+                        f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
+                        f'{(" " + link) if link != "—" else ""}</span></li>'
+                    )
+                elif score_by_company:
+                    lines.append(
+                        f'<li><span class="kpi-name">{_esc(name)}{you} {_score_badge(row_score)}</span>'
+                        f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
+                        f'{(" " + link) if link != "—" else ""}</span></li>'
+                    )
+                else:
+                    lines.append(
+                        f'<li><span class="kpi-name">{_esc(name)}{you}</span>'
+                        f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
+                        f'{(" " + link) if link != "—" else ""}</span></li>'
+                    )
+            if score_centered and not score_by_company:
+                head = (
+                    f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                    f'<div class="kpi-score-center">{badge}</div>'
+                )
+            elif score_centered:
+                head = f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+            else:
+                head = (
+                    f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                    f"{badge}</div>"
                 )
             html = (
-                f'<div class="kpi kpi-multi" data-group="{group}" data-score="{_esc(score)}" '
+                f'<div class="kpi kpi-multi{(" kpi-score-centered" if score_centered else "")}"'
+                f'{group_attr} data-score="{_esc(score)}" '
                 f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
                 f'data-metric="{metric if metric is not None else -1}">'
-                f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
-                f'{_score_badge(score)}</div>'
+                f"{head}"
                 f'<ul class="kpi-list">{"".join(lines)}</ul></div>'
             )
         else:
@@ -566,17 +608,30 @@ def _collect_summary_kpis(
             u = _unit_for(value, unit)
             url = _summary_channel_url(key, section, client, market=market)
             link = _link_cell(url, f"{link_label} ↗")
-            html = (
-                f'<div class="kpi" data-group="{group}" data-score="{_esc(score)}" '
-                f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
-                f'data-metric="{metric if metric is not None else -1}">'
-                f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
-                f'{_score_badge(score)}</div>'
-                f'<div class="kpi-val">{_esc(value)}'
-                f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
-                f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
-                f"</div>"
-            )
+            if score_centered:
+                html = (
+                    f'<div class="kpi kpi-score-centered"{group_attr} data-score="{_esc(score)}" '
+                    f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
+                    f'data-metric="{metric if metric is not None else -1}">'
+                    f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                    f'<div class="kpi-score-center">{badge}</div>'
+                    f'<div class="kpi-val">{_esc(value)}'
+                    f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
+                    f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
+                    f"</div>"
+                )
+            else:
+                html = (
+                    f'<div class="kpi"{group_attr} data-score="{_esc(score)}" '
+                    f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
+                    f'data-metric="{metric if metric is not None else -1}">'
+                    f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                    f"{badge}</div>"
+                    f'<div class="kpi-val">{_esc(value)}'
+                    f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
+                    f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
+                    f"</div>"
+                )
         built.append({
             "html": html,
             "key": key,
@@ -617,31 +672,197 @@ def _summary_channels_v1_sorted(
     """
 
 
+def _company_match_key(row: dict[str, Any]) -> str:
+    dom = re.sub(r"^www\.", "", str(row.get("domain") or "").strip().lower())
+    if dom:
+        return f"d:{dom}"
+    name = re.sub(r"\s+", " ", str(row.get("name") or "").strip().lower())
+    return f"n:{name}" if name else ""
+
+
+def _summary_companies(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Ordered company list for scoreboard (client first)."""
+    by_key: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    def _add(row: dict[str, Any]) -> None:
+        key = _company_match_key(row)
+        if not key:
+            return
+        prev = by_key.get(key)
+        if prev is None:
+            by_key[key] = {
+                "name": row.get("name") or row.get("domain") or "—",
+                "domain": row.get("domain") or "",
+                "is_client": bool(row.get("is_client")),
+                "_key": key,
+            }
+            order.append(key)
+        else:
+            if row.get("is_client"):
+                prev["is_client"] = True
+            if not prev.get("name") and row.get("name"):
+                prev["name"] = row.get("name")
+            if not prev.get("domain") and row.get("domain"):
+                prev["domain"] = row.get("domain")
+
+    for c in report.get("competitors") or []:
+        if isinstance(c, dict):
+            _add(c)
+    for _, _, chans in _SUMMARY_BLOCKS:
+        for _, key, _ in chans:
+            section = report.get(key)
+            if not isinstance(section, dict):
+                continue
+            for r in section.get("rows") or []:
+                if isinstance(r, dict):
+                    _add(r)
+
+    comps = [by_key[k] for k in order]
+    comps.sort(key=lambda c: (0 if c.get("is_client") else 1, str(c.get("name") or "").lower()))
+    return comps
+
+
+def _row_for_company(section: dict[str, Any], company: dict[str, Any]) -> Optional[dict[str, Any]]:
+    want = company.get("_key") or _company_match_key(company)
+    if not want:
+        return None
+    for r in section.get("rows") or []:
+        if isinstance(r, dict) and _company_match_key(r) == want:
+            return r
+    return None
+
+
+def _summary_scoreboard(
+    report: dict[str, Any],
+    *,
+    available_keys: Optional[set[str]] = None,
+) -> str:
+    """Matrix: empresa × canais com apenas etiquetas de score."""
+    companies = _summary_companies(report)
+    if not companies:
+        return ""
+
+    # Channels that have data in this report (same filter as KPI cards)
+    active_blocks: list[tuple[str, str, list[tuple[str, str, str]]]] = []
+    for block_title, block_slug, chans in _SUMMARY_BLOCKS:
+        kept = [
+            (label, key, kind)
+            for label, key, kind in chans
+            if available_keys is None or key in available_keys
+        ]
+        # also require section present
+        kept = [
+            (label, key, kind)
+            for label, key, kind in kept
+            if isinstance(report.get(key), dict)
+            and (
+                (report[key].get("rows") or [])
+                or report[key].get("total_fmt")
+                or report[key].get("total_ads_fmt")
+                or report[key].get("total_traffic_fmt")
+            )
+        ]
+        if kept:
+            active_blocks.append((block_title, block_slug, kept))
+    if not active_blocks:
+        return ""
+
+    # Group header row
+    group_cells = ['<th class="scoreboard-corp" rowspan="2">Empresa</th>']
+    channel_cells: list[str] = []
+    flat_channels: list[tuple[str, str, str]] = []
+    for block_title, block_slug, chans in active_blocks:
+        group_cells.append(
+            f'<th class="scoreboard-group" data-block="{_esc(block_slug)}" '
+            f'colspan="{len(chans)}">{_esc(block_title)}</th>'
+        )
+        for label, key, kind in chans:
+            flat_channels.append((label, key, kind))
+            channel_cells.append(
+                f'<th class="scoreboard-chan" data-block="{_esc(block_slug)}" title="{_esc(label)}">'
+                f"{_esc(label)}</th>"
+            )
+
+    body_rows: list[str] = []
+    for company in companies:
+        name = str(company.get("name") or company.get("domain") or "—")
+        cells = [f'<th scope="row" class="scoreboard-corp">{_esc(name)}</th>']
+        for _label, key, _kind in flat_channels:
+            section = report.get(key) or {}
+            row = _row_for_company(section, company)
+            if row is None and len(companies) == 1:
+                row = _client_row(section)
+            metric = _channel_metric_value(key, section, row) if row is not None else None
+            # Ensure DFS growth for scoring when present
+            if key == "brand_dataforseo" and row is not None:
+                if not isinstance(row.get("growth_1y_pct"), (int, float)):
+                    row = dict(row)
+                    row["growth_1y_pct"] = _dfs_growth_pct(
+                        row.get("traffic") or row.get("latest_volume"),
+                        row.get("volume_1y"),
+                    )
+                metric = _channel_metric_value(key, section, row)
+            score = _channel_score(key, metric) if row is not None else "0"
+            cells.append(
+                f'<td class="scoreboard-cell" data-score="{_esc(score)}">{_score_badge(score)}</td>'
+            )
+        tr_cls = ' class="is-you"' if company.get("is_client") else ""
+        body_rows.append(f"<tr{tr_cls}>{''.join(cells)}</tr>")
+
+    return f"""
+    <div class="summary-block scoreboard-block" data-block="scoreboard">
+      <h3 class="summary-block-title">Scoreboard</h3>
+      <div class="table-wrap scoreboard-wrap">
+        <table class="scoreboard">
+          <thead>
+            <tr>{"".join(group_cells)}</tr>
+            <tr>{"".join(channel_cells)}</tr>
+          </thead>
+          <tbody>
+            {"".join(body_rows)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+
+
 def _summary_channels_blocks(
     report: dict[str, Any], *, run_meta: Optional[dict[str, Any]] = None
 ) -> str:
     """Resumo com blocos fixos (Popularidade / Paid Ads / Orgânico / Influenciadores)."""
     all_channels: list[tuple[str, str, str]] = []
-    for _, chans in _SUMMARY_BLOCKS:
+    for _, _, chans in _SUMMARY_BLOCKS:
         all_channels.extend(chans)
-    built, compare_all = _collect_summary_kpis(report, all_channels, run_meta=run_meta)
+    built, compare_all = _collect_summary_kpis(
+        report,
+        all_channels,
+        run_meta=run_meta,
+        show_you=False,
+        score_by_company=True,
+        score_centered=True,
+        inherit_block_color=True,
+    )
     if not built:
         return ""
     by_key = {item["key"]: item for item in built}
 
     block_html: list[str] = []
-    for block_title, chans in _SUMMARY_BLOCKS:
+    for block_title, block_slug, chans in _SUMMARY_BLOCKS:
         cards = [by_key[key]["html"] for _, key, _ in chans if key in by_key]
         if not cards:
             continue
         block_html.append(
-            f'<div class="summary-block">'
+            f'<div class="summary-block" data-block="{_esc(block_slug)}">'
             f'<h3 class="summary-block-title">{_esc(block_title)}</h3>'
             f'<div class="kpis">{"".join(cards)}</div>'
             f"</div>"
         )
     if not block_html:
         return ""
+
+    scoreboard = _summary_scoreboard(report, available_keys=set(by_key.keys()))
 
     title = "Resumo — canais (All)" if compare_all else "Resumo — canais"
     return f"""
@@ -653,7 +874,7 @@ def _summary_channels_blocks(
         <span class="score score-medium">medium</span>
         <span class="score score-low">low</span>
         <span class="score score-0">0</span></p>
-      <div class="summary-blocks">{''.join(block_html)}</div>
+      <div class="summary-blocks">{''.join(block_html)}{scoreboard}</div>
     </section>
     """
 
@@ -1500,8 +1721,38 @@ h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px
 .score-low{background:#fef3c7;color:#92400e}
 .score-0{background:#f1f5f9;color:#64748b}
 .summary-blocks{display:flex;flex-direction:column;gap:18px}
-.summary-block{border:1px solid var(--border);border-radius:14px;padding:14px 14px 12px;background:linear-gradient(180deg,#f8fafc 0%,#fff 48px)}
-.summary-block-title{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.summary-block{--group:var(--overview);border:1px solid color-mix(in srgb,var(--group) 28%,var(--border));
+  border-radius:14px;padding:14px 14px 12px;background:linear-gradient(180deg,color-mix(in srgb,var(--group) 6%,#fff) 0%,#fff 48px);
+  box-shadow:inset 3px 0 0 var(--group)}
+.summary-block[data-block=popularidade]{--group:var(--search)}
+.summary-block[data-block=paid]{--group:var(--paid)}
+.summary-block[data-block=organico]{--group:var(--overview)}
+.summary-block[data-block=influenciadores]{--group:var(--social)}
+.summary-block[data-block=scoreboard]{--group:var(--text)}
+.summary-block-title{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--group)}
+.summary-block .kpi{--group:inherit;box-shadow:inset 0 3px 0 var(--group)}
+.summary-block .kpi:hover{box-shadow:inset 0 3px 0 var(--group),var(--shadow)}
+.scoreboard-wrap{margin:0}
+.scoreboard{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+.scoreboard thead th{background:#f8fafc;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:bottom}
+.scoreboard th.scoreboard-group{text-align:center;color:var(--group);border-bottom:1px solid color-mix(in srgb,var(--group) 35%,var(--border));
+  background:color-mix(in srgb,var(--group) 8%,#fff)}
+.scoreboard th.scoreboard-group[data-block=popularidade]{--group:var(--search)}
+.scoreboard th.scoreboard-group[data-block=paid]{--group:var(--paid)}
+.scoreboard th.scoreboard-group[data-block=organico]{--group:var(--overview)}
+.scoreboard th.scoreboard-group[data-block=influenciadores]{--group:var(--social)}
+.scoreboard th.scoreboard-chan{text-align:center;font-size:10px;font-weight:600;text-transform:none;
+  letter-spacing:0;max-width:72px;white-space:normal;line-height:1.25;padding:6px 4px}
+.scoreboard th.scoreboard-corp,.scoreboard td.scoreboard-corp,.scoreboard th[scope=row].scoreboard-corp{
+  text-align:left;position:sticky;left:0;z-index:1;background:#fff;min-width:110px;max-width:160px;
+  padding:8px 10px;font-weight:700;border-right:1px solid var(--line)}
+.scoreboard thead th.scoreboard-corp{background:#f8fafc;z-index:2}
+.scoreboard tbody tr.is-you th.scoreboard-corp{background:var(--accent-soft)}
+.scoreboard tbody tr.is-you td{background:color-mix(in srgb,var(--accent-soft) 55%,#fff)}
+.scoreboard-cell{text-align:center;padding:8px 4px;border-bottom:1px solid var(--line)}
+.scoreboard tbody tr:last-child td,.scoreboard tbody tr:last-child th{border-bottom:0}
+.scoreboard .score{min-width:52px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
 .kpi{border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px;background:#fff;display:flex;flex-direction:column;gap:6px;
   box-shadow:inset 0 3px 0 var(--group);transition:transform .15s,box-shadow .15s,border-color .15s}
@@ -1509,13 +1760,18 @@ h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px
 .kpi-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .kpi-label{font-size:12px;font-weight:600;color:var(--muted);text-decoration:none}
 .kpi-label:hover{color:var(--text)}
+.kpi-score-center{display:flex;justify-content:center;align-items:center;margin:2px 0 4px}
+.kpi-score-centered .kpi-label{display:block;text-align:center}
+.kpi-score-centered .kpi-val,.kpi-score-centered .kpi-link{text-align:center}
 .kpi-val{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}
 .kpi-unit{font-size:12px;font-weight:600;color:var(--soft);margin-left:5px;letter-spacing:0}
 .kpi-link{margin-top:auto;font-size:12px}
 .kpi-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-.kpi-list li{display:flex;justify-content:space-between;gap:8px;font-size:12.5px}
+.kpi-list li{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;align-items:center}
+.kpi-list li.kpi-row{display:grid;grid-template-columns:minmax(0,1.2fr) auto minmax(0,1fr);gap:8px;align-items:center}
+.kpi-score-mid{display:flex;justify-content:center;justify-self:center}
 .kpi-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kpi-mini{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted)}
+.kpi-mini{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted);text-align:right}
 @media (min-width:640px){.kpi-multi{grid-column:span 2}}
 
 .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px}
