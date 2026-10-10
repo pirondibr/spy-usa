@@ -612,119 +612,198 @@ def _meta_ads_count_via_scrapingbee(page_id: str) -> tuple[int | None, int]:
     return None, credits
 
 
+def _meta_keyword_library_url(query: str) -> str:
+    q = quote_plus((query or "").strip())
+    return (
+        "https://www.facebook.com/ads/library/"
+        f"?active_status=active&ad_type=all&country=ALL&is_targeted_country=false"
+        f"&media_type=all&q={q}&search_type=keyword_unordered"
+    )
+
+
+def _meta_name_needles(brand: str, company_query: str = "", domain: str = "") -> list[str]:
+    """Names to Ctrl+F on the Ad Library keyword results page (longest first)."""
+    needles: list[str] = []
+    seen: set[str] = set()
+
+    def _add(term: str) -> None:
+        t = re.sub(r"\s+", " ", (term or "").strip())
+        if len(t) < 2:
+            return
+        key = t.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        needles.append(t)
+
+    _add(company_query)
+    _add(brand)
+    if domain:
+        host = normalize_domain(domain)
+        _add(host.split(".")[0] if host else "")
+    # Prefer longer needles so "AI Apply" beats "AI"
+    needles.sort(key=lambda s: (-len(s), s.lower()))
+    return needles[:4]
+
+
+def _count_name_occurrences(html: str, needle: str) -> int:
+    """Case-insensitive substring count (browser Ctrl+F style)."""
+    if not html or not needle:
+        return 0
+    # Drop scripts/styles noise so we approximate visible text better
+    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+    text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
+    text = re.sub(r"(?is)<!--.*?-->", " ", text)
+    return len(re.findall(re.escape(needle), text, flags=re.IGNORECASE))
+
+
+def _meta_keyword_name_count_via_scrapingbee(
+    query: str,
+    needles: list[str],
+) -> tuple[int | None, int, str]:
+    """
+    Open Ad Library keyword search and count how many times the company name
+    appears in visible text (browser Ctrl+F on innerText after scroll).
+    """
+    if not query or not needles:
+        return None, 0, ""
+    library_url = _meta_keyword_library_url(query)
+    js_needles = json.dumps(needles)
+    evaluate_js = (
+        "(() => {"
+        f" const needles = {js_needles};"
+        " const sleep = (ms) => new Promise((r) => setTimeout(r, ms));"
+        " const countOcc = (text, needle) => {"
+        "   if (!needle) return 0;"
+        "   const t = String(text).toLowerCase();"
+        "   const n = String(needle).toLowerCase();"
+        "   let c = 0, i = 0;"
+        "   while ((i = t.indexOf(n, i)) !== -1) { c += 1; i += Math.max(n.length, 1); }"
+        "   return c;"
+        " };"
+        " return (async () => {"
+        "   let lastH = 0, stable = 0;"
+        "   for (let i = 0; i < 30; i++) {"
+        "     window.scrollBy(0, 3000);"
+        "     await sleep(850);"
+        "     const h = document.body ? document.body.scrollHeight : 0;"
+        "     if (h <= lastH) { stable += 1; if (stable >= 5) break; }"
+        "     else { stable = 0; lastH = h; }"
+        "   }"
+        "   const text = (document.body && (document.body.innerText || document.body.textContent)) || '';"
+        "   let best = {needle: needles[0] || '', count: 0};"
+        "   for (const n of needles) {"
+        "     const c = countOcc(text, n);"
+        "     if (c > best.count) best = {needle: n, count: c};"
+        "   }"
+        "   return best;"
+        " })();"
+        "})()"
+    )
+    js_scenario = json.dumps({
+        "instructions": [
+            {"wait": 4000},
+            {"evaluate": evaluate_js},
+        ]
+    })
+    params = {
+        "api_key": SCRAPINGBEE_API_KEY,
+        "url": library_url,
+        "country_code": SCRAPINGBEE_COUNTRY,
+        "premium_proxy": "true",
+        "render_js": "true",
+        "js_scenario": js_scenario,
+        "block_resources": "false",
+        "json_response": "true",
+        "timeout": "120000",
+    }
+    credits = 0
+    try:
+        r = requests.get(SCRAPINGBEE_URL, params=params, timeout=150)
+        credits += int(r.headers.get("Spb-cost", 5) or 5)
+        if r.status_code == 401:
+            raise RuntimeError("ScrapingBee sem creditos (401) no Meta keyword search")
+        r.raise_for_status()
+        payload = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if not payload:
+            # unexpected plain HTML fallback
+            html = r.text or ""
+            best_n = max((_count_name_occurrences(html, n) for n in needles), default=0)
+            print(f"[META/SB] keyword '{query}' ctrl+f(html)={best_n}", flush=True)
+            return best_n, credits, library_url
+    except RuntimeError:
+        raise
+    except Exception as e:
+        print(f"[META/SB] keyword fetch falhou ({query}): {e}", flush=True)
+        return None, credits, library_url
+
+    # ScrapingBee json_response: evaluate result lives in js_scenario_report / evaluate_results
+    best_n = 0
+    best_needle = needles[0]
+    report = payload.get("js_scenario_report") or {}
+    evals = report.get("evaluate") or report.get("evaluate_results") or payload.get("evaluate_results") or []
+    if isinstance(evals, list):
+        for item in evals:
+            val = item.get("result") if isinstance(item, dict) else item
+            if isinstance(val, str):
+                try:
+                    val = json.loads(val)
+                except Exception:
+                    pass
+            if isinstance(val, dict) and "count" in val:
+                best_n = int(val.get("count") or 0)
+                best_needle = str(val.get("needle") or best_needle)
+                break
+            if isinstance(val, (int, float)):
+                best_n = int(val)
+                break
+    if best_n <= 0:
+        # Fallback: count in returned body HTML
+        body = payload.get("body") or ""
+        for needle in needles:
+            n = _count_name_occurrences(body, needle)
+            if n > best_n:
+                best_n = n
+                best_needle = needle
+
+    print(
+        f"[META/SB] keyword '{query}' needle='{best_needle}' ctrl+f={best_n}",
+        flush=True,
+    )
+    return best_n, credits, library_url
+
+
 def lookup_meta_ads(comp: dict) -> dict:
-    """Meta Ads via ScrapingBee + GraphQL — pick best page by domain/IG/name, not typeahead #1."""
+    """Meta Ads: keyword search + Ctrl+F count of company name (no page_id resolve)."""
     brand = extract_website_name(comp.get("url") or comp.get("domain", ""))
     base_url = comp.get("url") or comp.get("domain", "")
     domain = normalize_domain(base_url or comp.get("domain", ""))
     company_query = company_query_for_competitor(comp)
 
+    # Primary search term = company name; fallbacks = brand / domain token
     search_terms = _meta_brand_query_variants(brand, domain=domain, company_query=company_query)
+    if not search_terms:
+        search_terms = [brand or domain or ""]
+    query = next((t for t in search_terms if t), brand or domain)
+    needles = _meta_name_needles(brand, company_query=company_query, domain=domain)
+    if query and query not in needles:
+        needles = [query] + needles
 
     credits = 0
-    by_id: dict[str, dict] = {}
-    for term in search_terms:
-        try:
-            pages, used = _meta_typeahead_pages(term)
-            credits += used
-        except Exception as e:
-            print(f"[META/SB] typeahead falhou ({term}): {e}", flush=True)
-            continue
-        for p in pages:
-            pid = str(p.get("page_id") or "")
-            if not pid:
-                continue
-            # Keep richest copy
-            prev = by_id.get(pid)
-            if not prev or (int(p.get("likes") or 0) + int(p.get("ig_followers") or 0)) >= (
-                int(prev.get("likes") or 0) + int(prev.get("ig_followers") or 0)
-            ):
-                by_id[pid] = p
-
-    if not by_id:
-        return {"meta_ads": None, "meta_url": "", "spb_credits": credits}
-
-    ranked = sorted(
-        by_id.values(),
-        key=lambda p: _score_meta_page(p, brand=brand, domain=domain),
-        reverse=True,
-    )
-    best = ranked[0]
-    best_score = _score_meta_page(best, brand=brand, domain=domain)
-    # If top-2 are close, prefer the one with more active ads (tie-break)
-    page_id = str(best.get("page_id"))
-    if len(ranked) >= 2:
-        second = ranked[1]
-        second_score = _score_meta_page(second, brand=brand, domain=domain)
-        if best_score - second_score < 25:
-            try:
-                c1, u1 = _meta_ads_count_via_scrapingbee(str(best.get("page_id")))
-                credits += u1
-                c2, u2 = _meta_ads_count_via_scrapingbee(str(second.get("page_id")))
-                credits += u2
-                if (c2 or 0) > (c1 or 0) * 1.5 and (c2 or 0) >= 20:
-                    best = second
-                    page_id = str(second.get("page_id"))
-                    print(
-                        f"[META/SB] tie-break ads: {best.get('name')} "
-                        f"({c2}) > {ranked[0].get('name')} ({c1})",
-                        flush=True,
-                    )
-                    # reuse count below
-                    page_url = (
-                        "https://www.facebook.com/ads/library/"
-                        f"?active_status=active&ad_type=all&country=ALL&view_all_page_id={page_id}"
-                        "&search_type=page&media_type=all"
-                    )
-                    return {
-                        "meta_ads": c2,
-                        "meta_url": page_url,
-                        "page_id": page_id,
-                        "page_name": best.get("name"),
-                        "spb_credits": credits,
-                    }
-                # already have c1 for best
-                page_url = (
-                    "https://www.facebook.com/ads/library/"
-                    f"?active_status=active&ad_type=all&country=ALL&view_all_page_id={page_id}"
-                    "&search_type=page&media_type=all"
-                )
-                print(
-                    f"[META/SB] picked '{best.get('name')}' page_id={page_id} "
-                    f"score={best_score:.1f} ig={best.get('ig_username')!r} likes={best.get('likes')}",
-                    flush=True,
-                )
-                return {
-                    "meta_ads": c1,
-                    "meta_url": page_url,
-                    "page_id": page_id,
-                    "page_name": best.get("name"),
-                    "spb_credits": credits,
-                }
-            except Exception as e:
-                print(f"[META/SB] tie-break count falhou: {e}", flush=True)
-
-    page_url = (
-        "https://www.facebook.com/ads/library/"
-        f"?active_status=active&ad_type=all&country=ALL&view_all_page_id={page_id}"
-        "&search_type=page&media_type=all"
-    )
-    print(
-        f"[META/SB] picked '{best.get('name')}' page_id={page_id} "
-        f"score={best_score:.1f} ig={best.get('ig_username')!r} likes={best.get('likes')}",
-        flush=True,
-    )
+    count: int | None = None
+    library_url = _meta_keyword_library_url(query)
     try:
-        count, used = _meta_ads_count_via_scrapingbee(page_id)
+        count, used, library_url = _meta_keyword_name_count_via_scrapingbee(query, needles)
         credits += used
     except Exception as e:
-        print(f"[META/SB] count falhou page_id={page_id}: {e}", flush=True)
-        count = None
+        print(f"[META/SB] keyword count falhou ({query}): {e}", flush=True)
+
     return {
         "meta_ads": count,
-        "meta_url": page_url,
-        "page_id": page_id,
-        "page_name": best.get("name"),
+        "meta_url": library_url,
+        "page_id": "",
+        "page_name": query,
+        "method": "keyword_name_count",
         "spb_credits": credits,
     }
 
@@ -746,7 +825,8 @@ def load_meta_map(competitors: list[dict]) -> dict[str, dict]:
         total_credits += int(result.get("spb_credits") or 0)
         print(
             f"[META/SB] ({i}/{n}) {dom} -> "
-            f"{result.get('meta_ads')} ads  page_id={result.get('page_id') or '—'}  "
+            f"{result.get('meta_ads')} hits  q={result.get('page_name') or '—'}  "
+            f"method={result.get('method') or '—'}  "
             f"credits={result.get('spb_credits', 0)}  ({time.time() - t0:.1f}s)",
             flush=True,
         )
