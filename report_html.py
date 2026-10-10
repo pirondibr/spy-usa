@@ -401,51 +401,101 @@ def _summary_channel_url(
     return site or (f"https://{domain}/" if domain else "")
 
 
-def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, Any]] = None) -> str:
-    """Resumo no topo: canais com score (0/low/medium/high), ordenáveis high→low."""
-    # Ordem padrão por grupo: Paid → Search & traffic → Social
-    channels: list[tuple[str, str, str]] = [
-        ("Google Ads", "google_ads", "ads"),
-        ("Meta Ads", "meta", "ads"),
-        ("LinkedIn Ads", "linkedin", "count"),
-        ("Marca Semrush", "brand", "brand"),
-        ("SEO Orgânico", "seo", "seo"),
-        ("SimilarWeb", "similarweb", "similarweb"),
-        ("Marca DataForSEO", "brand_dataforseo", "brand_dfs"),
-        ("YouTube", "youtube", "count"),
-        ("YouTube Influencers", "youtube_influencers", "seo"),
-        ("Instagram", "instagram", "count"),
-        ("Instagram Influencers", "instagram_influencers", "seo"),
-        ("TikTok", "tiktok", "count"),
-        ("Reddit", "reddit", "seo"),
-        ("Twitter / X", "twitter", "seo"),
-        ("LinkedIn Profile", "linkedin_profile", "seo"),
-    ]
-    unit_fallback = {
-        "ads": "ads",
-        "count": "",
-        "seo": "visits",
-        "brand": "visits",
-        "brand_dfs": "vol.",
-        "similarweb": "visits/mo",
-    }
-    link_labels = {
-        "google_ads": "Library",
-        "meta": "Library",
-        "linkedin": "Library",
-        "brand": "Semrush",
-        "seo": "Semrush",
-        "similarweb": "Site",
-        "youtube": "Profile",
-        "youtube_influencers": "Search",
-        "instagram": "Profile",
-        "instagram_influencers": "Profile",
-        "tiktok": "Profile",
-        "brand_dataforseo": "Semrush",
-        "reddit": "Search",
-        "twitter": "Profile",
-        "linkedin_profile": "Profile",
-    }
+# "blocks" = fixed UX groups (current). "sorted" = legacy score-sorted grid with sort buttons.
+SUMMARY_LAYOUT = "blocks"
+
+_SUMMARY_UNIT_FALLBACK = {
+    "ads": "ads",
+    "count": "",
+    "seo": "visits",
+    "brand": "visits",
+    "brand_dfs": "vol.",
+    "similarweb": "visits/mo",
+}
+_SUMMARY_LINK_LABELS = {
+    "google_ads": "Library",
+    "meta": "Library",
+    "linkedin": "Library",
+    "brand": "Semrush",
+    "seo": "Semrush",
+    "similarweb": "Site",
+    "youtube": "Profile",
+    "youtube_influencers": "Search",
+    "instagram": "Profile",
+    "instagram_influencers": "Profile",
+    "tiktok": "Profile",
+    "brand_dataforseo": "Semrush",
+    "reddit": "Search",
+    "twitter": "Profile",
+    "linkedin_profile": "Profile",
+}
+
+# Legacy flat list (v1 sorted layout)
+_SUMMARY_CHANNELS_V1: list[tuple[str, str, str]] = [
+    ("Google Ads", "google_ads", "ads"),
+    ("Meta Ads", "meta", "ads"),
+    ("LinkedIn Ads", "linkedin", "count"),
+    ("Marca Semrush", "brand", "brand"),
+    ("SEO Orgânico", "seo", "seo"),
+    ("SimilarWeb", "similarweb", "similarweb"),
+    ("Marca DataForSEO", "brand_dataforseo", "brand_dfs"),
+    ("YouTube", "youtube", "count"),
+    ("YouTube Influencers", "youtube_influencers", "seo"),
+    ("Instagram", "instagram", "count"),
+    ("Instagram Influencers", "instagram_influencers", "seo"),
+    ("TikTok", "tiktok", "count"),
+    ("Reddit", "reddit", "seo"),
+    ("Twitter / X", "twitter", "seo"),
+    ("LinkedIn Profile", "linkedin_profile", "seo"),
+]
+
+# Fixed Resumo blocks (label, report key, datum kind)
+_SUMMARY_BLOCKS: list[tuple[str, list[tuple[str, str, str]]]] = [
+    (
+        "Popularidade",
+        [
+            ("SimilarWeb", "similarweb", "similarweb"),
+            ("DataForSEO", "brand_dataforseo", "brand_dfs"),
+            ("Marca", "brand", "brand"),
+        ],
+    ),
+    (
+        "Paid Ads",
+        [
+            ("Meta Ads", "meta", "ads"),
+            ("Google Ads", "google_ads", "ads"),
+            ("LinkedIn Ads", "linkedin", "count"),
+        ],
+    ),
+    (
+        "Orgânico",
+        [
+            ("SEO Orgânico", "seo", "seo"),
+            ("Reddit", "reddit", "seo"),
+            ("Twitter / X", "twitter", "seo"),
+            ("LinkedIn Profile", "linkedin_profile", "seo"),
+            ("YouTube", "youtube", "count"),
+            ("Instagram", "instagram", "count"),
+            ("TikTok", "tiktok", "count"),
+        ],
+    ),
+    (
+        "Influenciadores",
+        [
+            ("YouTube Influencers", "youtube_influencers", "seo"),
+            ("Instagram Influencers", "instagram_influencers", "seo"),
+        ],
+    ),
+]
+
+
+def _collect_summary_kpis(
+    report: dict[str, Any],
+    channels: list[tuple[str, str, str]],
+    *,
+    run_meta: Optional[dict[str, Any]] = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Build KPI cards for the given channel list. Returns (items, compare_all)."""
     market = _report_market(report, run_meta)
     compare_all = bool(report.get("compare_all") or (run_meta or {}).get("compare_all"))
 
@@ -467,15 +517,13 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
             or section.get("total_traffic_fmt")
         ):
             continue
-        unit = (section.get("unit") or unit_fallback.get(kind) or "").strip()
-        # DataForSEO summary already embeds Δ1y in the value
+        unit = (section.get("unit") or _SUMMARY_UNIT_FALLBACK.get(kind) or "").strip()
         if key == "brand_dataforseo":
             unit = ""
-        link_label = link_labels.get(key, "Open")
+        link_label = _SUMMARY_LINK_LABELS.get(key, "Open")
         group = SECTION_GROUPS.get(key, "overview")
         anchor = f"#sec-{key}"
         client = _client_row(section)
-        # Ensure growth is available for summary even on older report.json
         if key == "brand_dataforseo" and client is not None:
             if not isinstance(client.get("growth_1y_pct"), (int, float)):
                 client["growth_1y_pct"] = _dfs_growth_pct(
@@ -507,7 +555,8 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
                 )
             html = (
                 f'<div class="kpi kpi-multi" data-group="{group}" data-score="{_esc(score)}" '
-                f'data-rank="{rank}" data-order="{order_idx}" data-metric="{metric if metric is not None else -1}">'
+                f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
+                f'data-metric="{metric if metric is not None else -1}">'
                 f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
                 f'{_score_badge(score)}</div>'
                 f'<ul class="kpi-list">{"".join(lines)}</ul></div>'
@@ -519,7 +568,8 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
             link = _link_cell(url, f"{link_label} ↗")
             html = (
                 f'<div class="kpi" data-group="{group}" data-score="{_esc(score)}" '
-                f'data-rank="{rank}" data-order="{order_idx}" data-metric="{metric if metric is not None else -1}">'
+                f'data-rank="{rank}" data-order="{order_idx}" data-key="{_esc(key)}" '
+                f'data-metric="{metric if metric is not None else -1}">'
                 f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
                 f'{_score_badge(score)}</div>'
                 f'<div class="kpi-val">{_esc(value)}'
@@ -529,15 +579,23 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
             )
         built.append({
             "html": html,
+            "key": key,
             "rank": rank,
             "metric": metric if metric is not None else -1,
             "order": order_idx,
         })
+    return built, compare_all
 
+
+def _summary_channels_v1_sorted(
+    report: dict[str, Any], *, run_meta: Optional[dict[str, Any]] = None
+) -> str:
+    """BACKUP — Resumo legado: grid plano ordenável por score (high→low)."""
+    built, compare_all = _collect_summary_kpis(
+        report, _SUMMARY_CHANNELS_V1, run_meta=run_meta
+    )
     if not built:
         return ""
-
-    # Default: high → low (then metric, then original order)
     built.sort(key=lambda t: (-t["rank"], -t["metric"], t["order"]))
     title = "Resumo — canais (All)" if compare_all else "Resumo — canais"
     return f"""
@@ -557,6 +615,54 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
       <div class="kpis" id="summary-kpis">{''.join(t["html"] for t in built)}</div>
     </section>
     """
+
+
+def _summary_channels_blocks(
+    report: dict[str, Any], *, run_meta: Optional[dict[str, Any]] = None
+) -> str:
+    """Resumo com blocos fixos (Popularidade / Paid Ads / Orgânico / Influenciadores)."""
+    all_channels: list[tuple[str, str, str]] = []
+    for _, chans in _SUMMARY_BLOCKS:
+        all_channels.extend(chans)
+    built, compare_all = _collect_summary_kpis(report, all_channels, run_meta=run_meta)
+    if not built:
+        return ""
+    by_key = {item["key"]: item for item in built}
+
+    block_html: list[str] = []
+    for block_title, chans in _SUMMARY_BLOCKS:
+        cards = [by_key[key]["html"] for _, key, _ in chans if key in by_key]
+        if not cards:
+            continue
+        block_html.append(
+            f'<div class="summary-block">'
+            f'<h3 class="summary-block-title">{_esc(block_title)}</h3>'
+            f'<div class="kpis">{"".join(cards)}</div>'
+            f"</div>"
+        )
+    if not block_html:
+        return ""
+
+    title = "Resumo — canais (All)" if compare_all else "Resumo — canais"
+    return f"""
+    <section>
+      <div class="summary-head">
+        <h2>{_esc(title)}</h2>
+      </div>
+      <p class="score-legend">Scores: <span class="score score-high">high</span>
+        <span class="score score-medium">medium</span>
+        <span class="score score-low">low</span>
+        <span class="score score-0">0</span></p>
+      <div class="summary-blocks">{''.join(block_html)}</div>
+    </section>
+    """
+
+
+def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, Any]] = None) -> str:
+    """Resumo no topo. Troque SUMMARY_LAYOUT para 'sorted' para voltar ao backup v1."""
+    if SUMMARY_LAYOUT == "sorted":
+        return _summary_channels_v1_sorted(report, run_meta=run_meta)
+    return _summary_channels_blocks(report, run_meta=run_meta)
 
 
 def _section_rank(
@@ -1393,6 +1499,9 @@ h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px
 .score-medium{background:#e0f2fe;color:#075985}
 .score-low{background:#fef3c7;color:#92400e}
 .score-0{background:#f1f5f9;color:#64748b}
+.summary-blocks{display:flex;flex-direction:column;gap:18px}
+.summary-block{border:1px solid var(--border);border-radius:14px;padding:14px 14px 12px;background:linear-gradient(180deg,#f8fafc 0%,#fff 48px)}
+.summary-block-title{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
 .kpi{border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px;background:#fff;display:flex;flex-direction:column;gap:6px;
   box-shadow:inset 0 3px 0 var(--group);transition:transform .15s,box-shadow .15s,border-color .15s}
@@ -1459,6 +1568,8 @@ p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 1
 @media (max-width:560px){
   .crumb{display:none}
   .actions a{display:none}
+  .summary-blocks{gap:12px}
+  .summary-block{padding:12px 10px 10px}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .kpi{padding:12px 12px 10px}
   .kpi-val{font-size:20px}
