@@ -178,6 +178,154 @@ def _main_datum(
     return str(section.get("total_fmt") or "—")
 
 
+# Score tiers: 0 | low | medium | high  (boundary goes to higher tier)
+_SCORE_RANK = {"high": 3, "medium": 2, "low": 1, "0": 0}
+_SCORE_BANDS: dict[str, tuple[float, float]] = {
+    # key → (low_max exclusive→medium, medium_max exclusive→high)
+    "google_ads": (50, 100),
+    "meta": (20, 50),
+    "linkedin": (20, 50),
+    "brand": (500, 2_000),
+    "brand_dataforseo": (500, 2_000),
+    "seo": (5_000, 50_000),
+    "similarweb": (20_000, 100_000),
+    "youtube": (20_000, 100_000),
+    "instagram": (20_000, 100_000),
+    "tiktok": (20_000, 100_000),
+    "twitter": (20_000, 100_000),
+    "linkedin_profile": (20_000, 100_000),
+    "reddit": (50, 200),
+    "youtube_influencers": (10_000, 50_000),
+    "instagram_influencers": (10_000, 50_000),
+}
+
+
+def _coerce_number(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    if not s or s in _NEUTRAL_CELLS:
+        return None
+    s = s.replace("\u00a0", " ").replace(" ", "")
+    # BR "7.000" / "204,0K" / EN "15.2K" / "3,1M"
+    m = re.match(
+        r"^[$€£R$]*([\d]+(?:[.,]\d+)*)([KkMmBb])?%?$",
+        s,
+    )
+    if m:
+        raw, suf = m.group(1), (m.group(2) or "").upper()
+        if "," in raw and "." in raw:
+            # 1.234,5 → 1234.5
+            raw = raw.replace(".", "").replace(",", ".")
+        elif "," in raw:
+            left, _, right = raw.partition(",")
+            raw = f"{left}{right}" if len(right) == 3 and right.isdigit() else f"{left}.{right}"
+        elif "." in raw:
+            parts = raw.split(".")
+            if len(parts) > 2:
+                raw = "".join(parts)
+            else:
+                left, right = parts[0], parts[1]
+                # BR thousands "7.000" (no suffix) vs EN decimal "15.2" (+K)
+                if not suf and len(right) == 3 and right.isdigit():
+                    raw = f"{left}{right}"
+        try:
+            num = float(raw)
+        except ValueError:
+            return None
+        mult = {"K": 1e3, "M": 1e6, "B": 1e9}.get(suf, 1.0)
+        return num * mult
+    digits = re.sub(r"[^\d.]", "", s.replace(",", ""))
+    try:
+        return float(digits) if digits else None
+    except ValueError:
+        return None
+
+
+def _channel_metric_value(
+    key: str,
+    section: Optional[dict[str, Any]],
+    row: Optional[dict[str, Any]] = None,
+) -> Optional[float]:
+    """Número bruto usado no score do canal (cliente ou row)."""
+    if not section:
+        return None
+    if row is None:
+        row = _client_row(section) or {}
+    else:
+        row = row or {}
+
+    if key == "youtube_influencers":
+        n = _coerce_number(row.get("traffic"))
+        if n is not None:
+            return n
+        a = _coerce_number(row.get("views_official")) or 0.0
+        b = _coerce_number(row.get("views_unofficial")) or 0.0
+        if a or b:
+            return a + b
+
+    if key in ("google_ads", "meta", "linkedin"):
+        candidates: list[Any] = [
+            row.get("ads"), row.get("value"), section.get("total_ads"), section.get("total"),
+        ]
+    elif key in ("brand", "seo", "brand_dataforseo", "similarweb"):
+        candidates = [row.get("traffic"), row.get("latest_volume"), section.get("total_traffic")]
+    elif key in ("youtube", "instagram", "tiktok"):
+        candidates = [row.get("value"), row.get("followers"), row.get("traffic")]
+    elif key == "reddit":
+        candidates = [row.get("total_comments"), row.get("traffic")]
+    elif key in ("twitter", "linkedin_profile"):
+        candidates = [row.get("followers"), row.get("traffic")]
+    elif key == "instagram_influencers":
+        candidates = [row.get("total_likes"), row.get("traffic")]
+    else:
+        candidates = [row.get("traffic"), row.get("value"), row.get("ads")]
+
+    for c in candidates:
+        n = _coerce_number(c)
+        if n is not None:
+            return n
+    for c in (
+        row.get("ads_fmt"),
+        row.get("value_fmt"),
+        row.get("traffic_fmt"),
+        row.get("total_comments_fmt"),
+        row.get("followers_fmt"),
+        row.get("total_likes_fmt"),
+        section.get("total_ads_fmt"),
+        section.get("total_traffic_fmt"),
+        section.get("total_fmt"),
+    ):
+        n = _coerce_number(c)
+        if n is not None:
+            return n
+    return None
+
+
+def _channel_score(key: str, value: Optional[float]) -> str:
+    """Retorna '0' | 'low' | 'medium' | 'high'."""
+    if value is None or value <= 0:
+        return "0"
+    bands = _SCORE_BANDS.get(key)
+    if not bands:
+        return "0"
+    low_max, med_max = bands
+    if value < low_max:
+        return "low"
+    if value < med_max:
+        return "medium"
+    return "high"
+
+
+def _score_badge(score: str) -> str:
+    label = score if score != "0" else "0"
+    return f'<span class="score score-{_esc(score)}" title="Channel score">{_esc(label)}</span>'
+
+
 def _summary_channel_url(
     key: str,
     section: dict[str, Any],
@@ -243,8 +391,8 @@ def _summary_channel_url(
 
 
 def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, Any]] = None) -> str:
-    """Tabela resumo no topo: Canal | Dados principal + link (ordem fixa)."""
-    # Ordem por grupo: Paid → Search & traffic → Social (igual às seções)
+    """Resumo no topo: canais com score (0/low/medium/high), ordenáveis high→low."""
+    # Ordem padrão por grupo: Paid → Search & traffic → Social
     channels: list[tuple[str, str, str]] = [
         ("Google Ads", "google_ads", "ads"),
         ("Meta Ads", "meta", "ads"),
@@ -295,8 +443,8 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
             return ""
         return unit
 
-    tiles: list[str] = []
-    for label, key, kind in channels:
+    built: list[dict[str, Any]] = []
+    for order_idx, (label, key, kind) in enumerate(channels):
         section = report.get(key)
         if not isinstance(section, dict):
             continue
@@ -312,6 +460,10 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
         link_label = link_labels.get(key, "Open")
         group = SECTION_GROUPS.get(key, "overview")
         anchor = f"#sec-{key}"
+        client = _client_row(section)
+        metric = _channel_metric_value(key, section, client)
+        score = _channel_score(key, metric)
+        rank = _SCORE_RANK.get(score, 0)
 
         if compare_all and len(rows_data) > 1:
             lines: list[str] = []
@@ -322,39 +474,62 @@ def _summary_channels(report: dict[str, Any], *, run_meta: Optional[dict[str, An
                 url = _summary_channel_url(key, section, r, market=market)
                 you = ' <span class="you">you</span>' if r.get("is_client") else ""
                 link = _link_cell(url, "↗")
+                row_score = _channel_score(key, _channel_metric_value(key, section, r))
                 lines.append(
-                    f'<li><span class="kpi-name">{_esc(name)}{you}</span>'
+                    f'<li><span class="kpi-name">{_esc(name)}{you} {_score_badge(row_score)}</span>'
                     f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
                     f'{(" " + link) if link != "—" else ""}</span></li>'
                 )
-            tiles.append(
-                f'<div class="kpi kpi-multi" data-group="{group}">'
-                f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+            html = (
+                f'<div class="kpi kpi-multi" data-group="{group}" data-score="{_esc(score)}" '
+                f'data-rank="{rank}" data-order="{order_idx}" data-metric="{metric if metric is not None else -1}">'
+                f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                f'{_score_badge(score)}</div>'
                 f'<ul class="kpi-list">{"".join(lines)}</ul></div>'
             )
-            continue
+        else:
+            value = _main_datum(section, kind)
+            u = _unit_for(value, unit)
+            url = _summary_channel_url(key, section, client, market=market)
+            link = _link_cell(url, f"{link_label} ↗")
+            html = (
+                f'<div class="kpi" data-group="{group}" data-score="{_esc(score)}" '
+                f'data-rank="{rank}" data-order="{order_idx}" data-metric="{metric if metric is not None else -1}">'
+                f'<div class="kpi-top"><a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
+                f'{_score_badge(score)}</div>'
+                f'<div class="kpi-val">{_esc(value)}'
+                f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
+                f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
+                f"</div>"
+            )
+        built.append({
+            "html": html,
+            "rank": rank,
+            "metric": metric if metric is not None else -1,
+            "order": order_idx,
+        })
 
-        value = _main_datum(section, kind)
-        u = _unit_for(value, unit)
-        row = _client_row(section)
-        url = _summary_channel_url(key, section, row, market=market)
-        link = _link_cell(url, f"{link_label} ↗")
-        tiles.append(
-            f'<div class="kpi" data-group="{group}">'
-            f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
-            f'<div class="kpi-val">{_esc(value)}'
-            f'{f"<span class=kpi-unit>{_esc(u)}</span>" if u else ""}</div>'
-            f'{f"<div class=kpi-link>{link}</div>" if link != "—" else ""}'
-            f"</div>"
-        )
-
-    if not tiles:
+    if not built:
         return ""
+
+    # Default: high → low (then metric, then original order)
+    built.sort(key=lambda t: (-t["rank"], -t["metric"], t["order"]))
     title = "Resumo — canais (All)" if compare_all else "Resumo — canais"
     return f"""
     <section>
-      <h2>{_esc(title)}</h2>
-      <div class="kpis">{''.join(tiles)}</div>
+      <div class="summary-head">
+        <h2>{_esc(title)}</h2>
+        <div class="sort-bar" role="group" aria-label="Ordenar canais">
+          <button type="button" class="sort-btn is-active" data-sort="score-desc">Score high→low</button>
+          <button type="button" class="sort-btn" data-sort="score-asc">Score low→high</button>
+          <button type="button" class="sort-btn" data-sort="default">Ordem padrão</button>
+        </div>
+      </div>
+      <p class="score-legend">Scores: <span class="score score-high">high</span>
+        <span class="score score-medium">medium</span>
+        <span class="score score-low">low</span>
+        <span class="score score-0">0</span></p>
+      <div class="kpis" id="summary-kpis">{''.join(t["html"] for t in built)}</div>
     </section>
     """
 
@@ -1118,10 +1293,25 @@ h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px
 .hero-val{font-size:30px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .hero-sub{color:var(--muted);font-size:13px}
 
+.summary-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.summary-head h2{margin:0}
+.sort-bar{display:flex;gap:6px;flex-wrap:wrap}
+.sort-btn{border:1px solid var(--border);background:#fff;color:var(--muted);font:inherit;font-size:12px;font-weight:600;
+  padding:5px 10px;border-radius:999px;cursor:pointer}
+.sort-btn:hover{border-color:#cbd5e1;color:var(--text)}
+.sort-btn.is-active{background:#0f172a;border-color:#0f172a;color:#fff}
+.score-legend{margin:0 0 12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.score{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;line-height:1.4;vertical-align:middle}
+.score-high{background:#dcfce7;color:#166534}
+.score-medium{background:#e0f2fe;color:#075985}
+.score-low{background:#fef3c7;color:#92400e}
+.score-0{background:#f1f5f9;color:#64748b}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
 .kpi{border:1px solid var(--border);border-radius:12px;padding:14px 14px 12px;background:#fff;display:flex;flex-direction:column;gap:6px;
   box-shadow:inset 0 3px 0 var(--group);transition:transform .15s,box-shadow .15s,border-color .15s}
 .kpi:hover{transform:translateY(-1px);border-color:#cbd5e1;box-shadow:inset 0 3px 0 var(--group),var(--shadow)}
+.kpi-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .kpi-label{font-size:12px;font-weight:600;color:var(--muted);text-decoration:none}
 .kpi-label:hover{color:var(--text)}
 .kpi-val{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}
@@ -1203,20 +1393,44 @@ p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 1
 _REPORT_JS = """
 (function(){
   var links=[].slice.call(document.querySelectorAll('.toc a[href^="#"]'));
-  if(!links.length||!('IntersectionObserver' in window))return;
-  var byId={};
-  links.forEach(function(a){byId[a.getAttribute('href').slice(1)]=a;});
-  var obs=new IntersectionObserver(function(entries){
-    entries.forEach(function(e){
-      if(!e.isIntersecting)return;
-      links.forEach(function(l){l.classList.remove('active');});
-      var a=byId[e.target.id];
-      if(!a)return;
-      a.classList.add('active');
-      if(window.innerWidth<=1024){a.scrollIntoView({block:'nearest',inline:'center'});}
+  if(links.length && 'IntersectionObserver' in window){
+    var byId={};
+    links.forEach(function(a){byId[a.getAttribute('href').slice(1)]=a;});
+    var obs=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(!e.isIntersecting)return;
+        links.forEach(function(l){l.classList.remove('active');});
+        var a=byId[e.target.id];
+        if(!a)return;
+        a.classList.add('active');
+        if(window.innerWidth<=1024){a.scrollIntoView({block:'nearest',inline:'center'});}
+      });
+    },{rootMargin:'-15% 0px -75% 0px'});
+    Object.keys(byId).forEach(function(id){var el=document.getElementById(id);if(el)obs.observe(el);});
+  }
+
+  var grid=document.getElementById('summary-kpis');
+  var bar=document.querySelector('.sort-bar');
+  if(!grid||!bar)return;
+  function sortKpis(mode){
+    var items=[].slice.call(grid.querySelectorAll('.kpi'));
+    items.sort(function(a,b){
+      var ra=+a.getAttribute('data-rank')||0, rb=+b.getAttribute('data-rank')||0;
+      var ma=+a.getAttribute('data-metric')||0, mb=+b.getAttribute('data-metric')||0;
+      var oa=+a.getAttribute('data-order')||0, ob=+b.getAttribute('data-order')||0;
+      if(mode==='score-asc'){return ra-rb || ma-mb || oa-ob;}
+      if(mode==='default'){return oa-ob;}
+      return rb-ra || mb-ma || oa-ob;
     });
-  },{rootMargin:'-15% 0px -75% 0px'});
-  Object.keys(byId).forEach(function(id){var el=document.getElementById(id);if(el)obs.observe(el);});
+    items.forEach(function(el){grid.appendChild(el);});
+  }
+  bar.addEventListener('click',function(ev){
+    var btn=ev.target.closest('.sort-btn');
+    if(!btn)return;
+    bar.querySelectorAll('.sort-btn').forEach(function(b){b.classList.remove('is-active');});
+    btn.classList.add('is-active');
+    sortKpis(btn.getAttribute('data-sort')||'score-desc');
+  });
 })();
 """
 
