@@ -442,7 +442,8 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
     usage = section.get("usage_total") or {}
     hero = _esc(section.get("total_traffic_fmt") or "—")
     hero_sub = (
-        f"product-relevant 1st page · TinyFish ≈ ${_esc(str(usage.get('estimated_usd', '—')))} "
+        f"product-relevant 1st page · ScrapingBee credits="
+        f"{_esc(str(usage.get('scrapingbee_credits', usage.get('estimated_usd', '—'))))} "
         f"· leader {_esc(section.get('leader') or '—')}"
     )
     insight = section.get("insight") or ""

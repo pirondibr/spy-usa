@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""YouTube Influencers spy — TinyFish Agent on native YouTube search + OpenRouter.
+"""YouTube Influencers spy — ScrapingBee fetch of native YouTube search + parse.
 
-First page of youtube.com/results only:
+TinyFish Fetch is blocked on youtube.com/results; ScrapingBee render_js works.
+First page only:
 - official vs unofficial view totals
 - age buckets: 30d / 6m / 1y+
-- top 5 links
-- product relevance from title+description (doubt = no)
+- top links official / unofficial
+- product relevance from title+description (brand hit = yes)
 """
 
 from __future__ import annotations
@@ -19,17 +20,15 @@ from urllib.parse import quote_plus, urlparse, parse_qs
 
 import requests
 
-TINYFISH_AGENT_RUN = "https://agent.tinyfish.ai/v1/automation/run"
+SCRAPINGBEE_URL = "https://app.scrapingbee.com/api/v1/"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash"
-AGENT_STEP_USD = 0.016
-BROWSER_MIN_USD = 0.002
 
 
-def _api_key() -> str:
-    key = (os.environ.get("TINYFISH_API_KEY") or "").strip()
+def _scrapingbee_key() -> str:
+    key = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
     if not key:
-        raise RuntimeError("TINYFISH_API_KEY ausente")
+        raise RuntimeError("SCRAPINGBEE_API_KEY ausente")
     return key
 
 
@@ -189,156 +188,253 @@ def is_official_channel(
     return False
 
 
-def tinyfish_agent_youtube_search(query: str, *, country: str = "US") -> dict[str, Any]:
-    """Metered Agent — native YouTube search first page only."""
-    t0 = time.time()
-    search_url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-    goal = (
-        "You are on the native YouTube SEARCH RESULTS first page only "
-        "(youtube.com/results). Do NOT open page 2. Do NOT click into videos. "
-        "Do NOT use Google. Extract EVERY visible video and short on the first page "
-        "(typically 8–20 items). For each return title, url, channel_name, channel_url, "
-        "description/snippet text shown on the card (include hashtags), "
-        "views as an integer (parse '238 views' → 238, '1.2K views' → 1200), "
-        "views_text as shown, upload_age (e.g. '2 weeks ago'), is_short. "
-        "Also identify the official brand channel if present (name + url). "
-        f"Brand/search query: {query!r}."
-    )
-    payload = {
-        "url": search_url,
-        "goal": goal,
-        "browser_profile": "lite",
-        "proxy_config": {"enabled": True, "country_code": (country or "US").upper()[:2]},
-        "output_schema": {
-            "type": "object",
-            "properties": {
-                "official_channel": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "url": {"type": "string"},
-                    },
-                },
-                "videos": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "url": {"type": "string"},
-                            "channel_name": {"type": "string"},
-                            "channel_url": {"type": "string"},
-                            "description": {"type": "string"},
-                            "views": {"type": "number"},
-                            "views_text": {"type": "string"},
-                            "upload_age": {"type": "string"},
-                            "is_short": {"type": "boolean"},
-                        },
-                    },
-                },
-            },
-            "required": ["videos"],
-        },
-    }
+def _runs_text(obj: Any) -> str:
+    if not obj:
+        return ""
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        if "simpleText" in obj:
+            return str(obj.get("simpleText") or "")
+        runs = obj.get("runs") or []
+        return "".join(str(r.get("text") or "") for r in runs if isinstance(r, dict))
+    return ""
+
+
+def _extract_yt_initial_data(html: str) -> Optional[dict]:
+    idx = (html or "").find("ytInitialData")
+    if idx < 0:
+        return None
+    start = html.find("{", idx)
+    if start < 0:
+        return None
+    depth = 0
+    end = None
+    for i, ch in enumerate(html[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if not end:
+        return None
     try:
-        r = requests.post(
-            TINYFISH_AGENT_RUN,
-            headers={
-                "X-API-Key": _api_key(),
-                "Content-Type": "application/json",
-                "Accept": "application/json",
+        return json.loads(html[start:end])
+    except Exception:
+        return None
+
+
+def _channel_from_renderer(vr: dict) -> tuple[str, str]:
+    name = ""
+    url = ""
+    for key in ("ownerText", "longBylineText", "shortBylineText"):
+        block = vr.get(key) or {}
+        if not name:
+            name = _runs_text(block)
+        runs = block.get("runs") or []
+        if not runs or not isinstance(runs[0], dict):
+            continue
+        nav = runs[0].get("navigationEndpoint") or {}
+        browse = nav.get("browseEndpoint") or {}
+        canon = browse.get("canonicalBaseUrl") or ""
+        if canon:
+            url = "https://www.youtube.com" + canon
+            break
+        web = ((nav.get("commandMetadata") or {}).get("webCommandMetadata") or {}).get("url") or ""
+        if web:
+            url = "https://www.youtube.com" + web if web.startswith("/") else web
+            break
+    return name, url
+
+
+def _parse_videos_from_yt_data(data: dict) -> list[dict]:
+    videos: list[dict] = []
+
+    def walk(o: Any) -> None:
+        if isinstance(o, dict):
+            if "videoRenderer" in o:
+                vr = o["videoRenderer"] or {}
+                vid = str(vr.get("videoId") or "")
+                title = _runs_text(vr.get("title"))
+                views_text = _runs_text(vr.get("viewCountText")) or _runs_text(
+                    vr.get("shortViewCountText")
+                )
+                age = _runs_text(vr.get("publishedTimeText"))
+                snippet = _runs_text(vr.get("descriptionSnippet"))
+                channel_name, channel_url = _channel_from_renderer(vr)
+                watch = f"https://www.youtube.com/watch?v={vid}" if vid else ""
+                videos.append({
+                    "kind": "video",
+                    "title": title,
+                    "url": watch,
+                    "video_id": vid,
+                    "snippet": snippet,
+                    "upload_age": age,
+                    "views": _as_int(views_text),
+                    "views_text": views_text,
+                    "channel_name": channel_name,
+                    "channel_url": channel_url,
+                    "source": "youtube_native_scrapingbee",
+                    "is_short": False,
+                })
+            if "reelItemRenderer" in o or "shortsLockupViewModel" in o:
+                reel = o.get("reelItemRenderer") or o.get("shortsLockupViewModel") or {}
+                vid = str(
+                    reel.get("videoId")
+                    or ((reel.get("onTap") or {}).get("innertubeCommand") or {})
+                    .get("reelWatchEndpoint", {})
+                    .get("videoId")
+                    or ""
+                )
+                if not vid:
+                    eid = ((reel.get("entityId") or "") if isinstance(reel, dict) else "") or ""
+                    m = re.search(r"([A-Za-z0-9_-]{6,})", eid)
+                    vid = m.group(1) if m else ""
+                title = _runs_text(reel.get("headline") or reel.get("overlayMetadata", {}).get("primaryText"))
+                views_text = _runs_text(
+                    reel.get("viewCountText")
+                    or ((reel.get("overlayMetadata") or {}).get("secondaryText"))
+                )
+                if vid:
+                    videos.append({
+                        "kind": "video",
+                        "title": title,
+                        "url": f"https://www.youtube.com/shorts/{vid}",
+                        "video_id": vid,
+                        "snippet": "",
+                        "upload_age": "",
+                        "views": _as_int(views_text),
+                        "views_text": views_text,
+                        "channel_name": "",
+                        "channel_url": "",
+                        "source": "youtube_native_scrapingbee",
+                        "is_short": True,
+                    })
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    walk(data)
+    seen: set[str] = set()
+    out: list[dict] = []
+    for v in videos:
+        vid = v.get("video_id") or ""
+        if not vid or vid in seen:
+            continue
+        seen.add(vid)
+        out.append(v)
+    return out
+
+
+def _guess_official_channel(videos: list[dict], query: str) -> Optional[dict]:
+    tokens = _brand_tokens(query)
+    best = None
+    best_score = -1
+    for v in videos:
+        name = str(v.get("channel_name") or "")
+        url = str(v.get("channel_url") or "")
+        handle = _handle_from_channel_url(url)
+        blob = f"{name} {handle}".lower()
+        compact = re.sub(r"[^a-z0-9]+", "", blob)
+        score = 0
+        for tok in tokens:
+            t = re.sub(r"[^a-z0-9]+", "", tok)
+            if t and t in compact:
+                score += 10 + len(t)
+        if score > best_score:
+            best_score = score
+            best = {"name": name, "url": url} if name or url else None
+    return best if best_score >= 10 else None
+
+
+def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, Any]:
+    """Fetch native YouTube search HTML via ScrapingBee (render_js) and parse cards."""
+    t0 = time.time()
+    cc = (country or "US").lower()[:2]
+    search_url = (
+        f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+        f"&hl=en&gl={cc.upper()}"
+    )
+    try:
+        r = requests.get(
+            SCRAPINGBEE_URL,
+            params={
+                "api_key": _scrapingbee_key(),
+                "url": search_url,
+                "render_js": "true",
+                "premium_proxy": "true",
+                "country_code": cc,
+                "wait": "2500",
             },
-            json=payload,
-            timeout=360,
+            timeout=120,
         )
     except requests.Timeout:
-        elapsed = round(time.time() - t0, 2)
         return {
             "ok": False,
-            "error": "TinyFish Agent timeout (native YouTube search)",
-            "elapsed_sec": elapsed,
-            "num_of_steps": 0,
-            "cost_usd": 0.0,
+            "error": "ScrapingBee timeout (YouTube search)",
+            "elapsed_sec": round(time.time() - t0, 2),
+            "credits": 0,
             "videos": [],
             "official_channel": None,
             "search_url": search_url,
         }
     except requests.RequestException as e:
-        elapsed = round(time.time() - t0, 2)
         return {
             "ok": False,
-            "error": f"TinyFish Agent request failed: {e}"[:300],
-            "elapsed_sec": elapsed,
-            "num_of_steps": 0,
-            "cost_usd": 0.0,
+            "error": f"ScrapingBee request failed: {e}"[:300],
+            "elapsed_sec": round(time.time() - t0, 2),
+            "credits": 0,
             "videos": [],
             "official_channel": None,
             "search_url": search_url,
         }
+
     elapsed = round(time.time() - t0, 2)
+    credits = 0
+    for h in ("Spb-cost", "Spb-credits-cost", "spb-cost"):
+        if r.headers.get(h):
+            try:
+                credits = int(float(r.headers[h]))
+            except Exception:
+                pass
+            break
+
     if not r.ok:
         return {
             "ok": False,
-            "error": f"TinyFish Agent HTTP {r.status_code}: {r.text[:300]}",
+            "error": f"ScrapingBee HTTP {r.status_code}: {r.text[:300]}",
             "elapsed_sec": elapsed,
-            "num_of_steps": 0,
-            "cost_usd": 0.0,
+            "credits": credits,
             "videos": [],
             "official_channel": None,
             "search_url": search_url,
         }
-    data = r.json() if r.content else {}
-    steps = int(data.get("num_of_steps") or 0)
-    # browser ≈ elapsed minutes
-    browser_cost = (elapsed / 60.0) * BROWSER_MIN_USD
-    step_cost = steps * AGENT_STEP_USD
-    result = data.get("result") or {}
-    if isinstance(result, str):
-        try:
-            result = json.loads(result)
-        except Exception:
-            result = {"raw": result}
-    videos_raw = result.get("videos") if isinstance(result, dict) else []
-    videos: list[dict] = []
-    for v in videos_raw or []:
-        url = normalize_watch_url(str(v.get("url") or ""))
-        if not url and not v.get("url"):
-            continue
-        raw_url = str(v.get("url") or url)
-        views_text = str(v.get("views_text") or "")
-        views = _as_int(v.get("views"))
-        if views is None:
-            views = _as_int(views_text)
-        videos.append({
-            "kind": "video",
-            "title": v.get("title") or "",
-            "url": url or raw_url,
-            "video_id": video_id_from_url(url or raw_url),
-            "snippet": v.get("description") or v.get("snippet") or "",
-            "upload_age": v.get("upload_age") or "",
-            "views": views,
-            "views_text": views_text,
-            "channel_name": v.get("channel_name") or "",
-            "channel_url": v.get("channel_url") or "",
-            "source": "youtube_native",
-            "is_short": bool(v.get("is_short")) or "/shorts/" in raw_url,
-        })
-    status = str(data.get("status") or "")
+
+    data = _extract_yt_initial_data(r.text or "")
+    if not data:
+        return {
+            "ok": False,
+            "error": "ytInitialData not found in YouTube HTML (blocked or empty)",
+            "elapsed_sec": elapsed,
+            "credits": credits,
+            "videos": [],
+            "official_channel": None,
+            "search_url": search_url,
+        }
+
+    videos = _parse_videos_from_yt_data(data)
+    official = _guess_official_channel(videos, query)
     return {
-        "ok": status.upper() == "COMPLETED",
-        "status": status,
-        "run_id": data.get("run_id"),
-        "error": (data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("error"),
+        "ok": bool(videos),
+        "error": None if videos else "No videos parsed from YouTube search page",
         "elapsed_sec": elapsed,
-        "num_of_steps": steps,
-        "cost_usd": round(step_cost + browser_cost, 4),
-        "cost_breakdown": {
-            "steps": steps,
-            "step_usd": round(step_cost, 4),
-            "browser_min_usd": round(browser_cost, 4),
-        },
+        "credits": credits,
         "videos": videos,
-        "official_channel": (result.get("official_channel") if isinstance(result, dict) else None),
+        "official_channel": official,
         "search_url": search_url,
     }
 
@@ -575,21 +671,17 @@ def analyze_company(
         raise ValueError("company/query required")
     loc = "US" if (market or "us").lower().startswith("us") else "BR"
     usage = {
-        "agent_cost_usd": 0.0,
-        "agent_steps": 0,
-        "openrouter": True if os.environ.get("OPENROUTER_API_KEY") else False,
+        "scrapingbee_credits": 0,
+        "openrouter": bool((os.environ.get("OPENROUTER_API_KEY") or "").strip()),
         "estimated_total_usd": 0.0,
-        "source": "youtube_native_only",
+        "source": "youtube_native_scrapingbee",
     }
 
-    agent = tinyfish_agent_youtube_search(q, country=loc)
-    usage["agent_cost_usd"] = float(agent.get("cost_usd") or 0)
-    usage["agent_steps"] = int(agent.get("num_of_steps") or 0)
-    usage["estimated_total_usd"] = round(usage["agent_cost_usd"], 4)
-    usage["agent_run_id"] = agent.get("run_id")
-    usage["agent_elapsed_sec"] = agent.get("elapsed_sec")
+    fetched = scrapingbee_youtube_search(q, country=loc)
+    usage["scrapingbee_credits"] = int(fetched.get("credits") or 0)
+    usage["fetch_elapsed_sec"] = fetched.get("elapsed_sec")
 
-    videos = list(agent.get("videos") or [])
+    videos = list(fetched.get("videos") or [])
     videos = classify_about_product(
         videos,
         company=company,
@@ -600,18 +692,18 @@ def analyze_company(
         videos,
         company=company,
         domain=domain,
-        official_hint=agent.get("official_channel"),
+        official_hint=fetched.get("official_channel"),
     )
 
     return {
-        "ok": bool(agent.get("ok") or videos),
+        "ok": bool(fetched.get("ok") or videos),
         "company": company,
         "domain": domain,
         "query": q,
-        "search_url": agent.get("search_url")
+        "search_url": fetched.get("search_url")
         or f"https://www.youtube.com/results?search_query={quote_plus(q)}",
         "elapsed_sec": round(time.time() - t_all, 2),
         "usage": usage,
-        "agent_error": agent.get("error"),
+        "error": fetched.get("error"),
         **summary,
     }

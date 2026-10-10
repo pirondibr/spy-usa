@@ -261,7 +261,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
     usage = data.get("usage_total") or {}
     report["youtube_influencers"] = {
-        "source": "tinyfish",
+        "source": "scrapingbee",
         "market": data.get("market") or "US",
         "leader": client.get("name") if client else "—",
         "total_traffic_fmt": client.get("traffic_fmt") if client else "—",
@@ -275,7 +275,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
             f"30d {_fmt_views(client.get('views_30d'))} / "
             f"6m {_fmt_views(client.get('views_6m'))} / "
             f"1y+ {_fmt_views(client.get('views_1y_plus'))} "
-            f"(product-relevant only; TinyFish ≈ ${usage.get('estimated_usd', 0)})."
+            f"(product-relevant only; ScrapingBee credits={usage.get('scrapingbee_credits', '—')})."
         ),
         "analysis_title": "YouTube Influencers",
         "pro_hook": "Na versão Pro mapeamos creators, scripts e oportunidades de menção no YouTube.",
@@ -983,22 +983,22 @@ def run_pipeline(
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")
 
-    # 10) YouTube Influencers (optional) — native YouTube search via TinyFish Agent
+    # 10) YouTube Influencers (optional) — ScrapingBee fetch + ytInitialData parse
     if include_youtube_influencers:
-        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
-            emit("log", line="[YT-INF] Skipped: TINYFISH_API_KEY missing")
-            _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped (no TinyFish key)")
+        if not (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip():
+            emit("log", line="[YT-INF] Skipped: SCRAPINGBEE_API_KEY missing")
+            _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped (no ScrapingBee key)")
         else:
             _emit_progress(
                 emit, set_step, "youtube_influencers", "running",
-                "YouTube Influencers (native search 1st page)...",
+                "YouTube Influencers (ScrapingBee + parse)...",
             )
             try:
                 _run_script(
                     [sys.executable, str(SCRIPT_YT_INFLUENCERS), slug],
                     FINAL_DIR,
                     on_log,
-                    timeout_sec=720,
+                    timeout_sec=240,
                     env=script_env,
                 )
             except Exception as e:

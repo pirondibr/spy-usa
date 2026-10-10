@@ -125,8 +125,7 @@ def main() -> None:
     )
 
     rows = []
-    total_cost = 0.0
-    total_steps = 0
+    total_credits = 0
     t0 = time.time()
 
     for ent in entities:
@@ -156,19 +155,19 @@ def main() -> None:
                 "views_unofficial": 0,
                 "views_by_age": {},
                 "top5": [],
+                "top5_official": [],
+                "top5_unofficial": [],
                 "counts": {},
                 "usage": {},
                 "elapsed_sec": 0,
             }
         usage = result.get("usage") or {}
-        total_cost += float(usage.get("estimated_total_usd") or 0)
-        total_steps += int(usage.get("agent_steps") or 0)
+        total_credits += int(usage.get("scrapingbee_credits") or 0)
         print(
             f"[YT-INF]   about={result.get('counts', {}).get('about_product')} "
             f"off_views={result.get('views_official')} "
             f"unoff_views={result.get('views_unofficial')} "
-            f"steps={usage.get('agent_steps')} "
-            f"cost≈${usage.get('estimated_total_usd')} "
+            f"sb_credits={usage.get('scrapingbee_credits')} "
             f"t={result.get('elapsed_sec')}s",
             flush=True,
         )
@@ -193,19 +192,19 @@ def main() -> None:
             "usage": usage,
             "elapsed_sec": result.get("elapsed_sec"),
             "ok": result.get("ok"),
-            "error": result.get("error") or result.get("agent_error"),
+            "error": result.get("error"),
             "videos_about_product": result.get("videos_about_product") or [],
         })
 
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "youtube_native_tinyfish_agent",
+        "source": "youtube_native_scrapingbee",
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
-            "estimated_usd": round(total_cost, 4),
-            "agent_steps": total_steps,
-            "note": "Native YouTube search only · Agent $0.016/step + ~$0.002/browser-min",
+            "estimated_usd": 0.0,
+            "scrapingbee_credits": total_credits,
+            "note": "Native YouTube search via ScrapingBee render_js + ytInitialData parse",
         },
         "rows": rows,
     }
@@ -215,8 +214,7 @@ def main() -> None:
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[OUT] {out_path}", flush=True)
     print(
-        f"[YT-INF] TOTAL {out['elapsed_sec']}s · steps={total_steps} · "
-        f"cost≈${total_cost:.4f}",
+        f"[YT-INF] TOTAL {out['elapsed_sec']}s · ScrapingBee credits={total_credits}",
         flush=True,
     )
 
