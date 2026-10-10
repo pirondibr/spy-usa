@@ -206,6 +206,11 @@
           </div>
         </div>
         <label class="check">
+          <input id="compareAll" type="checkbox" />
+          All
+          <span class="hint">(todas as empresas na mesma tabela / resumo)</span>
+        </label>
+        <label class="check">
           <input id="siteOnly" type="checkbox" checked />
           Modo sem pesquisar concorrentes
           <span class="hint">(analisa só as empresas informadas)</span>
@@ -532,13 +537,20 @@
       }
     }
 
+    $("compareAll").addEventListener("change", () => {
+      if ($("compareAll").checked) {
+        $("siteOnly").checked = true;
+      }
+    });
+
     $("form").addEventListener("submit", (e) => {
       e.preventDefault();
+      const compareAll = $("compareAll").checked;
       startAnalyze({
         url: $("url").value.trim(),
         force: $("force").checked,
-        site_only: $("siteOnly").checked,
-        compare_all: false,
+        site_only: compareAll ? true : $("siteOnly").checked,
+        compare_all: compareAll,
         market: selectedMarket(),
         include_google_ads: $("googleAds").checked,
         include_linkedin: $("linkedinAds").checked,
