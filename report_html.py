@@ -211,6 +211,8 @@ def _rows_table(
             extras.append(f'title="Clique para ordenar · × oculta {_esc(headers[c])}"')
         if header and interactive:
             classes.append("sortable")
+        if key in ("idx", "company"):
+            classes.append("col-frozen")
         cls = f' class="{" ".join(classes)}"' if classes else ""
         extra = (" " + " ".join(extras)) if extras else ""
         return f"{cls}{extra}"
@@ -219,8 +221,16 @@ def _rows_table(
     for i, h in enumerate(headers):
         label = _esc(h)
         if interactive:
+            key = str((col_keys[i] if col_keys and i < len(col_keys) else "") or "").strip()
+            drag = ""
+            if key not in ("idx", "company", "#"):
+                drag = (
+                    '<span class="col-drag" title="Mover coluna" draggable="true" '
+                    'aria-label="Mover coluna">⋮⋮</span>'
+                )
             label = (
                 f'<span class="th-wrap">'
+                f"{drag}"
                 f'<span class="th-label">{_esc(h)}</span>'
                 f'<button type="button" class="col-hide" title="Ocultar {_esc(h)}" aria-label="Ocultar {_esc(h)}">×</button>'
                 f"</span>"
@@ -1824,14 +1834,12 @@ def render_report_html(
         row = [
             str(i),
             name,
-            _clip_cell(_row_title(c), limit=22),
             _esc(c.get("domain") or "—"),
             _sim_edit_cell(c, editable=sim_editable),
         ]
         if competitors_only:
             row.append(_fonte_cell(c.get("fonte")))
             row.append(_esc(c.get("perfil") or "—"))
-        row.append(_clip_cell(c.get("nicho"), limit=28))
         if competitors_only:
             row.append(_clip_cell(c.get("motivo"), limit=48))
         show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
@@ -1850,16 +1858,16 @@ def render_report_html(
                 row.append(_esc(c.get("similarweb_fmt") or _fmt_vol(c.get("similarweb_visits"))))
             else:
                 row.append("—")
+        row.append(_clip_cell(_row_title(c), limit=22))
+        row.append(_clip_cell(c.get("nicho"), limit=28))
         sort_row = [
             str(i),
             str(c.get("name") or c.get("domain") or "").lower(),
-            _row_title(c).lower(),
             str(c.get("domain") or "").lower(),
             _sort_sim(c),
         ]
         if competitors_only:
             sort_row += [str(c.get("fonte") or "").lower(), str(c.get("perfil") or "").lower()]
-        sort_row.append(str(c.get("nicho") or "").lower())
         if competitors_only:
             sort_row.append(str(c.get("motivo") or "").lower())
         if show_brand:
@@ -1872,6 +1880,7 @@ def render_report_html(
             ]
         if show_sw:
             sort_row.append(_sort_num(c.get("similarweb_visits")))
+        sort_row += [_row_title(c).lower(), str(c.get("nicho") or "").lower()]
         comp_rows.append(row)
         sort_rows.append(sort_row)
         row_attrs.append({
@@ -1880,16 +1889,16 @@ def render_report_html(
         })
     show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
     show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
-    comp_headers = ["#", "Company", "Title", "Domain", "Similarity"]
+    comp_headers = ["#", "Company", "Domain", "Similarity"]
     if competitors_only:
         comp_headers += ["Fonte", "Perfil"]
-    comp_headers.append("Niche")
     if competitors_only:
         comp_headers.append("Motivo")
     if show_brand:
         comp_headers += ["Marca", "Ago 2026", "Ago 2025", "Ago 2024", "Cresc."]
     if show_sw:
         comp_headers.append("SimilarWeb")
+    comp_headers += ["Title", "Niche"]
     _COMP_KEY = {
         "#": "idx",
         "Company": "company",
@@ -2062,7 +2071,7 @@ def render_report_html(
         </div>
       </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
-      <p class="muted table-hint">Clique no nome da coluna para ordenar (maior → menor). O × oculta a coluna. Similarity can be changed on the row.</p>
+      <p class="muted table-hint">Clique no nome da coluna para ordenar. ⋮⋮ move a coluna. Company fica fixa ao rolar. O × oculta.</p>
       {add_form}
       {_rows_table(
           comp_headers, comp_rows,
@@ -2252,6 +2261,24 @@ td[data-col="title"] .clip,td[data-col="niche"] .clip{max-width:132px}
 .table-hint{margin:0 0 10px}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+.col-drag{cursor:grab;color:#94a3b8;font-size:11px;letter-spacing:-1px;line-height:1;padding:2px 1px;user-select:none}
+.col-drag:active{cursor:grabbing}
+th.is-dragging{opacity:.45}
+th.drop-before{box-shadow:inset 3px 0 0 var(--accent)}
+th.drop-after{box-shadow:inset -3px 0 0 var(--accent)}
+#sec-competitors .table-wrap{position:relative}
+#sec-competitors th.col-frozen,#sec-competitors td.col-frozen{
+  position:sticky;z-index:2;background:#fff}
+#sec-competitors thead th.col-frozen{z-index:4;background:#f8fafc}
+#sec-competitors td[data-col="company"],#sec-competitors th[data-col="company"]{
+  left:0;box-shadow:1px 0 0 var(--border)}
+#sec-competitors[data-view="all"] td[data-col="idx"],#sec-competitors[data-view="all"] th[data-col="idx"]{
+  left:0;z-index:3}
+#sec-competitors[data-view="all"] td[data-col="company"],#sec-competitors[data-view="all"] th[data-col="company"]{
+  left:36px}
+#sec-competitors tbody tr.is-you td.col-frozen{background:var(--accent-soft)}
+#sec-competitors tbody tr:hover td.col-frozen{background:#fafbfc}
+#sec-competitors tbody tr.is-you:hover td.col-frozen{background:#d1fae5}
 th.sortable .th-label{border-bottom:1px dashed transparent}
 th.sortable:hover .th-label{border-bottom-color:#94a3b8}
 th.is-sorted-desc .th-label::after,th.is-sorted-asc .th-label::after{margin-left:4px;font-size:10px;color:var(--accent)}
@@ -2489,8 +2516,91 @@ _REPORT_JS = """
     }
     var head=table.tHead;
     if(head && wrap.classList.contains('interactive-table')){
+      var dragKey='';
+      var didDrag=false;
+      function colKey(el){ return el ? (el.getAttribute('data-col')||'') : ''; }
+      function frozenKey(key){ return key==='idx' || key==='company'; }
+      function saveOrder(){
+        if(!card) return;
+        var keys=[].slice.call(table.querySelectorAll('thead th')).map(colKey).filter(Boolean);
+        try{ localStorage.setItem('spy-col-order', JSON.stringify(keys)); }catch(e){}
+      }
+      function applyOrder(keys){
+        if(!keys || !keys.length) return;
+        var have=[].slice.call(table.querySelectorAll('thead th')).map(colKey);
+        var frozen=['idx','company'].filter(function(k){ return have.indexOf(k)>=0; });
+        var rest=keys.filter(function(k){ return frozen.indexOf(k)<0 && have.indexOf(k)>=0; });
+        have.forEach(function(k){ if(frozen.indexOf(k)<0 && rest.indexOf(k)<0) rest.push(k); });
+        var final=frozen.concat(rest);
+        [].slice.call(table.querySelectorAll('thead tr, tbody tr')).forEach(function(row){
+          final.forEach(function(k){
+            var cell=row.querySelector('[data-col="'+k+'"]');
+            if(cell) row.appendChild(cell);
+          });
+        });
+      }
+      function moveCol(fromKey, toKey, after){
+        if(!fromKey || !toKey || fromKey===toKey || frozenKey(fromKey)) return;
+        if(frozenKey(toKey)){ after=true; toKey='company'; }
+        [].slice.call(table.querySelectorAll('thead tr, tbody tr')).forEach(function(row){
+          var from=row.querySelector('[data-col="'+fromKey+'"]');
+          var to=row.querySelector('[data-col="'+toKey+'"]');
+          if(!from || !to) return;
+          if(after && to.nextSibling) row.insertBefore(from, to.nextSibling);
+          else if(after) row.appendChild(from);
+          else row.insertBefore(from, to);
+        });
+        saveOrder();
+      }
+      try{
+        var saved=JSON.parse(localStorage.getItem('spy-col-order')||'[]');
+        if(saved && saved.length) applyOrder(saved);
+      }catch(e){}
+      head.addEventListener('dragstart',function(ev){
+        var handle=ev.target.closest('.col-drag');
+        var th=ev.target.closest('th');
+        if(!handle || !th){ ev.preventDefault(); return; }
+        dragKey=colKey(th);
+        if(!dragKey || frozenKey(dragKey)){ ev.preventDefault(); return; }
+        didDrag=false;
+        th.classList.add('is-dragging');
+        ev.dataTransfer.effectAllowed='move';
+        ev.dataTransfer.setData('text/plain', dragKey);
+      });
+      head.addEventListener('dragend',function(){
+        table.querySelectorAll('thead th').forEach(function(th){
+          th.classList.remove('is-dragging','drop-before','drop-after');
+        });
+        dragKey='';
+      });
+      head.addEventListener('dragover',function(ev){
+        if(!dragKey) return;
+        var th=ev.target.closest('th');
+        if(!th) return;
+        ev.preventDefault();
+        didDrag=true;
+        var mid=th.getBoundingClientRect().left + th.offsetWidth/2;
+        var after=ev.clientX>mid;
+        table.querySelectorAll('thead th').forEach(function(el){
+          el.classList.toggle('drop-before', el===th && !after);
+          el.classList.toggle('drop-after', el===th && after);
+        });
+      });
+      head.addEventListener('drop',function(ev){
+        ev.preventDefault();
+        var th=ev.target.closest('th');
+        if(!th || !dragKey) return;
+        var toKey=colKey(th);
+        var mid=th.getBoundingClientRect().left + th.offsetWidth/2;
+        moveCol(dragKey, toKey, ev.clientX>mid);
+        table.querySelectorAll('thead th').forEach(function(el){
+          el.classList.remove('is-dragging','drop-before','drop-after');
+        });
+      });
       head.addEventListener('click',function(ev){
+        if(didDrag){ didDrag=false; ev.preventDefault(); return; }
         var hideBtn=ev.target.closest('.col-hide');
+        if(ev.target.closest('.col-drag')) return;
         var th=ev.target.closest('th');
         if(!th) return;
         var col=[].indexOf.call(th.parentNode.children, th);
