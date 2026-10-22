@@ -1167,6 +1167,14 @@ def _enrich_competitors_brand_sw(
                 c["brand_growth_26_24"] = br.get("growth_26_24_pct")
             report["include_brand_growth"] = True
             _log(f"[BRAND] DataForSEO agosto 2026/25/24 em {len(brand_rows)} empresas")
+            try:
+                from brand_false_positive import flag_brand_false_positives  # noqa: E402
+
+                n_fp = flag_brand_false_positives(rows, emit=_log)
+                report["brand_fp_checked"] = True
+                _log(f"[BRAND-FP] {n_fp} possível(is) falso(s) positivo(s)")
+            except Exception as e:
+                _log(f"[BRAND-FP] Falhou: {e}")
         except Exception as e:
             _log(f"[BRAND] Falhou: {e}")
             report["include_brand_growth"] = True

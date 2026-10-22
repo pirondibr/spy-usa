@@ -7,6 +7,7 @@ import html
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -14,6 +15,25 @@ from urllib.parse import urlparse
 
 def _esc(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
+
+
+def _brand_fp_domains(comps: list[dict[str, Any]], report: dict[str, Any]) -> set[str]:
+    stored = {
+        str(c.get("domain") or "").strip().lower()
+        for c in comps
+        if c.get("brand_false_positive")
+    }
+    stored.discard("")
+    if report.get("brand_fp_checked") or stored:
+        return stored
+    vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from brand_false_positive import heuristic_false_positive_domains  # noqa: E402
+        return heuristic_false_positive_domains(comps)
+    except Exception:
+        return set()
 
 
 def _md_lite(text: str) -> str:
@@ -1723,6 +1743,7 @@ def render_report_html(
     competitors_only = bool(report.get("competitors_only") or meta.get("competitors_only"))
     if competitors_only and report.get("competitors_raw"):
         comps = report.get("competitors_raw") or comps
+    fp_domains = _brand_fp_domains(comps, report)
 
     comp_rows = []
     sort_rows: list[list[Any]] = []
@@ -1734,6 +1755,8 @@ def render_report_html(
         name = _link_cell(site, raw_name) if site else _esc(raw_name)
         if c.get("is_client"):
             name += ' <span class="you">you</span>'
+        if (c.get("domain") or "").strip().lower() in fp_domains:
+            name += ' <span class="fp-mark" title="potential false positive">*</span>'
         row = [
             str(i),
             name,
@@ -2154,6 +2177,7 @@ th.sortable:hover .col-hide,.col-hide:focus{opacity:1}
 td.empty{color:var(--soft);text-align:center;padding:22px}
 .you{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
+.fp-mark{margin-left:2px;color:#b45309;font-weight:800;cursor:help;font-size:14px;line-height:1}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 a.ext:hover{text-decoration:underline}
 td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px;white-space:normal}

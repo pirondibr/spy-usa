@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 import uuid
@@ -47,7 +48,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -774,6 +775,25 @@ def run_report(run_id: str):
     report = load_saved_report(run_id, RUNS_DIR)
     if report is not None:
         try:
+            if report.get("include_brand_growth") and not report.get("brand_fp_checked"):
+                try:
+                    vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+                    if str(vendor) not in sys.path:
+                        sys.path.insert(0, str(vendor))
+                    from brand_false_positive import flag_brand_false_positives  # noqa: E402
+
+                    rows = list(report.get("competitors") or report.get("competitors_raw") or [])
+                    flag_brand_false_positives(rows)
+                    report["competitors"] = rows
+                    report["competitors_raw"] = rows
+                    report["brand_fp_checked"] = True
+                    (RUNS_DIR / run_id / "report.json").write_text(
+                        json.dumps(report, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    print(f"[BRAND-FP] backfill saved for {run_id}", flush=True)
+                except Exception as e:
+                    print(f"[BRAND-FP] backfill skipped for {run_id}: {e}", flush=True)
             html = render_report_html(report, run_meta=_read_run_meta(run_id) or {})
             return Response(html, mimetype="text/html")
         except Exception as e:
