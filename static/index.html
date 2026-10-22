@@ -164,7 +164,9 @@
       padding: 16px 18px;
     }
     .history h2 { margin: 0 0 4px; font-size: 18px; color: var(--teal-deep); }
-    .history-sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+    .history-sub { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+    .history-tabs { margin: 0 0 14px; }
+    .history-tabs .tab .num { font-weight: 600; opacity: .75; margin-left: 4px; }
     .history table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .history th, .history td {
       text-align: left;
@@ -325,6 +327,10 @@
     <section class="history" id="history">
       <h2>Runs anteriores</h2>
       <p class="history-sub">Clique na empresa para abrir o relatório, ou refaça a análise.</p>
+      <div class="tabs history-tabs" role="tablist" aria-label="Tipo de run">
+        <button type="button" class="tab on" id="histAnalyze">Análise <span class="num" id="histAnalyzeN"></span></button>
+        <button type="button" class="tab" id="histCompetitors">Concorrentes <span class="num" id="histCompetitorsN"></span></button>
+      </div>
       <div id="historyBody"><p class="empty">Carregando…</p></div>
     </section>
 
@@ -336,6 +342,8 @@
     const TOTAL = 10;
     let progressTotal = TOTAL;
     let activeTab = "analyze";
+    let historyTab = "analyze";
+    let allRuns = [];
     let es = null;
     let activeJobIds = [];
 
@@ -348,9 +356,19 @@
       $("lede").textContent = activeTab === "competitors"
         ? "Teste isolado: achar concorrentes (SEO + LLM + Semrush top 5). Escolha USA ou BR — SERP, Semrush e o idioma do briefing seguem o mercado."
         : "Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.";
+      setHistoryTab(activeTab);
     }
     $("tabAnalyze").addEventListener("click", () => setTab("analyze"));
     $("tabCompetitors").addEventListener("click", () => setTab("competitors"));
+
+    function setHistoryTab(name) {
+      historyTab = name === "competitors" ? "competitors" : "analyze";
+      $("histAnalyze").classList.toggle("on", historyTab === "analyze");
+      $("histCompetitors").classList.toggle("on", historyTab === "competitors");
+      renderHistory();
+    }
+    $("histAnalyze").addEventListener("click", () => setHistoryTab("analyze"));
+    $("histCompetitors").addEventListener("click", () => setHistoryTab("competitors"));
 
     async function refreshHello() {
       try {
@@ -394,42 +412,58 @@
       return br && br.checked ? "br" : "us";
     }
 
+    function renderHistory() {
+      const box = $("historyBody");
+      const analyze = allRuns.filter((r) => !r.competitors_only);
+      const comps = allRuns.filter((r) => r.competitors_only);
+      $("histAnalyzeN").textContent = analyze.length ? `(${analyze.length})` : "";
+      $("histCompetitorsN").textContent = comps.length ? `(${comps.length})` : "";
+      const runs = historyTab === "competitors" ? comps : analyze;
+      if (!allRuns.length) {
+        box.innerHTML = `<p class="empty">Nenhuma run ainda. Analise uma empresa acima.</p>`;
+        return;
+      }
+      if (!runs.length) {
+        box.innerHTML = historyTab === "competitors"
+          ? `<p class="empty">Nenhuma run de concorrentes ainda.</p>`
+          : `<p class="empty">Nenhuma run de análise ainda.</p>`;
+        return;
+      }
+      const rows = runs.map((run) => {
+        const st = (run.status || "—").toLowerCase();
+        const canOpen = st === "done" && run.html_url;
+        const company = run.company || run.slug || run.url || run.id;
+        const companyCell = canOpen
+          ? `<a class="company" href="${run.html_url}">${escapeHtml(company)}</a>`
+          : `<span class="muted-row">${escapeHtml(company)}</span>`;
+        const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
+        return `<tr>
+          <td>${companyCell}</td>
+          <td class="muted-row">${escapeHtml(run.url || "—")}</td>
+          <td><span class="badge ${escapeHtml(st)}">${escapeHtml(st)}</span></td>
+          <td class="muted-row">${escapeHtml(modeLabel(run))}</td>
+          <td class="muted-row">${escapeHtml(fmtWhen(run.created_at))}</td>
+          <td>${redoBtn}</td>
+        </tr>`;
+      }).join("");
+      box.innerHTML = `<div class="table-wrap"><table>
+        <thead><tr>
+          <th>Empresa</th><th>URL</th><th>Status</th><th>Modo</th><th>Quando</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+      box.querySelectorAll("[data-rerun]").forEach((btn) => {
+        btn.addEventListener("click", () => rerun(btn.getAttribute("data-rerun")));
+      });
+    }
+
     async function loadHistory() {
       const box = $("historyBody");
       try {
-        const r = await fetch("/api/runs?limit=40");
+        const r = await fetch("/api/runs?limit=80");
         const j = await r.json();
-        const runs = j.runs || [];
-        if (!runs.length) {
-          box.innerHTML = `<p class="empty">Nenhuma run ainda. Analise uma empresa acima.</p>`;
-          return;
-        }
-        const rows = runs.map((run) => {
-          const st = (run.status || "—").toLowerCase();
-          const canOpen = st === "done" && run.html_url;
-          const company = run.company || run.slug || run.url || run.id;
-          const companyCell = canOpen
-            ? `<a class="company" href="${run.html_url}">${escapeHtml(company)}</a>`
-            : `<span class="muted-row">${escapeHtml(company)}</span>`;
-          const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
-          return `<tr>
-            <td>${companyCell}</td>
-            <td class="muted-row">${escapeHtml(run.url || "—")}</td>
-            <td><span class="badge ${escapeHtml(st)}">${escapeHtml(st)}</span></td>
-            <td class="muted-row">${escapeHtml(modeLabel(run))}</td>
-            <td class="muted-row">${escapeHtml(fmtWhen(run.created_at))}</td>
-            <td>${redoBtn}</td>
-          </tr>`;
-        }).join("");
-        box.innerHTML = `<div class="table-wrap"><table>
-          <thead><tr>
-            <th>Empresa</th><th>URL</th><th>Status</th><th>Modo</th><th>Quando</th><th></th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table></div>`;
-        box.querySelectorAll("[data-rerun]").forEach((btn) => {
-          btn.addEventListener("click", () => rerun(btn.getAttribute("data-rerun")));
-        });
+        allRuns = j.runs || [];
+        renderHistory();
       } catch {
         box.innerHTML = `<p class="empty">Não foi possível carregar o histórico.</p>`;
       }
