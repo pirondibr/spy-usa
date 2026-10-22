@@ -57,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.26"
+APP_VERSION = "0.4.27"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -91,6 +91,8 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "competitors_only": bool(getattr(job, "competitors_only", False)),
         "include_brand_growth": bool(getattr(job, "include_brand_growth", False)),
         "include_similarweb_alto": bool(getattr(job, "include_similarweb_alto", False)),
+        "has_competitors": (not bool(getattr(job, "competitors_only", False)))
+        and (not bool(job.site_only)),
         "peer_urls": list(job.parsed.competitors or []),
         "include_google_ads": bool(job.include_google_ads),
         "include_linkedin": bool(job.include_linkedin),
@@ -175,6 +177,8 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "site_only": job.site_only,
             "compare_all": bool(job.compare_all),
             "competitors_only": bool(getattr(job, "competitors_only", False)),
+            "has_competitors": (not bool(getattr(job, "competitors_only", False)))
+            and (not bool(job.site_only)),
             "include_google_ads": job.include_google_ads,
             "include_linkedin": job.include_linkedin,
             "include_youtube_influencers": bool(job.include_youtube_influencers),
@@ -195,6 +199,10 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
         return str(m.get("created_at") or m.get("updated_at") or "")
 
     rows = sorted(by_id.values(), key=_sort_key, reverse=True)
+    for m in rows:
+        m["has_competitors"] = (not bool(m.get("competitors_only"))) and (
+            m.get("site_only") is False
+        )
     return rows[:limit]
 
 
@@ -421,7 +429,9 @@ def _job_payload(job: Job) -> dict[str, Any]:
 
 @app.get("/")
 def index():
-    return send_from_directory(STATIC_DIR, "index.html")
+    resp = send_from_directory(STATIC_DIR, "index.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/hello")

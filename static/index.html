@@ -186,6 +186,19 @@
       text-decoration: none;
     }
     .history a.company:hover { text-decoration: underline; }
+    .history .company-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+    .tag-comps {
+      display: inline-block;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: #fbefe3;
+      color: #8a400b;
+      border: 1px solid #e8d5c4;
+      white-space: nowrap;
+    }
     .history .muted-row { color: var(--muted); }
     .badge {
       display: inline-block;
@@ -391,14 +404,17 @@
       } catch { return iso; }
     }
 
+    function hasCompetitors(r) {
+      if (r.competitors_only) return false;
+      if (r.has_competitors) return true;
+      return r.site_only === false;
+    }
+
     function modeLabel(r) {
       const mkt = (r.market || "US").toString().toUpperCase();
       const parts = [mkt];
       if (r.competitors_only) parts.push("concorrentes");
-      else {
-        if (r.compare_all) parts.push("All");
-        parts.push(r.site_only === false ? "com concorrentes" : "sem concorrentes");
-      }
+      else if (r.compare_all) parts.push("All");
       return parts.join(" · ");
     }
 
@@ -433,9 +449,13 @@
         const st = (run.status || "—").toLowerCase();
         const canOpen = st === "done" && run.html_url;
         const company = run.company || run.slug || run.url || run.id;
-        const companyCell = canOpen
+        const companyLink = canOpen
           ? `<a class="company" href="${run.html_url}">${escapeHtml(company)}</a>`
           : `<span class="muted-row">${escapeHtml(company)}</span>`;
+        const compsTag = hasCompetitors(run)
+          ? `<span class="tag-comps">Com concorrentes</span>`
+          : "";
+        const companyCell = `<div class="company-cell">${companyLink}${compsTag}</div>`;
         const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
         return `<tr>
           <td>${companyCell}</td>

@@ -16,6 +16,7 @@ def build_analysis_v2(
     site_host: str,
     run_id: str,
     market: str,
+    with_competitors: bool = False,
 ) -> str:
     from report_html import (  # noqa: PLC0415
         _channel_metric_value,
@@ -648,6 +649,7 @@ def build_analysis_v2(
         f'<a class="site" href="{_esc(site_url)}" target="_blank" rel="noopener">{_esc(site_host or site_url)} ↗</a>'
         if site_url else ""
     )
+    comps_tag = '<span class="tag-comps">Com concorrentes</span>' if with_competitors else ""
     snap = (client_row("similarweb") or {}).get("snapshot_label") or (section("similarweb") or {}).get("latest_label") or ""
 
     return f"""
@@ -665,7 +667,7 @@ def build_analysis_v2(
     <section class="mast">
       <div>
         <div class="kicker">{_esc(" · ".join(kicker_bits))}</div>
-        <div class="title"><h1>{_esc(client)}</h1>{site_link}</div>
+        <div class="title"><h1>{_esc(client)}</h1>{site_link}{comps_tag}</div>
       </div>
       <dl class="meta">
         {f'<div><dt>Nicho</dt><dd>{_esc(nicho)}</dd></div>' if nicho else ""}

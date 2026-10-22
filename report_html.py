@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.26"
+REPORT_UI_VERSION = "0.4.27"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2405,11 +2405,16 @@ def render_report_html(
     site_url = str(meta.get("url") or briefing.get("url") or "").strip()
     site_host = urlparse(site_url if "://" in site_url else f"https://{site_url}").netloc if site_url else ""
     site_host = site_host[4:] if site_host.startswith("www.") else site_host
+    with_competitors = (not competitors_only) and (
+        meta.get("site_only") is False or report.get("site_only") is False
+    )
     chips = [f'<span class="chip accent">Market {_esc(market)}</span>']
     if compare_all:
         chips.append('<span class="chip">Mode: All</span>')
     if competitors_only:
         chips.append('<span class="chip accent">Concorrentes only</span>')
+    elif with_competitors:
+        chips.append('<span class="chip accent">Com concorrentes</span>')
     if report.get("include_brand_growth") or meta.get("include_brand_growth"):
         chips.append('<span class="chip">Brand Aug 26/25/24</span>')
     if report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"):
@@ -2527,6 +2532,7 @@ def render_report_html(
             site_host=site_host,
             run_id=run_id,
             market=market,
+            with_competitors=with_competitors,
         )
 
     return f"""<!DOCTYPE html>
