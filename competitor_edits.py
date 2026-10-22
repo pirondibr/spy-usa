@@ -211,6 +211,7 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
     report = _load(run_id)
     href = _abs_url(url)
     dom = _domain_of(href)
+    home = f"https://{dom}/" if dom else ""
     if not dom:
         raise ValueError("A valid website URL is required")
     rows = _rows_of(report)
@@ -232,7 +233,7 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
         from seo_pipeline import analyze_similarity  # noqa: E402
 
         if client_url:
-            analyzed = analyze_similarity(href, client_url, briefing) or analyzed
+            analyzed = analyze_similarity(home, client_url, briefing) or analyzed
     except Exception as e:
         analyzed["motivo"] = f"Added manually (classify failed: {e})"
     sim = forced or normalize_similarity(analyzed.get("similaridade") or "") or "Medio"
@@ -243,7 +244,7 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
         from bs4 import BeautifulSoup
 
         resp = requests.get(
-            href,
+            home,
             timeout=12,
             headers={"User-Agent": "Mozilla/5.0 (compatible; SpyUSA/1.0)"},
             allow_redirects=True,
@@ -257,7 +258,7 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
     row = {
         "name": _name_from_domain(dom),
         "domain": dom,
-        "url": href if href.endswith("/") else href + "/",
+        "url": home,
         "title": page_title,
         "similaridade": sim,
         "perfil": analyzed.get("perfil") or "—",
@@ -276,6 +277,38 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
         "ok": True,
         "domain": dom,
         "similaridade": sim,
+        "html_url": f"/runs/{run_id}/report.html",
+    }
+
+
+def delete_competitors(run_id: str, domains: list[str] | tuple[str, ...] | str) -> dict[str, Any]:
+    report = _load(run_id)
+    if isinstance(domains, str):
+        raw = [domains]
+    else:
+        raw = list(domains or [])
+    want = {_domain_of(d) for d in raw}
+    want.discard("")
+    if not want:
+        raise ValueError("Select at least one competitor")
+    rows = _rows_of(report)
+    kept: list[dict[str, Any]] = []
+    removed: list[str] = []
+    for row in rows:
+        dom = _domain_of(row.get("domain") or "")
+        if row.get("is_client") or dom not in want:
+            kept.append(row)
+            continue
+        removed.append(dom)
+    if not removed:
+        raise ValueError("No matching competitors to delete")
+    _recheck_brand_fp(report, kept)
+    _refresh_rows(report, kept)
+    persist_report(run_id, report)
+    return {
+        "ok": True,
+        "deleted": removed,
+        "count": len(removed),
         "html_url": f"/runs/{run_id}/report.html",
     }
 

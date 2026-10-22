@@ -66,6 +66,7 @@ DOMAINS_TO_IGNORE = {
     "google.com", "google.com.br", "google.com", "yelp.com", "bbb.org", "facebook.com", "linkedin.com", "facebook.com", "instagram.com",
     "youtube.com", "linkedin.com", "wikipedia.org", "reclameaqui.com.br",
     "twitter.com", "x.com", "tiktok.com", "pinterest.com",
+    "reddit.com", "old.reddit.com", "play.google.com", "apps.apple.com",
 }
 
 
@@ -367,7 +368,7 @@ def consolidate_competitors(serps: dict, client_domain: str) -> list:
             if dom not in by_domain:
                 by_domain[dom] = {
                     "domain": dom,
-                    "url": it["url"],
+                    "url": f"https://{dom}/",
                     "title": it.get("title", ""),
                     "keywords": [],
                     "best_rank": it["rank"],
@@ -375,7 +376,7 @@ def consolidate_competitors(serps: dict, client_domain: str) -> list:
             by_domain[dom]["keywords"].append({"kw": kw, "rank": it["rank"]})
             if it["rank"] < by_domain[dom]["best_rank"]:
                 by_domain[dom]["best_rank"] = it["rank"]
-                by_domain[dom]["url"] = it["url"]  # usa URL da melhor posicao
+                by_domain[dom]["url"] = f"https://{dom}/"
                 by_domain[dom]["title"] = it.get("title", "")
 
     competitors = list(by_domain.values())
@@ -394,7 +395,7 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
         future_to_comp = {
             pool.submit(
                 analyze_similarity,
-                c.get("url") or "",
+                c.get("domain") or c.get("url") or "",
                 client_url,
                 briefing,
                 c.get("title") or "",
@@ -408,7 +409,8 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
                 r = fut.result()
             except Exception as e:
                 r = {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro: {e}"}
-            results.append({**c, **r})
+            home = f"https://{c.get('domain')}/" if c.get("domain") else (c.get("url") or "")
+            results.append({**c, "url": home, **r})
             done += 1
             extra = r.get("motivo") or ""
             extra = f"  {extra[:80]}" if extra and r.get("similaridade") in ("—", "", None) else ""

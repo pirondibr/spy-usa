@@ -814,6 +814,12 @@ def normalize_domain(d: str) -> str:
     return d
 
 
+def homepage_url(url_or_domain: str) -> str:
+    """Always score the domain root, never the SERP deep link (Reddit thread, Play Store app, etc.)."""
+    d = normalize_domain(url_or_domain)
+    return f"https://{d}/" if d else ""
+
+
 def _fetch_one_serp(kw: str, depth: int) -> tuple:
     """A API DataForSEO SERP advanced/live aceita apenas 1 task por request."""
     auth = requests.auth.HTTPBasicAuth(DATAFORSEO_USER, DATAFORSEO_PASS)
@@ -1063,6 +1069,7 @@ def analyze_similarity(
     briefing: dict,
     page_hint: str = "",
 ) -> dict:
+    comp_url = homepage_url(comp_url) or (comp_url or "").strip()
     content = scrape_url_text(comp_url)
     if not content:
         return {
@@ -1290,6 +1297,7 @@ SEMRUSH_COMPETITOR_IGNORE = {
     "google.com", "google.com.br", "facebook.com", "instagram.com",
     "youtube.com", "linkedin.com", "wikipedia.org", "twitter.com", "x.com",
     "tiktok.com", "pinterest.com", "whatsapp.com",
+    "reddit.com", "old.reddit.com", "play.google.com", "apps.apple.com",
 }
 
 
@@ -1717,12 +1725,19 @@ def run_top5_similarity(keywords: list, volumes: dict, serps: dict,
                 "title": it["title"],
             })
 
-    unique_urls = list({p["url"] for p in pairs if p["url"]})
-    print(f"[5] Analisando similaridade de {len(unique_urls)} URLs unicas ({len(pairs)} posicoes) ...")
+    unique_homes = []
+    seen_homes = set()
+    for p in pairs:
+        home = homepage_url(p.get("domain") or p.get("url") or "")
+        if not home or home in seen_homes:
+            continue
+        seen_homes.add(home)
+        unique_homes.append(home)
+    print(f"[5] Analisando similaridade de {len(unique_homes)} dominios ({len(pairs)} posicoes) ...")
 
     sim_cache = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        future_to_url = {pool.submit(analyze_similarity, u, client_url, briefing): u for u in unique_urls}
+        future_to_url = {pool.submit(analyze_similarity, u, client_url, briefing): u for u in unique_homes}
         done = 0
         for fut in as_completed(future_to_url):
             url = future_to_url[fut]
@@ -1732,11 +1747,11 @@ def run_top5_similarity(keywords: list, volumes: dict, serps: dict,
                 sim_cache[url] = {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro: {e}"}
             done += 1
             r = sim_cache[url]
-            print(f"[5]   ({done}/{len(unique_urls)}) {r.get('similaridade','—')}/{r.get('perfil','—')}  {url[:60]}")
+            print(f"[5]   ({done}/{len(unique_homes)}) {r.get('similaridade','—')}/{r.get('perfil','—')}  {url[:60]}")
 
     results = []
     for p in pairs:
-        s = sim_cache.get(p["url"], {})
+        s = sim_cache.get(homepage_url(p.get("domain") or p.get("url") or ""), {})
         results.append({**p,
                         "nicho": s.get("nicho", ""),
                         "similaridade": s.get("similaridade", "—"),

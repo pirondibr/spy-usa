@@ -212,7 +212,7 @@ def consolidate_maps_competitors(maps_items: list, client_url: str) -> list:
         rating = (it.get("rating") or {}).get("value")
         out.append({
             "domain": dom,
-            "url": url,
+            "url": f"https://{dom}/",
             "title": it.get("title", ""),
             "category": it.get("category", ""),
             "rating": rating,

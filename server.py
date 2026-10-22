@@ -20,6 +20,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from parse_input import ParsedInput, parse_company_list
 from competitor_edits import (
     add_competitor,
+    delete_competitors,
     fetch_missing_similarweb,
     fetch_semrush_brand_extra,
     parse_site_list,
@@ -55,7 +56,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.16"
+APP_VERSION = "0.4.17"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -878,6 +879,18 @@ def run_semrush_brand_extra(run_id: str):
             str(body.get("domain") or ""),
             str(body.get("kind") or body.get("mode") or ""),
         ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/competitors/delete")
+def run_delete_competitors(run_id: str):
+    body = request.get_json(silent=True) or {}
+    raw = body.get("domains") if body.get("domains") not in (None, "") else (
+        body.get("domain") or body.get("urls") or []
+    )
+    try:
+        return jsonify(delete_competitors(run_id, raw))
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 

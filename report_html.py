@@ -2013,6 +2013,13 @@ def render_report_html(
         name = _link_cell(site, raw_name) if site else _esc(raw_name)
         if c.get("is_client"):
             name += ' <span class="you">you</span>'
+        elif sim_editable and (c.get("domain") or "").strip():
+            name = (
+                f'<label class="row-pick">'
+                f'<input type="checkbox" data-pick="{_esc(str(c.get("domain") or "").strip().lower())}">'
+                f"</label>"
+                f"{name}"
+            )
         if (c.get("domain") or "").strip().lower() in fp_domains:
             name += ' <span class="fp-mark" title="potential false positive">*</span>'
         row = [
@@ -2238,6 +2245,15 @@ def render_report_html(
                 f'Check SimilarWeb ({sw_missing})</button>'
                 '<span class="sw-fill-status"></span>'
             )
+        del_bar = ""
+        if sim_editable:
+            del_bar = (
+                '<label class="comp-filter pick-visible">'
+                '<span>Select</span>'
+                '<input type="checkbox" id="comp-pick-visible" title="Select visible rows">'
+                "</label>"
+                '<button type="button" class="comp-del" id="comp-del" disabled>Delete selected</button>'
+            )
         filters_bar = f"""
       <div class="comp-filters" id="comp-filters">
         <label class="comp-filter">Similarity
@@ -2252,6 +2268,7 @@ def render_report_html(
         {growth_in}
         {sw_in}
         {sw_btn}
+        {del_bar}
       </div>"""
 
     return f"""<!DOCTYPE html>
@@ -2580,6 +2597,11 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
 .sw-fill{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;height:38px}
 .sw-fill:disabled{opacity:.55;cursor:default}
 .sw-fill-status{font-size:12px;color:var(--muted);align-self:center}
+.row-pick{display:inline-flex;align-items:center;margin-right:8px;vertical-align:middle;cursor:pointer}
+.row-pick input{margin:0;vertical-align:middle;accent-color:#0f172a}
+.pick-visible input{width:auto;min-width:0;height:18px;margin-top:8px;accent-color:#0f172a}
+.comp-del{border:0;background:#9f1239;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;height:38px}
+.comp-del:disabled{opacity:.45;cursor:default;background:#94a3b8}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 a.ext:hover{text-decoration:underline}
 td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px;white-space:normal}
@@ -2938,6 +2960,54 @@ _REPORT_JS = """
       });
     }
     render();
+    var delBtn=card?card.querySelector('#comp-del'):null;
+    var pickAll=card?card.querySelector('#comp-pick-visible'):null;
+    function pickedDomains(){
+      return rows().map(function(tr){
+        var cb=tr.querySelector('input[data-pick]');
+        return (cb && cb.checked) ? (tr.getAttribute('data-domain')||'') : '';
+      }).filter(Boolean);
+    }
+    function syncDel(){
+      if(!delBtn) return;
+      var n=pickedDomains().length;
+      delBtn.disabled=!n;
+      delBtn.textContent=n?('Delete selected ('+n+')'):'Delete selected';
+    }
+    if(card){
+      card.addEventListener('change',function(ev){
+        if(ev.target && ev.target.getAttribute && ev.target.getAttribute('data-pick')!=null) syncDel();
+      });
+    }
+    if(pickAll){
+      pickAll.addEventListener('change',function(){
+        visRows().forEach(function(tr){
+          var cb=tr.querySelector('input[data-pick]');
+          if(cb) cb.checked=pickAll.checked;
+        });
+        syncDel();
+      });
+    }
+    if(delBtn && card){
+      var runId=card.getAttribute('data-run-id')||'';
+      delBtn.addEventListener('click',function(){
+        var domains=pickedDomains();
+        if(!domains.length) return;
+        if(!confirm('Delete '+domains.length+' competitor(s) from this list?')) return;
+        delBtn.disabled=true;
+        fetch('/api/runs/'+runId+'/competitors/delete',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({domains:domains})
+        }).then(function(r){ return r.json().then(function(d){ if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status)); return d; }); })
+          .then(function(){ location.reload(); })
+          .catch(function(err){
+            delBtn.disabled=false;
+            syncDel();
+            alert(err.message||err);
+          });
+      });
+    }
   });
 })();
 (function(){

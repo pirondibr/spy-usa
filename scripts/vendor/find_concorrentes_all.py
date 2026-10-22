@@ -296,6 +296,7 @@ LLM_DOMAINS_IGNORE = {
     "youtube.com", "linkedin.com", "wikipedia.org", "bbb.org",
     "twitter.com", "x.com", "tiktok.com", "pinterest.com",
     "whatsapp.com", "telegram.org",
+    "reddit.com", "old.reddit.com", "play.google.com", "apps.apple.com",
 }
 
 
