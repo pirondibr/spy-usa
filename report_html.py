@@ -383,6 +383,12 @@ def _rows_table(
             extras.append(f'data-sim="{_esc(meta.get("sim"))}"')
         if meta.get("domain"):
             extras.append(f'data-domain="{_esc(meta.get("domain"))}"')
+        if meta.get("brand"):
+            extras.append(f'data-brand="{_esc(meta.get("brand"))}"')
+        if meta.get("growth"):
+            extras.append(f'data-growth="{_esc(meta.get("growth"))}"')
+        if meta.get("sw"):
+            extras.append(f'data-sw="{_esc(meta.get("sw"))}"')
         attr = (" " + " ".join(extras)) if extras else ""
         body.append(f"<tr{attr}>{tds_html}</tr>")
     if not body:
@@ -2017,9 +2023,15 @@ def render_report_html(
         sort_row += [_row_title(c).lower(), str(c.get("nicho") or "").lower()]
         comp_rows.append(row)
         sort_rows.append(sort_row)
+        growth_n = c.get("brand_growth_26_24")
+        if growth_n in (None, ""):
+            growth_n = _growth_pct(c.get("brand_aug_2026"), c.get("brand_aug_2024"))
         row_attrs.append({
             "sim": str(c.get("similaridade") or "").strip(),
             "domain": str(c.get("domain") or "").strip().lower(),
+            "brand": _sort_num(c.get("brand_aug_2026")),
+            "growth": _sort_num(growth_n),
+            "sw": _sort_num(c.get("similarweb_visits")),
         })
     show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
     show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
@@ -2148,23 +2160,49 @@ def render_report_html(
     if sim_editable:
         add_form = """
       <form class="add-comp" id="add-competitor">
-        <div class="add-comp-main">
-          <textarea name="urls" rows="4" placeholder="One website per line — paste 15 at once&#10;junglescout.com&#10;helium10.com&#10;https://example.com"></textarea>
-          <div class="add-comp-side">
-            <select name="similaridade" title="Similarity">
-              <option value="">Auto</option>
-              <option value="Alto">Alto</option>
-              <option value="Medio">Médio</option>
-              <option value="Baixo">Baixo</option>
-            </select>
-            <button type="submit">Add websites</button>
-          </div>
-        </div>
-        <p class="add-hint">Cole a lista — um por linha, vírgula ou espaço. Duplicados e sites já na tabela saem sozinhos. Cada site busca página + Brand (+ SimilarWeb se Alto) — mantenha esta aba aberta.</p>
+        <textarea name="urls" rows="1" placeholder="One website per line"></textarea>
+        <select name="similaridade" title="Similarity">
+          <option value="">Auto</option>
+          <option value="Alto">Alto</option>
+          <option value="Medio">Médio</option>
+          <option value="Baixo">Baixo</option>
+        </select>
+        <button type="submit">Add websites</button>
+        <span class="add-status"></span>
         <div class="add-preview" hidden></div>
         <ul class="add-log" hidden></ul>
-        <span class="add-status"></span>
       </form>"""
+    filters_bar = ""
+    if competitors_only:
+        brand_in = (
+            '<label class="comp-filter">Brand ≥'
+            '<input type="text" data-filter="brand" inputmode="decimal" placeholder="e.g. 1k"></label>'
+            if show_brand else ""
+        )
+        growth_in = (
+            '<label class="comp-filter">Growth ≥'
+            '<input type="text" data-filter="growth" inputmode="decimal" placeholder="e.g. 50"></label>'
+            if show_brand else ""
+        )
+        sw_in = (
+            '<label class="comp-filter">SimilarWeb ≥'
+            '<input type="text" data-filter="sw" inputmode="decimal" placeholder="e.g. 10k"></label>'
+            if show_sw else ""
+        )
+        filters_bar = f"""
+      <div class="comp-filters" id="comp-filters">
+        <label class="comp-filter">Similarity
+          <select data-filter="sim">
+            <option value="all">All</option>
+            <option value="alto">High</option>
+            <option value="medio">Medium</option>
+            <option value="baixo">Low</option>
+          </select>
+        </label>
+        {brand_in}
+        {growth_in}
+        {sw_in}
+      </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en-US">
@@ -2209,13 +2247,12 @@ def render_report_html(
         <div class="sort-bar" role="group" aria-label="Colunas dos concorrentes">
           <button type="button" class="sort-btn comp-view is-active" data-view="compact">Métricas</button>
           <button type="button" class="sort-btn comp-view" data-view="all">Todas</button>
-          <button type="button" class="sort-btn sim-filter" data-hide="medio" title="Hide Médio rows">Hide Medium</button>
-          <button type="button" class="sort-btn sim-filter" data-hide="baixo" title="Hide Baixo rows">Hide Low</button>
         </div>
       </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
       <p class="muted table-hint">Clique no nome da coluna para ordenar. ⋮⋮ move a coluna. Company fica fixa ao rolar. O × oculta.</p>
       {add_form}
+      {filters_bar}
       {_rows_table(
           comp_headers, comp_rows,
           page_size=10 if competitors_only else 0,
@@ -2455,26 +2492,25 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
 .fp-mark{margin-left:2px;color:#b45309;font-weight:800;cursor:help;font-size:14px;line-height:1}
 .sim-edit{font:inherit;font-size:12px;font-weight:700;border:1px solid var(--border);border-radius:8px;padding:3px 6px;background:#fff;cursor:pointer;max-width:100%}
 .sim-edit:disabled{opacity:.5}
-.add-comp{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:#f8fafc}
-.add-comp-main{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch}
-.add-comp textarea{flex:1;min-width:260px;min-height:84px;resize:vertical;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;line-height:1.45}
-.add-comp-side{display:flex;flex-direction:column;gap:8px;min-width:148px}
-.add-comp select,.add-comp button{width:100%;border-radius:8px;padding:8px 12px;font:inherit}
-.add-comp select{border:1px solid var(--border);background:#fff}
-.add-comp button{border:0;background:#0f172a;color:#fff;font-weight:700;cursor:pointer}
+.add-comp{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.add-comp textarea{flex:1;min-width:220px;height:38px;min-height:38px;max-height:38px;resize:none;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;line-height:1.2}
+.add-comp select{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;background:#fff}
+.add-comp button{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
 .add-comp button:disabled{opacity:.55;cursor:default}
-.add-hint{margin:0;font-size:12px;color:var(--muted);line-height:1.4}
-.add-preview{display:flex;flex-wrap:wrap;gap:6px}
+.add-preview{display:flex;flex-wrap:wrap;gap:6px;width:100%}
 .add-preview[hidden],.add-log[hidden]{display:none}
 .add-chip{font-size:11px;font-weight:650;padding:3px 8px;border-radius:999px;background:#e2e8f0;color:#334155}
 .add-chip.is-dup{background:#fef3c7;color:#92400e}
-.add-log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:170px;overflow:auto;font-size:12px}
+.add-log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:120px;overflow:auto;font-size:12px;width:100%}
 .add-log li.ok{color:#166534}
 .add-log li.skip{color:#92400e}
 .add-log li.err{color:#b91c1c}
 .add-log li.run{color:#0f172a;font-weight:700}
 .add-status{font-size:12px;color:var(--muted)}
-.sim-filter.is-active{background:#0f172a;border-color:#0f172a;color:#fff}
+.comp-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:0 0 12px;padding:8px 0 2px}
+.comp-filter{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.comp-filter input,.comp-filter select{border:1px solid var(--border);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;font-weight:600;color:var(--text);background:#fff;min-width:92px}
+.comp-filter input{width:88px}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 a.ext:hover{text-decoration:underline}
 td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px;white-space:normal}
@@ -2592,18 +2628,39 @@ _REPORT_JS = """
     var sortDir='desc';
     var card=wrap.closest('#sec-competitors');
     var tray=card?card.querySelector('.hidden-cols'):null;
-    var hideLow=false, hideMed=false;
+    var simMode='all';
+    var minBrand=null, minGrowth=null, minSw=null;
 
     function rows(){return [].slice.call(tbody.querySelectorAll('tr'));}
     function simOf(tr){
       return String(tr.getAttribute('data-sim')||'').toLowerCase().replace('é','e').replace('á','a');
     }
+    function parseFilterNum(s){
+      s=String(s||'').trim().toLowerCase().replace(/,/g,'').replace(/%/g,'').replace(/\\s/g,'');
+      if(!s) return null;
+      var m=s.match(/^(-?[\\d.]+)([kmb])?$/);
+      if(!m) return null;
+      var n=parseFloat(m[1]);
+      if(isNaN(n)) return null;
+      if(m[2]==='k') n*=1000;
+      if(m[2]==='m') n*=1e6;
+      if(m[2]==='b') n*=1e9;
+      return n;
+    }
+    function passMin(tr, attr, min){
+      if(min==null) return true;
+      var n=parseFloat(tr.getAttribute('data-'+attr));
+      if(isNaN(n)) return false;
+      return n>=min;
+    }
     function visRows(){
       return rows().filter(function(tr){
         if(tr.classList.contains('is-you')) return true;
         var s=simOf(tr);
-        if(hideLow && s==='baixo') return false;
-        if(hideMed && s==='medio') return false;
+        if(simMode && simMode!=='all' && s!==simMode) return false;
+        if(!passMin(tr,'brand', minBrand)) return false;
+        if(!passMin(tr,'growth', minGrowth)) return false;
+        if(!passMin(tr,'sw', minSw)) return false;
         return true;
       });
     }
@@ -2789,16 +2846,26 @@ _REPORT_JS = """
       var pages=size?Math.max(1,Math.ceil(visRows().length/size)):1;
       if(page<pages-1){page++;render();}
     });
-    if(card){
-      card.addEventListener('click',function(ev){
-        var btn=ev.target.closest('.sim-filter');
-        if(!btn) return;
-        var key=btn.getAttribute('data-hide');
-        btn.classList.toggle('is-active');
-        if(key==='baixo') hideLow=btn.classList.contains('is-active');
-        if(key==='medio') hideMed=btn.classList.contains('is-active');
+    var filters=card?card.querySelector('#comp-filters'):null;
+    if(filters){
+      filters.addEventListener('input',function(ev){
+        var el=ev.target.closest('[data-filter]');
+        if(!el) return;
+        var key=el.getAttribute('data-filter');
+        if(key==='brand') minBrand=parseFilterNum(el.value);
+        if(key==='growth') minGrowth=parseFilterNum(el.value);
+        if(key==='sw') minSw=parseFilterNum(el.value);
         page=0;
         render();
+      });
+      filters.addEventListener('change',function(ev){
+        var el=ev.target.closest('[data-filter]');
+        if(!el) return;
+        if(el.getAttribute('data-filter')==='sim'){
+          simMode=String(el.value||'all').toLowerCase();
+          page=0;
+          render();
+        }
       });
     }
     render();
@@ -2903,18 +2970,11 @@ _REPORT_JS = """
     var info=analyzeSites(area.value);
     var sites=info.fresh;
     preview.innerHTML='';
+    preview.hidden=true;
     if(!sites.length){
-      preview.hidden=true;
       if(btn) btn.textContent='Add websites';
       return;
     }
-    preview.hidden=false;
-    sites.forEach(function(s){
-      var chip=document.createElement('span');
-      chip.className='add-chip';
-      chip.textContent=s.domain;
-      preview.appendChild(chip);
-    });
     if(btn) btn.textContent=sites.length===1?'Add 1 website':'Add '+sites.length+' websites';
   }
   function addLog(cls, text){
