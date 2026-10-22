@@ -247,7 +247,7 @@ def _brand_seq_cell(c: dict[str, Any], *, editable: bool = False) -> str:
     )
     if pesquisar:
         extras.append(pesquisar)
-    extra_html = "".join(extras)
+    extra_html = "".join(f'<div class="brand-subline">{bit}</div>' for bit in extras)
     if not editable:
         if not extras and main == '<span class="brand-seq">—</span>':
             return "—"
@@ -2485,12 +2485,14 @@ th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:10
 .float-tip{position:fixed;z-index:80;max-width:260px;padding:8px 10px;border-radius:8px;
   background:#0f172a;color:#fff;font-size:12px;font-weight:600;line-height:1.35;letter-spacing:0;
   text-transform:none;box-shadow:0 8px 24px rgba(15,23,42,.2);pointer-events:none;white-space:normal}
-.brand-stack{display:flex;flex-direction:column;align-items:flex-end;gap:3px;position:relative}
+.brand-stack{display:flex;flex-direction:column;align-items:flex-end;gap:4px;position:relative}
 .brand-hit{border:0;background:transparent;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:right;line-height:1.2}
 .brand-hit:hover .brand-seq{text-decoration:underline;text-underline-offset:2px}
-.brand-seq.sub{font-size:11px;color:#64748b;font-weight:650}
+.brand-extra{display:flex;flex-direction:column;align-items:flex-end;gap:3px;width:100%}
+.brand-subline{display:block;width:100%;text-align:right}
+.brand-seq.sub{display:inline-flex;font-size:11px;color:#64748b;font-weight:650}
 .brand-tag{display:inline-block;margin-left:6px;padding:0 5px;border-radius:999px;background:#e2e8f0;color:#475569;
-  font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;vertical-align:1px;max-width:72px;
+  font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;vertical-align:1px;max-width:88px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .brand-pop{position:fixed;z-index:90;min-width:168px;padding:6px;border:1px solid var(--border);border-radius:10px;
   background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.14);display:flex;flex-direction:column;gap:4px}

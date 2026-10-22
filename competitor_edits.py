@@ -288,6 +288,10 @@ def _fold_token(value: str) -> str:
     return raw
 
 
+def _phrase_words(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", (value or "").lower())
+
+
 def _brand_hints(row: dict[str, Any]) -> set[str]:
     hints: set[str] = set()
     domain = _domain_of(row.get("domain") or "")
@@ -304,12 +308,39 @@ def _brand_hints(row: dict[str, Any]) -> set[str]:
     return hints
 
 
+def _keyword_specificity(phrase: str, row: dict[str, Any]) -> int:
+    """Higher = more like a real brand query, not a generic category word."""
+    _vendor_path()
+    from brand_false_positive import GENERIC_BRAND_WORDS  # noqa: E402
+
+    domain = _domain_of(row.get("domain") or "")
+    brand = (domain.split(".")[0] if domain else "") or _fold_token(row.get("brand_keyword") or "")
+    tld = domain.split(".")[-1] if "." in domain else ""
+    folded = _fold_token(phrase)
+    words = _phrase_words(phrase)
+    if not folded or not brand:
+        return 0
+    domain_fold = _fold_token(domain)
+    if folded in {domain_fold, brand + tld} or folded == domain_fold:
+        return 100
+    if tld and brand in words and tld in words:
+        return 90
+    if folded == brand or words == [brand]:
+        return 10 if brand in GENERIC_BRAND_WORDS else 60
+    if brand in words or brand in folded:
+        extra = [w for w in words if w != brand]
+        if extra and any(w not in GENERIC_BRAND_WORDS for w in extra):
+            return 70
+        return 25
+    return 0
+
+
 def _pick_brand_keyword(keywords: list[dict[str, Any]], row: dict[str, Any]) -> dict[str, Any] | None:
     hints = _brand_hints(row)
     if not hints:
         return None
     best = None
-    best_vol = -1
+    best_key = (-1, -1)
     for item in keywords or []:
         phrase = str(item.get("phrase") or item.get("palavra_chave") or "").strip()
         folded = _fold_token(phrase)
@@ -321,9 +352,13 @@ def _pick_brand_keyword(keywords: list[dict[str, Any]], row: dict[str, Any]) -> 
             vol = int(item.get("volume") or 0)
         except (TypeError, ValueError):
             vol = 0
-        if vol > best_vol:
+        score = _keyword_specificity(phrase, row)
+        if score <= 0:
+            continue
+        key = (score, vol)
+        if key > best_key:
             best = {**item, "phrase": phrase, "volume": vol}
-            best_vol = vol
+            best_key = key
     return best
 
 
