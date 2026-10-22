@@ -1990,6 +1990,18 @@ def render_report_html(
     run_id = str(meta.get("id") or "").strip()
     sim_editable = bool(competitors_only and run_id)
 
+    show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
+    sw_missing = sum(
+        1
+        for c in comps
+        if (c.get("domain") or c.get("url")) and c.get("similarweb_visits") in (None, "")
+    )
+    show_sw = bool(
+        report.get("include_similarweb_alto")
+        or meta.get("include_similarweb_alto")
+        or sw_missing
+        or any(c.get("similarweb_visits") not in (None, "") for c in comps)
+    )
     comp_rows = []
     sort_rows: list[list[Any]] = []
     row_attrs: list[dict[str, Any]] = []
@@ -2014,25 +2026,19 @@ def render_report_html(
             row.append(_esc(c.get("perfil") or "—"))
         if competitors_only:
             row.append(_clip_cell(c.get("motivo"), limit=48))
-        show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
-        show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
         if show_brand:
             row.extend([
                 _brand_seq_cell(c, editable=sim_editable),
                 _growth_seq_cell(c),
             ])
         if show_sw:
-            sim = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
-            if c.get("is_client") or sim == "alto":
-                compact, full = _brand_vol_text(c.get("similarweb_visits"))
-                if compact == "—" and c.get("similarweb_fmt"):
-                    row.append(_esc(c.get("similarweb_fmt")))
-                elif not full or compact == full:
-                    row.append(_esc(compact))
-                else:
-                    row.append(f'<span title="{_esc(full)}">{_esc(compact)}</span>')
+            compact, full = _brand_vol_text(c.get("similarweb_visits"))
+            if compact == "—" and c.get("similarweb_fmt"):
+                row.append(_esc(c.get("similarweb_fmt")))
+            elif not full or compact == full:
+                row.append(_esc(compact))
             else:
-                row.append("—")
+                row.append(f'<span title="{_esc(full)}">{_esc(compact)}</span>')
         if competitors_only:
             row.append(_started_cell(c))
         row.append(_clip_cell(_row_title(c), limit=22))
@@ -2071,8 +2077,6 @@ def render_report_html(
             "growth": _sort_num(growth_n),
             "sw": _sort_num(c.get("similarweb_visits")),
         })
-    show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
-    show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
     comp_headers = ["#", "Company", "Domain", "Similarity"]
     if competitors_only:
         comp_headers += ["Fonte", "Perfil"]
@@ -2227,6 +2231,13 @@ def render_report_html(
             '<input type="text" data-filter="sw" inputmode="decimal" placeholder="e.g. 10k"></label>'
             if show_sw else ""
         )
+        sw_btn = ""
+        if sim_editable and sw_missing:
+            sw_btn = (
+                f'<button type="button" class="sw-fill" id="sw-fill" data-count="{sw_missing}">'
+                f'Check SimilarWeb ({sw_missing})</button>'
+                '<span class="sw-fill-status"></span>'
+            )
         filters_bar = f"""
       <div class="comp-filters" id="comp-filters">
         <label class="comp-filter">Similarity
@@ -2240,6 +2251,7 @@ def render_report_html(
         {brand_in}
         {growth_in}
         {sw_in}
+        {sw_btn}
       </div>"""
 
     return f"""<!DOCTYPE html>
@@ -2565,6 +2577,9 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
 .comp-filter{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.02em}
 .comp-filter input,.comp-filter select{border:1px solid var(--border);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;font-weight:600;color:var(--text);background:#fff;min-width:92px}
 .comp-filter input{width:88px}
+.sw-fill{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;height:38px}
+.sw-fill:disabled{opacity:.55;cursor:default}
+.sw-fill-status{font-size:12px;color:var(--muted);align-self:center}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 a.ext:hover{text-decoration:underline}
 td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px;white-space:normal}
@@ -3011,6 +3026,35 @@ _REPORT_JS = """
     if(ev.target.closest('.brand-hit') || ev.target.closest('.brand-pop')) return;
     hideBrandPop();
   });
+  var swBtn=card.querySelector('#sw-fill');
+  var swSt=card.querySelector('.sw-fill-status');
+  if(swBtn){
+    swBtn.addEventListener('click',function(){
+      var left=parseInt(swBtn.getAttribute('data-count')||'0',10)||0;
+      var done=0;
+      swBtn.disabled=true;
+      function step(){
+        if(swSt) swSt.textContent='Checking SimilarWeb… '+done+' done, '+left+' left';
+        swBtn.textContent='Checking SimilarWeb…';
+        postJson('/api/runs/'+runId+'/competitors/similarweb',{limit:6})
+          .then(function(d){
+            done += Number(d.checked||0);
+            left = Number(d.remaining||0);
+            swBtn.setAttribute('data-count', String(left));
+            if(left>0){ step(); return; }
+            if(swSt) swSt.textContent=done+' SimilarWeb checked. Reloading…';
+            location.reload();
+          })
+          .catch(function(err){
+            swBtn.disabled=false;
+            swBtn.textContent='Check SimilarWeb'+(left?' ('+left+')':'');
+            if(swSt) swSt.textContent=err.message||String(err);
+            alert(err.message||err);
+          });
+      }
+      step();
+    });
+  }
   var form=card.querySelector('#add-competitor');
   if(!form) return;
   var area=form.querySelector('[name=urls]');

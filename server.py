@@ -20,6 +20,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from parse_input import ParsedInput, parse_company_list
 from competitor_edits import (
     add_competitor,
+    fetch_missing_similarweb,
     fetch_semrush_brand_extra,
     parse_site_list,
     set_competitor_similarity,
@@ -54,7 +55,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.15"
+APP_VERSION = "0.4.16"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -851,6 +852,18 @@ def run_classify_competitor(run_id: str):
             run_id,
             str(body.get("domain") or ""),
             str(body.get("similaridade") or body.get("similarity") or ""),
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/competitors/similarweb")
+def run_missing_similarweb(run_id: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(fetch_missing_similarweb(
+            run_id,
+            limit=body.get("limit") or 6,
         ))
     except Exception as e:
         return jsonify({"error": str(e)}), 400

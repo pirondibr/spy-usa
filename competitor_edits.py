@@ -456,3 +456,76 @@ def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, 
         "keyword": row.get("sm_kw") or "",
         "html_url": f"/runs/{run_id}/report.html",
     }
+
+
+def _sw_missing(row: dict[str, Any]) -> bool:
+    if not _domain_of(row.get("domain") or row.get("url") or ""):
+        return False
+    return row.get("similarweb_visits") in (None, "")
+
+
+def _apply_similarweb_row(row: dict[str, Any], sw: dict[str, Any]) -> None:
+    visits = sw.get("traffic")
+    if visits is None:
+        visits = sw.get("latest_visits")
+    if visits is None:
+        visits = 0
+    row["similarweb_visits"] = visits
+    row["similarweb_fmt"] = sw.get("traffic_fmt") or ""
+    row["similarweb_error"] = sw.get("error") or ""
+    row["similarweb_checked"] = True
+
+
+def fetch_missing_similarweb(run_id: str, *, limit: int = 6) -> dict[str, Any]:
+    """Fill the next chunk of competitor rows that never got SimilarWeb."""
+    report = _load(run_id)
+    rows = _rows_of(report)
+    pending = [c for c in rows if _sw_missing(c)]
+    try:
+        cap = int(limit)
+    except (TypeError, ValueError):
+        cap = 6
+    cap = max(1, min(cap, 12))
+    batch = pending[:cap]
+    if not batch:
+        return {
+            "ok": True,
+            "checked": 0,
+            "remaining": 0,
+            "domains": [],
+            "html_url": f"/runs/{run_id}/report.html",
+        }
+
+    _vendor_path()
+    from similarweb_traffic import traffic_reports_batch  # noqa: E402
+
+    try:
+        sw_rows = traffic_reports_batch(batch)
+        batch_error = ""
+    except Exception as e:
+        sw_rows = []
+        batch_error = str(e)
+    by_dom = {(_domain_of(r.get("domain") or "") or ""): r for r in sw_rows}
+    checked: list[str] = []
+    for row in batch:
+        dom = _domain_of(row.get("domain") or row.get("url") or "")
+        sw = by_dom.get(dom) or {}
+        if not sw and batch_error:
+            _apply_similarweb_row(row, {"traffic": 0, "traffic_fmt": "—", "error": batch_error})
+        else:
+            _apply_similarweb_row(row, sw)
+        if dom:
+            checked.append(dom)
+
+    report["include_similarweb_alto"] = True
+    _refresh_rows(report, rows)
+    persist_report(run_id, report)
+    remaining = sum(1 for c in rows if _sw_missing(c))
+    return {
+        "ok": True,
+        "checked": len(checked),
+        "remaining": remaining,
+        "error": batch_error,
+        "domains": checked,
+        "html_url": f"/runs/{run_id}/report.html",
+    }
