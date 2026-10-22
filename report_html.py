@@ -2301,7 +2301,7 @@ _REPORT_JS = """
       var t=(td.textContent||'').replace(/\\s+/g,' ').trim();
       if(!t || t==='—' || t==='-') return {empty:true,n:0,s:''};
       var n=parseFloat(t.replace(/[%+,]/g,'').replace(/\\s/g,''));
-      if(!isNaN(n) && /\d/.test(t)) return {empty:false,n:n,s:''};
+      if(!isNaN(n) && /\\d/.test(t)) return {empty:false,n:n,s:''};
       return {empty:false,n:0,s:t.toLowerCase()};
     }
     function sortBy(col){
