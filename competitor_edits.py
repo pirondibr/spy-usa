@@ -308,20 +308,24 @@ def _brand_hints(row: dict[str, Any]) -> set[str]:
     return hints
 
 
+def _brand_parts(row: dict[str, Any]) -> tuple[str, str, str]:
+    domain = _domain_of(row.get("domain") or "")
+    brand = (domain.split(".")[0] if domain else "") or _fold_token(row.get("brand_keyword") or "")
+    tld = domain.split(".")[-1] if "." in domain else ""
+    return domain, brand, tld
+
+
 def _keyword_specificity(phrase: str, row: dict[str, Any]) -> int:
     """Higher = more like a real brand query, not a generic category word."""
     _vendor_path()
     from brand_false_positive import GENERIC_BRAND_WORDS  # noqa: E402
 
-    domain = _domain_of(row.get("domain") or "")
-    brand = (domain.split(".")[0] if domain else "") or _fold_token(row.get("brand_keyword") or "")
-    tld = domain.split(".")[-1] if "." in domain else ""
+    _domain, brand, tld = _brand_parts(row)
     folded = _fold_token(phrase)
     words = _phrase_words(phrase)
     if not folded or not brand:
         return 0
-    domain_fold = _fold_token(domain)
-    if folded in {domain_fold, brand + tld} or folded == domain_fold:
+    if tld and folded == brand + tld:
         return 100
     if tld and brand in words and tld in words:
         return 90
@@ -335,12 +339,25 @@ def _keyword_specificity(phrase: str, row: dict[str, Any]) -> int:
     return 0
 
 
+def _phrase_tiebreak(phrase: str, row: dict[str, Any]) -> int:
+    """Among equally specific hits, prefer 'dropship io' then 'dropship.io'."""
+    _domain, brand, tld = _brand_parts(row)
+    compact = re.sub(r"\s+", " ", phrase.lower().strip())
+    if tld and compact == f"{brand} {tld}":
+        return 3
+    if tld and compact == f"{brand}.{tld}":
+        return 2
+    if tld and _fold_token(compact) == brand + tld:
+        return 1
+    return 0
+
+
 def _pick_brand_keyword(keywords: list[dict[str, Any]], row: dict[str, Any]) -> dict[str, Any] | None:
     hints = _brand_hints(row)
     if not hints:
         return None
     best = None
-    best_key = (-1, -1)
+    best_key = (-1, -1, -1)
     for item in keywords or []:
         phrase = str(item.get("phrase") or item.get("palavra_chave") or "").strip()
         folded = _fold_token(phrase)
@@ -355,7 +372,7 @@ def _pick_brand_keyword(keywords: list[dict[str, Any]], row: dict[str, Any]) -> 
         score = _keyword_specificity(phrase, row)
         if score <= 0:
             continue
-        key = (score, vol)
+        key = (score, _phrase_tiebreak(phrase, row), vol)
         if key > best_key:
             best = {**item, "phrase": phrase, "volume": vol}
             best_key = key
@@ -404,8 +421,18 @@ def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, 
         from semrush_keywords import fetch_top_keywords  # noqa: E402
         from brand_dataforseo import august_windows, fetch_brand_volumes  # noqa: E402
 
-        keywords = fetch_top_keywords(want, db=db, limit=10)
-        picked = _pick_brand_keyword(keywords, row)
+        keywords = fetch_top_keywords(want, db=db, limit=20)
+        unique: list[dict[str, Any]] = []
+        seen_kw: set[str] = set()
+        for item in keywords:
+            phrase = str(item.get("phrase") or "").strip().lower()
+            if not phrase or phrase in seen_kw:
+                continue
+            seen_kw.add(phrase)
+            unique.append(item)
+            if len(unique) >= 10:
+                break
+        picked = _pick_brand_keyword(unique, row)
         if not picked:
             raise ValueError(f"No brand keyword in Semrush top 10 for {want}")
         phrase = str(picked.get("phrase") or "").strip()
