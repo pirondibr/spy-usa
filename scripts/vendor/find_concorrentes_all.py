@@ -18,6 +18,7 @@ Uso:
     python find_concorrentes_all.py chatguru nacional
 """
 
+import os
 import re
 import sys
 import time
@@ -326,6 +327,24 @@ def find_competitors_via_llm(client_url: str, briefing: dict,
     if cidades:
         contexto += f"Cidade(s) alvo: {', '.join(cidades)}\n"
 
+    try:
+        from market import MARKET_SHORT  # type: ignore
+        mkt = str(MARKET_SHORT or "US").upper()
+    except Exception:
+        mkt = str(os.environ.get("SPY_MARKET") or "us").strip().upper() or "US"
+    if mkt == "BR":
+        geo_rule = (
+            "Retorne SOMENTE concorrentes diretos brasileiros "
+            "(ou globais ativos no Brasil)."
+        )
+        example_url = "https://dominio.com.br"
+    else:
+        geo_rule = (
+            "Retorne SOMENTE concorrentes diretos dos Estados Unidos "
+            "(ou globais ativos nos USA). Prefira empresas US."
+        )
+        example_url = "https://domain.com"
+
     prompt = f"""Voce e um analista de mercado especializado em SEO/SEM.
 
 Liste ATE {max_competitors} CONCORRENTES DIRETOS da empresa abaixo (mesmo nicho,
@@ -337,20 +356,20 @@ EMPRESA-CLIENTE:
 {contexto}
 
 REGRAS:
-- Retorne SOMENTE concorrentes diretos brasileiros (ou globais ativos nos Estados Unidos (USA)).
+- {geo_rule}
 - NAO inclua o proprio cliente ("{cli_norm}").
 - NAO inclua dominios genericos: google.com, instagram.com, facebook.com,
   youtube.com, linkedin.com, wikipedia.org, bbb.org, whatsapp.com,
   telegram.org, gov, capterra.com, etc.
-- Cada URL deve ser a HOMEPAGE do concorrente (ex: https://domain.com),
+- Cada URL deve ser a HOMEPAGE do concorrente (ex: {example_url}),
   nao paginas de blog/artigo.
 - Use http:// ou https://.
 
 RETORNE APENAS JSON valido no formato exato:
 {{
   "concorrentes": [
-    "https://dominio1.com.br",
-    "https://dominio2.com.br"
+    "{example_url.replace('domain.com', 'competitor1.com').replace('dominio.com.br', 'concorrente1.com.br')}",
+    "{example_url.replace('domain.com', 'competitor2.com').replace('dominio.com.br', 'concorrente2.com.br')}"
   ]
 }}
 

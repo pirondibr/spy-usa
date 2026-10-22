@@ -48,6 +48,11 @@ RUNS_DIR = _OUT_ROOT / "runs"
 
 EmitFn = Callable[..., None]
 
+COMPETITORS_ONLY_STEPS = [
+    {"id": "briefing_concorrentes", "label": "Briefing", "index": 1, "eta_live": 180},
+    {"id": "competitors_discover", "label": "Find competitors (US)", "index": 2, "eta_live": 360},
+]
+
 STEP_DEFS = [
     {"id": "briefing_concorrentes", "label": "Briefing (+ competitors)", "index": 1, "eta_live": 180},
     {"id": "seo", "label": "SEO organic (US)", "index": 2, "eta_live": 30},
@@ -791,9 +796,13 @@ def _emit_progress(
     step_id: str,
     state: str,
     detail: str,
+    *,
+    steps: Optional[list[dict]] = None,
 ) -> None:
-    meta = next((s for s in STEP_DEFS if s["id"] == step_id), None)
+    defs = steps or STEP_DEFS
+    meta = next((s for s in defs if s["id"] == step_id), None)
     index = int(meta["index"]) if meta else 0
+    total = len(defs) if steps else TOTAL_STEPS
     eta = int(meta.get("eta_live") or 60) if meta else 60
     set_step(step_id, state, detail)
     emit(
@@ -802,11 +811,11 @@ def _emit_progress(
         state=state,
         detail=detail,
         index=index,
-        total=TOTAL_STEPS,
+        total=total,
         label=meta["label"] if meta else step_id,
         eta_seconds=eta,
         eta_label=_fmt_eta(eta),
-        progress_label=f"Step {index}/{TOTAL_STEPS}",
+        progress_label=f"Step {index}/{total}",
     )
 
 
@@ -842,6 +851,7 @@ def _save_report(
     force: bool = False,
     market: str = "us",
     compare_all: bool = False,
+    competitors_only: bool = False,
 ) -> Path:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_dir = RUNS_DIR / run_id
@@ -860,6 +870,7 @@ def _save_report(
         "market": market.upper(),
         "site_only": bool(site_only),
         "compare_all": bool(compare_all),
+        "competitors_only": bool(competitors_only),
         "peer_urls": list(parsed.competitors or []),
         "include_google_ads": bool(include_google_ads),
         "include_linkedin": bool(include_linkedin),
@@ -1097,6 +1108,180 @@ def _run_compare_all_pipeline(
     return report
 
 
+def _competitors_only_report(
+    slug: str,
+    url: str,
+    client_name: str,
+    preferred: Optional[list[str]] = None,
+) -> dict:
+    early = build_early_briefing_competitors(
+        find_briefing_xlsx(slug),
+        find_concorrentes_xlsx(slug),
+        client_name=client_name,
+        preferred_competitors=preferred or [],
+        fallback_url=url,
+    )
+    raw = list(early.get("competitors_raw") or early.get("competitors") or [])
+    shown = raw or list(early.get("competitors") or [])
+    stats = early.get("competitors_stats") or {}
+    count = len([c for c in shown if not c.get("is_client")])
+    alto = stats.get("alto") or stats.get("Alto") or 0
+    medio = stats.get("medio") or stats.get("Médio") or stats.get("Medio") or 0
+    report = {
+        "client": early.get("client") or client_name,
+        "briefing": early.get("briefing") or {},
+        "competitors": shown,
+        "competitors_count": count,
+        "competitors_note": (
+            f"Modo isolado — discovery nacional US (SEO SERP + LLM). "
+            f"{count} encontrados · Alto={alto} · Médio={medio}."
+        ),
+        "competitors_stats": stats,
+        "competitors_raw": raw,
+        "display_tier": "all",
+        "competitors_only": True,
+        "market": "US",
+        "compare_all": False,
+    }
+    return report
+
+
+def run_competitors_only_pipeline(
+    parsed: ParsedInput,
+    emit: EmitFn,
+    set_step: EmitFn,
+    *,
+    run_id: str = "",
+    force: bool = False,
+    market: str = "us",
+) -> dict:
+    """Briefing + discovery nacional (SEO + LLM). Sem métricas de canal."""
+    required = (
+        "OPENROUTER_API_KEY",
+        "SCRAPINGBEE_API_KEY",
+        "DATAFORSEO_USER",
+        "DATAFORSEO_PASS",
+        "SEMRUSH_API_KEY",
+    )
+    missing = [k for k in required if not os.environ.get(k, "").strip()]
+    if missing:
+        raise RuntimeError("Missing API keys: " + ", ".join(missing))
+
+    market = "us"
+    os.environ["SPY_MARKET"] = market
+    url = normalize_url(parsed.url) or parsed.url
+    if not url:
+        raise ValueError("Company URL is required.")
+    slug = parsed.slug or slugify_client(url)
+    client_name = parsed.company or slug
+    script_env = {"SPY_SITE_ONLY": "0", "SPY_MARKET": market, "SPY_COMPARE_ALL": "0"}
+    steps = COMPETITORS_ONLY_STEPS
+
+    recorder = RunRecorder()
+    emit = _wrap_emit_logger(emit, recorder)
+    set_step = _wrap_set_step_timer(set_step, recorder)
+
+    def on_log(line: str) -> None:
+        emit("log", line=line)
+
+    def _prog(step_id: str, state: str, detail: str) -> None:
+        _emit_progress(emit, set_step, step_id, state, detail, steps=steps)
+
+    def _save_kw() -> dict[str, Any]:
+        return dict(
+            site_only=False,
+            include_google_ads=False,
+            include_linkedin=False,
+            include_youtube_influencers=False,
+            include_instagram_influencers=False,
+            include_reddit=False,
+            include_twitter=False,
+            include_linkedin_profile=False,
+            force=force,
+            market=market,
+            compare_all=False,
+            competitors_only=True,
+        )
+
+    emit(
+        "pipeline_meta",
+        mode="competitors_only",
+        market="US",
+        site_only=False,
+        compare_all=False,
+        competitors_only=True,
+        total_steps=len(steps),
+        eta_label="~3–8 min",
+    )
+
+    if force:
+        import re
+        import shutil
+
+        safe = re.sub(r"[^a-z0-9_-]+", "", (slug or "").strip().lower())[:80]
+        for base in (BRIEFING_DIR, CONCORRENTES_DIR):
+            folder = (base / safe).resolve()
+            try:
+                folder.relative_to(base.resolve())
+            except ValueError:
+                continue
+            if folder.exists() and folder.is_dir():
+                shutil.rmtree(folder)
+                emit("log", line=f"[CACHE] Cleared {folder}")
+
+    briefing_xlsx = find_briefing_xlsx(slug)
+    conc_xlsx = find_concorrentes_xlsx(slug)
+    if briefing_xlsx and conc_xlsx and not force:
+        emit("log", line=f"[CACHE] Using briefing + competitors: {conc_xlsx.name}")
+        _prog("briefing_concorrentes", "done", "Cached briefing")
+        _prog("competitors_discover", "done", "Cached competitors")
+        report = _competitors_only_report(slug, url, client_name, parsed.competitors)
+        if run_id:
+            _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
+        else:
+            attach_run_log(report, recorder)
+        emit("partial", section="briefing_concorrentes", data=report, client=client_name)
+        emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
+        return report
+
+    _prog("briefing_concorrentes", "running", f"Briefing US: {url}")
+    if not briefing_xlsx or force:
+        _run_script(
+            [sys.executable, str(SCRIPT_ENTENDER), url],
+            FINAL_DIR,
+            on_log,
+            timeout_sec=300,
+            env=script_env,
+        )
+        briefing_xlsx = find_briefing_xlsx(slug)
+    else:
+        emit("log", line=f"[CACHE] Reusing briefing: {briefing_xlsx.name}")
+    if not briefing_xlsx:
+        raise RuntimeError(f"Briefing not generated for '{slug}'.")
+    _prog("briefing_concorrentes", "done", "Briefing ready")
+
+    _prog("competitors_discover", "running", "Discovery nacional US (SEO + LLM)…")
+    _run_script(
+        [sys.executable, str(SCRIPT_CONCORRENTES), slug, "nacional"],
+        FINAL_DIR,
+        on_log,
+        timeout_sec=600,
+        env=script_env,
+    )
+    report = _competitors_only_report(slug, url, client_name, parsed.competitors)
+    emit("partial", section="briefing_concorrentes", data=report, client=client_name)
+    _prog("competitors_discover", "done", f"{report.get('competitors_count', 0)} competitors")
+
+    if run_id:
+        _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
+        html_url = f"/runs/{run_id}/report.html"
+    else:
+        attach_run_log(report, recorder)
+        html_url = ""
+    emit("done", report=report, html_url=html_url)
+    return report
+
+
 def run_pipeline(
     parsed: ParsedInput,
     emit: EmitFn,
@@ -1113,6 +1298,7 @@ def run_pipeline(
     include_linkedin_profile: bool = False,
     market: str = "us",
     compare_all: bool = False,
+    competitors_only: bool = False,
 ) -> dict:
     required = (
         "OPENROUTER_API_KEY",
@@ -1124,6 +1310,11 @@ def run_pipeline(
     missing = [k for k in required if not os.environ.get(k, "").strip()]
     if missing:
         raise RuntimeError("Missing API keys: " + ", ".join(missing))
+
+    if competitors_only:
+        return run_competitors_only_pipeline(
+            parsed, emit, set_step, run_id=run_id, force=force, market=market,
+        )
 
     market = _normalize_market(market)
     if compare_all:
@@ -1183,6 +1374,7 @@ def run_pipeline(
             force=force,
             market=market,
             compare_all=compare_all,
+            competitors_only=False,
         )
 
     if force:

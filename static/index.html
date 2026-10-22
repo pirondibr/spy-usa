@@ -33,7 +33,22 @@
       margin: 0 0 8px;
       line-height: 1.05;
     }
-    .lede { color: var(--muted); margin: 0 0 28px; font-size: 1.05rem; max-width: 40ch; }
+    .lede { color: var(--muted); margin: 0 0 16px; font-size: 1.05rem; max-width: 40ch; }
+    .tabs { display: flex; gap: 8px; margin: 0 0 18px; }
+    .tab {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tab.on { background: var(--teal); color: #fff; border-color: var(--teal); }
+    .panel { display: none; }
+    .panel.on { display: block; }
     form {
       display: grid;
       gap: 12px;
@@ -189,9 +204,13 @@
 <body>
   <div class="wrap">
     <h1 class="brand">Spy USA</h1>
-    <p class="lede">Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.</p>
+    <p class="lede" id="lede">Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.</p>
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab on" id="tabAnalyze" data-tab="analyze">Análise</button>
+      <button type="button" class="tab" id="tabCompetitors" data-tab="competitors">Concorrentes</button>
+    </div>
 
-    <form id="form">
+    <form id="form" class="panel on" data-panel="analyze">
       <label>
         Domain / URL
         <span class="hint-field">Uma por linha — até 12. Sem All = 1 relatório por site. All = 1 relatório com todas (reusa cache; Force = refaz tudo)</span>
@@ -258,6 +277,25 @@
       </div>
     </form>
 
+    <form id="formCompetitors" class="panel" data-panel="competitors">
+      <label>
+        Domain / URL
+        <span class="hint-field">Uma empresa por vez (ou várias linhas = jobs separados). Só briefing + discovery US — sem SEO/Brand/Ads/social.</span>
+        <textarea id="urlCompetitors" name="url" placeholder="semrush.com" required autocomplete="off"></textarea>
+      </label>
+      <div class="opts">
+        <p class="hint-field" style="margin:0">Mercado fixo: <strong>US</strong> · fontes: SEO SERP + LLM · similaridade Alto/Médio/Baixo</p>
+        <label class="check">
+          <input id="forceCompetitors" type="checkbox" />
+          Force refresh
+          <span class="hint">(refaz briefing + lista de concorrentes)</span>
+        </label>
+      </div>
+      <div class="row">
+        <button id="goCompetitors" type="submit">Achar concorrentes</button>
+      </div>
+    </form>
+
     <div class="status" id="status">
       <p class="step" id="stepLabel">Starting…</p>
       <div class="bar"><i id="bar"></i></div>
@@ -279,8 +317,23 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const TOTAL = 10;
+    let progressTotal = TOTAL;
+    let activeTab = "analyze";
     let es = null;
     let activeJobIds = [];
+
+    function setTab(name) {
+      activeTab = name === "competitors" ? "competitors" : "analyze";
+      $("tabAnalyze").classList.toggle("on", activeTab === "analyze");
+      $("tabCompetitors").classList.toggle("on", activeTab === "competitors");
+      $("form").classList.toggle("on", activeTab === "analyze");
+      $("formCompetitors").classList.toggle("on", activeTab === "competitors");
+      $("lede").textContent = activeTab === "competitors"
+        ? "Teste isolado: achar concorrentes nos USA (SEO + LLM). Depois reintegramos no modo principal."
+        : "Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.";
+    }
+    $("tabAnalyze").addEventListener("click", () => setTab("analyze"));
+    $("tabCompetitors").addEventListener("click", () => setTab("competitors"));
 
     async function refreshHello() {
       try {
@@ -306,8 +359,11 @@
     function modeLabel(r) {
       const mkt = (r.market || "US").toString().toUpperCase();
       const parts = [mkt];
-      if (r.compare_all) parts.push("All");
-      parts.push(r.site_only === false ? "com concorrentes" : "sem concorrentes");
+      if (r.competitors_only) parts.push("concorrentes");
+      else {
+        if (r.compare_all) parts.push("All");
+        parts.push(r.site_only === false ? "com concorrentes" : "sem concorrentes");
+      }
       return parts.join(" · ");
     }
 
@@ -365,12 +421,17 @@
         .replace(/"/g, "&quot;");
     }
 
+    function setBusy(busy) {
+      $("go").disabled = busy;
+      $("goCompetitors").disabled = busy;
+    }
+
     function resetStatus() {
       $("err").textContent = "";
       $("done").innerHTML = "";
       $("log").textContent = "";
       $("status").classList.add("show");
-      $("go").disabled = true;
+      setBusy(true);
       $("stepLabel").textContent = "Queuing job…";
       $("bar").style.width = "2%";
       if (es) { es.close(); es = null; }
@@ -400,8 +461,9 @@
             $("log").scrollTop = $("log").scrollHeight;
           }
           if (msg.type === "progress") {
-            const pct = Math.min(98, Math.round((Number(msg.index || 0) / TOTAL) * 100));
-            $("bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100 / TOTAL)) : pct) + "%";
+            if (msg.total) progressTotal = Number(msg.total) || progressTotal;
+            const pct = Math.min(98, Math.round((Number(msg.index || 0) / progressTotal) * 100));
+            $("bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100 / progressTotal)) : pct) + "%";
             $("stepLabel").textContent = `${msg.progress_label || ""} — ${msg.label || msg.step_id}: ${msg.detail || msg.state}`;
           }
           if (msg.type === "error") {
@@ -469,10 +531,12 @@
 
         const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
         activeJobIds = list.map((j) => j.job_id);
+        progressTotal = data.competitors_only ? 2 : TOTAL;
         const flags = [
           (data.market || selectedMarket()).toString().toUpperCase(),
+          data.competitors_only ? "concorrentes only" : "",
           data.compare_all ? "All" : "",
-          data.site_only ? "sem concorrentes" : "com concorrentes",
+          data.competitors_only ? "" : (data.site_only ? "sem concorrentes" : "com concorrentes"),
           data.include_google_ads ? "google-ads" : "no-google-ads",
           data.include_linkedin ? "linkedin" : "no-linkedin",
           data.include_youtube_influencers ? "yt-influencers" : "no-yt-influencers",
@@ -508,11 +572,11 @@
 
         $("bar").style.width = "100%";
         $("stepLabel").textContent = list.length > 1 ? `Done — ${links.length}/${list.length} reports` : "Done";
-        $("go").disabled = false;
+        setBusy(false);
         loadHistory();
       } catch (err) {
         $("err").textContent = err.message || String(err);
-        $("go").disabled = false;
+        setBusy(false);
       }
     }
 
@@ -529,11 +593,11 @@
         $("url").value = list[0].url || $("url").value;
         const result = await watchJob(list[0]);
         if (result && result.url) attachDone(list[0].job_id, result.url);
-        $("go").disabled = false;
+        setBusy(false);
         loadHistory();
       } catch (err) {
         $("err").textContent = err.message || String(err);
-        $("go").disabled = false;
+        setBusy(false);
       }
     }
 
@@ -541,6 +605,25 @@
       if ($("compareAll").checked) {
         $("siteOnly").checked = true;
       }
+    });
+
+    $("formCompetitors").addEventListener("submit", (e) => {
+      e.preventDefault();
+      startAnalyze({
+        url: $("urlCompetitors").value.trim(),
+        force: $("forceCompetitors").checked,
+        competitors_only: true,
+        market: "us",
+        site_only: false,
+        compare_all: false,
+        include_google_ads: false,
+        include_linkedin: false,
+        include_youtube_influencers: false,
+        include_instagram_influencers: false,
+        include_reddit: false,
+        include_twitter: false,
+        include_linkedin_profile: false,
+      });
     });
 
     $("form").addEventListener("submit", (e) => {
@@ -562,12 +645,17 @@
       });
     });
 
-    // Deep-link: /?rerun=<id> or /?url=semrush.com
+    // Deep-link: /?rerun=<id> or /?url=semrush.com or /?tab=competitors
     (function bootFromQuery() {
       const q = new URLSearchParams(location.search);
       const rerunId = q.get("rerun") || q.get("redo");
       const preUrl = q.get("url") || q.get("q");
-      if (preUrl) $("url").value = preUrl;
+      const tab = (q.get("tab") || "").toLowerCase();
+      if (tab === "competitors" || tab === "concorrentes") setTab("competitors");
+      if (preUrl) {
+        $("url").value = preUrl;
+        $("urlCompetitors").value = preUrl;
+      }
       if (rerunId) {
         history.replaceState({}, "", "/");
         rerun(rerunId);

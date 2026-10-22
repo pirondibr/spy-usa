@@ -18,6 +18,7 @@ _OPENROUTER_CALL_USD = float(os.environ.get("SPY_COST_OPENROUTER_CALL", "0.01") 
 
 STEP_LABELS = {
     "briefing_concorrentes": "Briefing (+ competitors)",
+    "competitors_discover": "Find competitors",
     "seo": "SEO Orgânico",
     "brand": "Marca Semrush",
     "brand_dfs": "DataForSEO",
@@ -42,6 +43,7 @@ STEP_TO_SECTION = {
 
 CHANNEL_APIS = {
     "briefing_concorrentes": ["OpenRouter", "ScrapingBee"],
+    "competitors_discover": ["OpenRouter", "DataForSEO", "Semrush"],
     "seo": ["Semrush"],
     "brand": ["Semrush"],
     "brand_dfs": ["DataForSEO"],

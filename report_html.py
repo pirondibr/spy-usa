@@ -1601,6 +1601,9 @@ def render_report_html(
     briefing = report.get("briefing") or {}
     comps = report.get("competitors") or []
     note = report.get("competitors_note") or ""
+    competitors_only = bool(report.get("competitors_only") or meta.get("competitors_only"))
+    if competitors_only and report.get("competitors_raw"):
+        comps = report.get("competitors_raw") or comps
 
     comp_rows = []
     for i, c in enumerate(comps, 1):
@@ -1610,14 +1613,24 @@ def render_report_html(
         site = (c.get("url") or c.get("site_url") or "").strip()
         if not site and c.get("domain"):
             site = f"https://{c.get('domain')}/"
-        comp_rows.append([
+        row = [
             str(i),
             name,
             _esc(c.get("domain") or "—"),
             _esc(c.get("similaridade") or ("Client" if c.get("is_client") else "—")),
+        ]
+        if competitors_only:
+            row.append(_esc(c.get("fonte") or "—"))
+            row.append(_esc(c.get("perfil") or "—"))
+        row.extend([
             _esc(c.get("nicho") or "—"),
             _link_cell(site, "Site"),
         ])
+        comp_rows.append(row)
+    comp_headers = ["#", "Company", "Domain", "Similarity"]
+    if competitors_only:
+        comp_headers += ["Fonte", "Perfil"]
+    comp_headers += ["Niche", "Link"]
 
     market = _report_market(report, meta)
     compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
@@ -1682,7 +1695,9 @@ def render_report_html(
     chips = [f'<span class="chip accent">Market {_esc(market)}</span>']
     if compare_all:
         chips.append('<span class="chip">Mode: All</span>')
-    if meta.get("site_only") and not compare_all:
+    if competitors_only:
+        chips.append('<span class="chip accent">Concorrentes only</span>')
+    if meta.get("site_only") and not compare_all and not competitors_only:
         chips.append('<span class="chip">Sem concorrentes</span>')
     mast_meta = []
     if site_url:
@@ -1740,7 +1755,7 @@ def render_report_html(
     <div class="card" id="sec-competitors" data-group="overview">
       <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
-      {_rows_table(['#', 'Company', 'Domain', 'Similarity', 'Niche', 'Link'], comp_rows)}
+      {_rows_table(comp_headers, comp_rows)}
     </div>
 
     {cards}
