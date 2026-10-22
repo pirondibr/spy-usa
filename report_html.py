@@ -166,7 +166,94 @@ def _fmt_growth(v: Any) -> str:
     except (TypeError, ValueError):
         return str(v)
     sign = "+" if n > 0 else ""
+    if abs(n) >= 100:
+        return f"{sign}{n:.0f}%"
     return f"{sign}{n:.1f}%"
+
+
+def _growth_pct(newer: Any, older: Any) -> Optional[float]:
+    try:
+        n = float(newer)
+        o = float(older)
+    except (TypeError, ValueError):
+        return None
+    if o == 0:
+        return None
+    return (n - o) / o * 100.0
+
+
+def _brand_vol_text(v: Any) -> tuple[str, str]:
+    """Return (compact, full) brand volume strings."""
+    if v is None or v == "":
+        return "—", ""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        s = str(v)
+        return s, s
+    absn = abs(n)
+    full = f"{int(n):,}"
+    if absn >= 1_000_000:
+        compact = f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".") + "m"
+    elif absn >= 1_000:
+        compact = f"{n / 1_000:.1f}".rstrip("0").rstrip(".") + "k"
+    else:
+        compact = full
+    return compact, full
+
+
+def _brand_seq_cell(c: dict[str, Any]) -> str:
+    parts = []
+    tips = []
+    labels = ("Aug 2026", "Aug 2025", "Aug 2024")
+    vals = (c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024"))
+    for lab, val in zip(labels, vals):
+        compact, full = _brand_vol_text(val)
+        parts.append(compact)
+        tips.append(f"{lab}: {full or compact}")
+    if all(p == "—" for p in parts):
+        return "—"
+    kw = str(c.get("brand_keyword") or "").strip()
+    title = "Brand search volume · " + " · ".join(tips)
+    if kw:
+        title += f" · keyword {kw}"
+    inner = '<span class="seq-sep">></span>'.join(
+        f'<span class="seq-n">{_esc(p)}</span>' for p in parts
+    )
+    return f'<span class="brand-seq" title="{_esc(title)}">{inner}</span>'
+
+
+def _growth_chip(n: Optional[float]) -> str:
+    if n is None:
+        return '<span class="growth-flat">—</span>'
+    if n > 0:
+        cls = "growth-up"
+    elif n < 0:
+        cls = "growth-down"
+    else:
+        cls = "growth-flat"
+    return f'<span class="{cls}">{_esc(_fmt_growth(n))}</span>'
+
+
+def _growth_seq_cell(c: dict[str, Any]) -> str:
+    total = c.get("brand_growth_26_24")
+    try:
+        total_n = float(total) if total is not None and total != "" else None
+    except (TypeError, ValueError):
+        total_n = None
+    if total_n is None:
+        total_n = _growth_pct(c.get("brand_aug_2026"), c.get("brand_aug_2024"))
+    y1 = _growth_pct(c.get("brand_aug_2026"), c.get("brand_aug_2025"))
+    if total_n is None and y1 is None:
+        return "—"
+    title = "Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025"
+    return (
+        f'<span class="growth-seq" title="{_esc(title)}">'
+        f"{_growth_chip(total_n)}"
+        f'<span class="seq-sep">></span>'
+        f"{_growth_chip(y1)}"
+        f"</span>"
+    )
 
 
 def _rows_table(
@@ -205,8 +292,12 @@ def _rows_table(
             extras.append(f'data-col="{_esc(key)}"')
             if compact_keys and key not in compact_keys:
                 extras.append('data-extra="1"')
-        if header and c < len(headers) and str(headers[c]) == "Cresc.":
-            extras.append('title="Crescimento 2026 vs 2024 — clique para ordenar"')
+            if key in ("brand", "growth"):
+                classes.append("num")
+        if header and key == "brand":
+            extras.append('title="Brand search · Aug 2026 > Aug 2025 > Aug 2024"')
+        elif header and key == "growth":
+            extras.append('title="Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025"')
         elif header and interactive:
             extras.append(f'title="Clique para ordenar · × oculta {_esc(headers[c])}"')
         if header and interactive:
@@ -228,10 +319,21 @@ def _rows_table(
                     '<span class="col-drag" title="Mover coluna" draggable="true" '
                     'aria-label="Mover coluna">⋮⋮</span>'
                 )
+            help_q = ""
+            if key == "brand":
+                help_q = (
+                    '<span class="col-help" title="DataForSEO brand search volume: '
+                    'Aug 2026 > Aug 2025 > Aug 2024">?</span>'
+                )
+            elif key == "growth":
+                help_q = (
+                    '<span class="col-help" title="Total growth Aug 2026 vs 2024 > '
+                    'last year Aug 2026 vs 2025">?</span>'
+                )
             label = (
                 f'<span class="th-wrap">'
                 f"{drag}"
-                f'<span class="th-label">{_esc(h)}</span>'
+                f'<span class="th-label">{_esc(h)}{help_q}</span>'
                 f'<button type="button" class="col-hide" title="Ocultar {_esc(h)}" aria-label="Ocultar {_esc(h)}">×</button>'
                 f"</span>"
             )
@@ -1846,11 +1948,8 @@ def render_report_html(
         show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
         if show_brand:
             row.extend([
-                _esc(c.get("brand_keyword") or "—"),
-                _fmt_brand_vol(c.get("brand_aug_2026")),
-                _fmt_brand_vol(c.get("brand_aug_2025")),
-                _fmt_brand_vol(c.get("brand_aug_2024")),
-                _fmt_growth(c.get("brand_growth_26_24")),
+                _brand_seq_cell(c),
+                _growth_seq_cell(c),
             ])
         if show_sw:
             sim = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
@@ -1872,11 +1971,10 @@ def render_report_html(
             sort_row.append(str(c.get("motivo") or "").lower())
         if show_brand:
             sort_row += [
-                str(c.get("brand_keyword") or "").lower(),
                 _sort_num(c.get("brand_aug_2026")),
-                _sort_num(c.get("brand_aug_2025")),
-                _sort_num(c.get("brand_aug_2024")),
-                _sort_num(c.get("brand_growth_26_24")),
+                _sort_num(c.get("brand_growth_26_24") or _growth_pct(
+                    c.get("brand_aug_2026"), c.get("brand_aug_2024")
+                )),
             ]
         if show_sw:
             sort_row.append(_sort_num(c.get("similarweb_visits")))
@@ -1895,7 +1993,7 @@ def render_report_html(
     if competitors_only:
         comp_headers.append("Motivo")
     if show_brand:
-        comp_headers += ["Marca", "Ago 2026", "Ago 2025", "Ago 2024", "Cresc."]
+        comp_headers += ["Brand", "Growth"]
     if show_sw:
         comp_headers.append("SimilarWeb")
     comp_headers += ["Title", "Niche"]
@@ -1909,17 +2007,14 @@ def render_report_html(
         "Perfil": "perfil",
         "Niche": "niche",
         "Motivo": "motivo",
-        "Marca": "marca",
-        "Ago 2026": "ago2026",
-        "Ago 2025": "ago2025",
-        "Ago 2024": "ago2024",
-        "Cresc.": "cresc",
+        "Brand": "brand",
+        "Growth": "growth",
         "SimilarWeb": "similarweb",
     }
     comp_keys = [_COMP_KEY.get(h, h.lower()) for h in comp_headers]
     compact_keys = {
         "company", "title", "similarity", "niche",
-        "ago2026", "ago2025", "ago2024", "cresc", "similarweb",
+        "brand", "growth", "similarweb",
     }
 
     market = _report_market(report, meta)
@@ -1988,7 +2083,7 @@ def render_report_html(
     if competitors_only:
         chips.append('<span class="chip accent">Concorrentes only</span>')
     if report.get("include_brand_growth") or meta.get("include_brand_growth"):
-        chips.append('<span class="chip">Marca ago 26/25/24</span>')
+        chips.append('<span class="chip">Brand Aug 26/25/24</span>')
     if report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"):
         chips.append('<span class="chip">SimilarWeb Alto</span>')
     if meta.get("site_only") and not compare_all and not competitors_only:
@@ -2261,6 +2356,15 @@ td[data-col="title"] .clip,td[data-col="niche"] .clip{max-width:132px}
 .table-hint{margin:0 0 10px}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+.col-help{display:inline-block;margin-left:5px;width:14px;height:14px;border-radius:50%;
+  background:#e2e8f0;color:#475569;font-size:10px;font-weight:800;line-height:14px;text-align:center;
+  cursor:help;vertical-align:1px}
+.brand-seq,.growth-seq{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.seq-sep{color:#94a3b8;font-weight:700;font-size:11px}
+.seq-n{font-weight:650}
+.growth-up{color:#166534;font-weight:750}
+.growth-down{color:#b91c1c;font-weight:750}
+.growth-flat{color:#64748b;font-weight:650}
 .col-drag{cursor:grab;color:#94a3b8;font-size:11px;letter-spacing:-1px;line-height:1;padding:2px 1px;user-select:none}
 .col-drag:active{cursor:grabbing}
 th.is-dragging{opacity:.45}
