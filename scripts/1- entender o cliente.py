@@ -116,7 +116,8 @@ def _fetch_html_scrapingbee(url: str, render_js: bool = False) -> str:
         "premium_proxy": "true",
         "country_code": SCRAPINGBEE_COUNTRY,
     }
-    r = requests.get(SCRAPINGBEE_URL, params=params, timeout=90)
+    timeout = 20 if render_js else 15
+    r = requests.get(SCRAPINGBEE_URL, params=params, timeout=timeout)
     r.raise_for_status()
     return r.text
 
@@ -132,6 +133,7 @@ def scrape_site(url: str, max_chars: int = 12000) -> dict:
     out = {
         "title": "", "meta_description": "", "h1": [], "h2": [], "nav": [], "body": "",
         "final_url": url,
+        "source": "",
     }
     candidates = [url]
     alt = _www_alternate_url(url)
@@ -148,6 +150,7 @@ def scrape_site(url: str, max_chars: int = 12000) -> dict:
             resp.raise_for_status()
             html = resp.text or ""
             out["final_url"] = str(resp.url or candidate)
+            out["source"] = "direct"
             if i > 0:
                 print(f"[1A] OK via alternativa: {out['final_url']}")
             break
@@ -162,6 +165,7 @@ def scrape_site(url: str, max_chars: int = 12000) -> dict:
                 print(f"[1A] Fallback ScrapingBee: {candidate} ...")
                 html = _fetch_html_scrapingbee(candidate, render_js=False)
                 out["final_url"] = candidate
+                out["source"] = "scrapingbee"
                 print(f"[1A] OK via ScrapingBee: {candidate}")
                 break
             except Exception as e:
@@ -172,6 +176,7 @@ def scrape_site(url: str, max_chars: int = 12000) -> dict:
                 print(f"[1A] Fallback ScrapingBee+JS: {candidates[0]} ...")
                 html = _fetch_html_scrapingbee(candidates[0], render_js=True)
                 out["final_url"] = candidates[0]
+                out["source"] = "scrapingbee_js"
                 print(f"[1A] OK via ScrapingBee+JS")
             except Exception as e:
                 last_err = e
@@ -179,7 +184,12 @@ def scrape_site(url: str, max_chars: int = 12000) -> dict:
 
     if not html:
         if last_err:
-            print(f"[1A] Todas as tentativas falharam (ultima: {last_err})")
+            print(f"[1A] Proxies falharam (ultima: {last_err})")
+        print("[1A] Fallback LLM: o que o site e e quais produtos oferece ...")
+        knowledge = llm_site_from_knowledge(url)
+        if knowledge.get("body"):
+            return knowledge
+        print("[1A] LLM knowledge tambem falhou.")
         return out
 
     soup = BeautifulSoup(html, "html.parser")
@@ -218,6 +228,78 @@ def site_signals_text(site: dict) -> str:
         f"NAV: {' | '.join(site.get('nav',[]))}\n"
         f"CONTENT:\n{site.get('body','')}"
     )
+
+
+def llm_site_from_knowledge(url: str) -> dict:
+    """When live scrape + proxies fail, ask the model what the company sells."""
+    domain = urlparse(url).netloc or url
+    domain = domain.replace("www.", "")
+    mkt = str(MARKET_SHORT or "US").upper()
+    lang = "Portuguese (Brazil)" if mkt == "BR" else "English (US)"
+    prompt = f"""The live homepage of this company could not be downloaded (blocked/proxy failed).
+Use your public knowledge of this brand/domain. Do not invent SKUs, prices, or cities.
+
+URL: {url}
+DOMAIN: {domain}
+MARKET: {mkt}
+Write about/products in {lang}.
+
+Return JSON only:
+{{
+  "name": "company name",
+  "title": "likely homepage title",
+  "about": "2 to 4 short paragraphs: what the company is, who it serves, how it makes money",
+  "products": ["main product or service 1", "product 2", "product 3"],
+  "audience": "who buys",
+  "confidence": "high" or "medium" or "low"
+}}
+
+Rules:
+- If you do not know the company, infer conservatively from the domain/URL and set confidence=low.
+- products: 3 to 8 items, real offerings when known.
+- No marketing fluff. No fake testimonials.
+"""
+    empty = {
+        "title": "", "meta_description": "", "h1": [], "h2": [], "nav": [], "body": "",
+        "final_url": url, "source": "llm_knowledge",
+    }
+    try:
+        raw = call_openrouter(prompt, max_tokens=900, temperature=0.2)
+        data = extract_json(raw)
+    except Exception as e:
+        print(f"[1A] LLM knowledge falhou: {e}")
+        return empty
+
+    name = str(data.get("name") or domain).strip()
+    about = str(data.get("about") or "").strip()
+    products = data.get("products") or []
+    if isinstance(products, str):
+        products = [p.strip() for p in re.split(r"[,;\n]+", products) if p.strip()]
+    products = [str(p).strip() for p in products if str(p).strip()][:8]
+    audience = str(data.get("audience") or "").strip()
+    confidence = str(data.get("confidence") or "low").strip().lower()
+    if not about:
+        return empty
+
+    prod_block = "\n".join(f"- {p}" for p in products) or "- (unknown)"
+    body = (
+        f"{about}\n\n"
+        f"Products / services:\n{prod_block}\n\n"
+        f"Audience: {audience or '—'}\n"
+        f"Source: public model knowledge (live page blocked). confidence={confidence}"
+    )
+    print(f"[1A] OK via LLM knowledge: {name} (confidence={confidence}, {len(products)} products)")
+    return {
+        "title": str(data.get("title") or name).strip(),
+        "meta_description": about[:240],
+        "h1": [name] if name else [],
+        "h2": products[:8],
+        "nav": products[:8],
+        "body": body[:12000],
+        "final_url": url,
+        "source": "llm_knowledge",
+        "llm_confidence": confidence,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -304,10 +386,18 @@ def _briefing_market_rules() -> str:
 def llm_briefing(url: str, site: dict) -> dict:
     print(f"[1B] Gerando briefing com LLM ... mercado={MARKET_SHORT}")
     fields_str = "\n".join(f'  - "{k}": {label}' for k, label in BRIEFING_FIELDS)
+    knowledge_note = ""
+    if str(site.get("source") or "") == "llm_knowledge":
+        knowledge_note = (
+            "ATENCAO: o HTML do site NAO foi baixado (GET + proxies falharam). "
+            "O bloco abaixo veio do conhecimento publico do modelo sobre a empresa. "
+            "Nao invente cidades, precos, SKUs ou produtos que voce nao conheca. "
+            "Se a confianca for baixa, use termos genericos do dominio e escopo Nacional.\n"
+        )
     prompt = f"""Voce e um analista de SEO. Leia o conteudo do site abaixo e responda em JSON valido com cada campo preenchido.
 
 {_briefing_market_rules()}
-
+{knowledge_note}
 URL: {url}
 
 CONTEUDO DO SITE:
@@ -864,6 +954,16 @@ def write_xlsx(out_path: Path, url: str, briefing: dict):
 
     ws.append(["URL", url])
     ws.append(["Data", datetime.now().strftime("%d/%m/%Y %H:%M")])
+    src = str(briefing.get("scrape_source") or "direct")
+    src_label = {
+        "direct": "scrape direto",
+        "scrapingbee": "ScrapingBee",
+        "scrapingbee_js": "ScrapingBee+JS",
+        "llm_knowledge": "LLM (pagina bloqueada — conhecimento publico)",
+    }.get(src, src)
+    if briefing.get("scrape_llm_confidence"):
+        src_label += f" · confianca {briefing.get('scrape_llm_confidence')}"
+    ws.append(["Fonte do site", src_label])
     for key, label in BRIEFING_FIELDS:
         ws.append([label, str(briefing.get(key, ""))])
     for key, label in CLASSIFICAR2_FIELDS:
@@ -1825,13 +1925,18 @@ def run(url: str, mvp: bool = True):
 
     site = scrape_site(url)
     if not site.get("body"):
-        print("[!] Site vazio. Abortando.")
+        print("[!] Site vazio e sem fallback LLM. Abortando.")
         sys.exit(1)
 
     # Preferir a URL que de fato respondeu (ex.: www quando apex retorna 404)
     url = site.get("final_url") or url
 
     briefing = llm_briefing(url, site)
+    briefing["scrape_source"] = site.get("source") or "direct"
+    if site.get("llm_confidence"):
+        briefing["scrape_llm_confidence"] = site.get("llm_confidence")
+    if briefing.get("scrape_source") == "llm_knowledge":
+        print("[1B] Briefing gerado a partir do conhecimento do LLM (pagina bloqueada).")
     print(f"[1B] Briefing: escopo={briefing['escopo']}, nicho='{briefing.get('nicho_principal')}', "
           f"cidades={briefing.get('cidades')}, termos_raiz={briefing.get('termos_raiz')}")
 
