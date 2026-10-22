@@ -108,7 +108,14 @@ def _fmt_growth(v: Any) -> str:
     return f"{sign}{n:.1f}%"
 
 
-def _rows_table(headers: list[str], rows: list[list[str]], *, page_size: int = 0) -> str:
+def _rows_table(
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    page_size: int = 0,
+    col_keys: Optional[list[str]] = None,
+    compact_keys: Optional[set[str]] = None,
+) -> str:
     num_cols: set[int] = set()
     for c, h in enumerate(headers):
         if h == "#":
@@ -118,18 +125,33 @@ def _rows_table(headers: list[str], rows: list[list[str]], *, page_size: int = 0
         if real and all(_NUM_CELL_RE.match(v) for v in real):
             num_cols.add(c)
 
-    def _cls(c: int) -> str:
+    def _attr(c: int, *, header: bool = False) -> str:
+        classes: list[str] = []
+        extras: list[str] = []
         if c < len(headers) and headers[c] == "#":
-            return ' class="idx"'
+            classes.append("idx")
         if c < len(headers) and str(headers[c]).lower() == "motivo":
-            return ' class="motivo"'
-        return ' class="num"' if c in num_cols else ""
+            classes.append("motivo")
+        if c in num_cols:
+            classes.append("num")
+        key = ""
+        if col_keys and c < len(col_keys):
+            key = str(col_keys[c] or "").strip()
+        if key:
+            extras.append(f'data-col="{_esc(key)}"')
+            if compact_keys and key not in compact_keys:
+                extras.append('data-extra="1"')
+        if header and c < len(headers) and str(headers[c]) == "Cresc.":
+            extras.append('title="Crescimento 2026 vs 2024"')
+        cls = f' class="{" ".join(classes)}"' if classes else ""
+        extra = (" " + " ".join(extras)) if extras else ""
+        return f"{cls}{extra}"
 
-    thead = "".join(f"<th{_cls(i)}>{_esc(h)}</th>" for i, h in enumerate(headers))
+    thead = "".join(f"<th{_attr(i, header=True)}>{_esc(h)}</th>" for i, h in enumerate(headers))
     body = []
     for row in rows:
         is_you = any('class="you"' in str(cell) for cell in row)
-        tds = "".join(f"<td{_cls(i)}>{cell}</td>" for i, cell in enumerate(row))
+        tds = "".join(f"<td{_attr(i)}>{cell}</td>" for i, cell in enumerate(row))
         body.append(f'<tr class="is-you">{tds}</tr>' if is_you else f"<tr>{tds}</tr>")
     if not body:
         body.append(f'<tr><td class="empty" colspan="{len(headers)}">No data</td></tr>')
@@ -1709,9 +1731,28 @@ def render_report_html(
     if competitors_only:
         comp_headers.append("Motivo")
     if show_brand:
-        comp_headers += ["Marca", "Ago 2026", "Ago 2025", "Ago 2024", "Crescimento 26/24"]
+        comp_headers += ["Marca", "Ago 2026", "Ago 2025", "Ago 2024", "Cresc."]
     if show_sw:
         comp_headers.append("SimilarWeb")
+    _COMP_KEY = {
+        "#": "idx",
+        "Company": "company",
+        "Domain": "domain",
+        "Similarity": "similarity",
+        "Fonte": "fonte",
+        "Perfil": "perfil",
+        "Niche": "niche",
+        "Link": "link",
+        "Motivo": "motivo",
+        "Marca": "marca",
+        "Ago 2026": "ago2026",
+        "Ago 2025": "ago2025",
+        "Ago 2024": "ago2024",
+        "Cresc.": "cresc",
+        "SimilarWeb": "similarweb",
+    }
+    comp_keys = [_COMP_KEY.get(h, h.lower()) for h in comp_headers]
+    compact_keys = {"company", "similarity", "ago2026", "ago2025", "ago2024", "cresc", "similarweb"}
 
     market = _report_market(report, meta)
     compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
@@ -1837,10 +1878,21 @@ def render_report_html(
       <p>{_md_lite(briefing.get('summary') or '')}</p>
     </div>
 
-    <div class="card" id="sec-competitors" data-group="overview">
-      <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
+    <div class="card" id="sec-competitors" data-group="overview" data-view="compact">
+      <div class="card-head">
+        <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
+        <div class="sort-bar" role="group" aria-label="Colunas dos concorrentes">
+          <button type="button" class="sort-btn comp-view is-active" data-view="compact">Métricas</button>
+          <button type="button" class="sort-btn comp-view" data-view="all">Todas</button>
+        </div>
+      </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
-      {_rows_table(comp_headers, comp_rows, page_size=10 if competitors_only else 0)}
+      {_rows_table(
+          comp_headers, comp_rows,
+          page_size=10 if competitors_only else 0,
+          col_keys=comp_keys,
+          compact_keys=compact_keys,
+      )}
     </div>
 
     {cards}
@@ -1909,6 +1961,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--group)}
 .eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--group);margin-bottom:4px}
 h2{font-size:19px;margin:0 0 14px;letter-spacing:-.015em;font-weight:750}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 14px}
+.card-head h2{margin:0}
+#sec-competitors[data-view="compact"] [data-extra="1"]{display:none}
 h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px;background:#f1f5f9;color:var(--muted);
   font-size:12px;font-weight:700;vertical-align:3px}
 .subhead{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px}
@@ -2140,6 +2195,16 @@ _REPORT_JS = """
     if(prev) prev.addEventListener('click',function(){ if(page>0){page--;render();}});
     if(next) next.addEventListener('click',function(){ if(page<pages-1){page++;render();}});
     render();
+  });
+})();
+(function(){
+  var card=document.getElementById('sec-competitors');
+  if(!card)return;
+  card.addEventListener('click',function(ev){
+    var btn=ev.target.closest('.comp-view');
+    if(!btn)return;
+    card.setAttribute('data-view', btn.getAttribute('data-view')||'compact');
+    card.querySelectorAll('.comp-view').forEach(function(b){b.classList.toggle('is-active', b===btn);});
   });
 })();
 """
