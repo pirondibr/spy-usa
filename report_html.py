@@ -1727,12 +1727,13 @@ def render_report_html(
     comp_rows = []
     sort_rows: list[list[Any]] = []
     for i, c in enumerate(comps, 1):
-        name = _esc(c.get("name") or c.get("domain") or "—")
-        if c.get("is_client"):
-            name += ' <span class="you">you</span>'
+        raw_name = c.get("name") or c.get("domain") or "—"
         site = (c.get("url") or c.get("site_url") or "").strip()
         if not site and c.get("domain"):
             site = f"https://{c.get('domain')}/"
+        name = _link_cell(site, raw_name) if site else _esc(raw_name)
+        if c.get("is_client"):
+            name += ' <span class="you">you</span>'
         row = [
             str(i),
             name,
@@ -1742,10 +1743,7 @@ def render_report_html(
         if competitors_only:
             row.append(_fonte_cell(c.get("fonte")))
             row.append(_esc(c.get("perfil") or "—"))
-        row.extend([
-            _esc(c.get("nicho") or "—"),
-            _link_cell(site, "Site"),
-        ])
+        row.append(_esc(c.get("nicho") or "—"))
         if competitors_only:
             row.append(_clip_cell(c.get("motivo"), limit=48))
         show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
@@ -1772,7 +1770,7 @@ def render_report_html(
         ]
         if competitors_only:
             sort_row += [str(c.get("fonte") or "").lower(), str(c.get("perfil") or "").lower()]
-        sort_row += [str(c.get("nicho") or "").lower(), ""]
+        sort_row.append(str(c.get("nicho") or "").lower())
         if competitors_only:
             sort_row.append(str(c.get("motivo") or "").lower())
         if show_brand:
@@ -1792,7 +1790,7 @@ def render_report_html(
     comp_headers = ["#", "Company", "Domain", "Similarity"]
     if competitors_only:
         comp_headers += ["Fonte", "Perfil"]
-    comp_headers += ["Niche", "Link"]
+    comp_headers.append("Niche")
     if competitors_only:
         comp_headers.append("Motivo")
     if show_brand:
@@ -1807,7 +1805,6 @@ def render_report_html(
         "Fonte": "fonte",
         "Perfil": "perfil",
         "Niche": "niche",
-        "Link": "link",
         "Motivo": "motivo",
         "Marca": "marca",
         "Ago 2026": "ago2026",
@@ -2159,6 +2156,7 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 a.ext:hover{text-decoration:underline}
+td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px;white-space:normal}
 
 .toplist{margin:0;padding:0;list-style:none;counter-reset:t;display:flex;flex-direction:column;gap:7px;min-width:230px}
 .toplist li{counter-increment:t;display:grid;grid-template-columns:16px 1fr;column-gap:6px;line-height:1.35}
