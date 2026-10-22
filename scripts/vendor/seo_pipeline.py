@@ -83,6 +83,11 @@ SEMRUSH_RPC_URL = "https://www.semrush.com/dpa/rpc"
 # SEMRUSH_DB from market (us)
 SEMRUSH_TOP_N = 30
 
+SCRAPINGBEE_API_KEY = os.environ.get("SCRAPINGBEE_API_KEY", "").strip()
+SCRAPINGBEE_URL = "https://app.scrapingbee.com/api/v1/"
+TINYFISH_API_KEY = os.environ.get("TINYFISH_API_KEY", "").strip()
+TINYFISH_FETCH = "https://api.fetch.tinyfish.ai"
+
 MAX_LOCAL = 20
 MAX_NACIONAL = 50
 OVERGEN_FACTOR = 1.5
@@ -879,7 +884,77 @@ SIMILARITY_LEVELS = {"alto": "Alto", "alta": "Alto", "high": "Alto",
                      "baixo": "Baixo", "baixa": "Baixo", "low": "Baixo"}
 
 
+def _html_to_page_text(html: str, max_chars: int = 4000) -> str:
+    if not (html or "").strip():
+        return ""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    title = (soup.title.string.strip() if soup.title and soup.title.string else "")
+    m = soup.find("meta", attrs={"name": "description"})
+    desc = m["content"].strip() if m and m.get("content") else ""
+    h1s = " | ".join(h.get_text(strip=True) for h in soup.find_all("h1")[:5])
+    body = re.sub(r"\s+", " ", soup.get_text(separator=" ", strip=True))
+    if not (title or desc or h1s or body):
+        return ""
+    return f"TITLE: {title}\nMETA: {desc}\nH1: {h1s}\nBODY: {body}"[:max_chars]
+
+
+def _fetch_html_scrapingbee(url: str, render_js: bool = False) -> str:
+    if not SCRAPINGBEE_API_KEY:
+        raise RuntimeError("SCRAPINGBEE_API_KEY ausente")
+    params = {
+        "api_key": SCRAPINGBEE_API_KEY,
+        "url": url,
+        "render_js": "true" if render_js else "false",
+        "premium_proxy": "true",
+        "country_code": SCRAPINGBEE_COUNTRY,
+    }
+    r = requests.get(SCRAPINGBEE_URL, params=params, timeout=90)
+    r.raise_for_status()
+    return r.text or ""
+
+
+def _fetch_text_tinyfish(url: str, max_chars: int = 4000) -> str:
+    if not TINYFISH_API_KEY:
+        raise RuntimeError("TINYFISH_API_KEY ausente")
+    r = requests.post(
+        TINYFISH_FETCH,
+        headers={
+            "X-API-Key": TINYFISH_API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        json={
+            "urls": [url],
+            "format": "html",
+            "links": False,
+            "image_links": False,
+            "iframe_links": False,
+            "page_metadata": True,
+            "ttl": 0,
+            "per_url_timeout_ms": 45000,
+            "purpose": "Extract homepage title, meta, headings and body for competitor similarity",
+        },
+        timeout=90,
+    )
+    r.raise_for_status()
+    data = r.json() if r.content else {}
+    page = (data.get("results") or [None])[0] or {}
+    html = page.get("html") or page.get("content") or ""
+    text = _html_to_page_text(html, max_chars=max_chars) if html else ""
+    if text:
+        return text
+    title = (page.get("title") or "").strip()
+    desc = (page.get("description") or "").strip()
+    body = re.sub(r"\s+", " ", (page.get("text") or page.get("markdown") or "").strip())
+    if not (title or desc or body):
+        return ""
+    return f"TITLE: {title}\nMETA: {desc}\nH1: \nBODY: {body}"[:max_chars]
+
+
 def scrape_url_text(url: str, max_chars: int = 4000) -> str:
+    """Direct GET, then ScrapingBee, then TinyFish. Never scores from the URL alone."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -889,17 +964,34 @@ def scrape_url_text(url: str, max_chars: int = 4000) -> str:
     try:
         r = requests.get(url, headers=headers, timeout=12, allow_redirects=True)
         r.raise_for_status()
+        text = _html_to_page_text(r.text or "", max_chars=max_chars)
+        if text:
+            return text
     except Exception:
-        return ""
-    soup = BeautifulSoup(r.text, "html.parser")
-    for tag in soup(["script", "style", "noscript"]):
-        tag.decompose()
-    title = (soup.title.string.strip() if soup.title and soup.title.string else "")
-    m = soup.find("meta", attrs={"name": "description"})
-    desc = m["content"].strip() if m and m.get("content") else ""
-    h1s = " | ".join(h.get_text(strip=True) for h in soup.find_all("h1")[:5])
-    body = re.sub(r"\s+", " ", soup.get_text(separator=" ", strip=True))
-    return f"TITLE: {title}\nMETA: {desc}\nH1: {h1s}\nBODY: {body}"[:max_chars]
+        pass
+
+    if SCRAPINGBEE_API_KEY:
+        for render_js in (False, True):
+            try:
+                label = "ScrapingBee+JS" if render_js else "ScrapingBee"
+                print(f"[4]   fallback {label}: {url}", flush=True)
+                html = _fetch_html_scrapingbee(url, render_js=render_js)
+                text = _html_to_page_text(html, max_chars=max_chars)
+                if text:
+                    return text
+            except Exception as e:
+                print(f"[4]   {label} falhou: {e}", flush=True)
+
+    if TINYFISH_API_KEY:
+        try:
+            print(f"[4]   fallback TinyFish: {url}", flush=True)
+            text = _fetch_text_tinyfish(url, max_chars=max_chars)
+            if text:
+                return text
+        except Exception as e:
+            print(f"[4]   TinyFish falhou: {e}", flush=True)
+
+    return ""
 
 
 PROFILE_LEVELS = {"especialista": "Especialista", "generalista": "Generalista"}
@@ -969,15 +1061,13 @@ def analyze_similarity(
     page_hint: str = "",
 ) -> dict:
     content = scrape_url_text(comp_url)
-    fetched = bool(content)
     if not content:
-        hint = (page_hint or "").strip()
-        content = (
-            f"(homepage fetch failed on this host; classify from URL"
-            f"{' and SERP title' if hint else ''})\n"
-            f"URL: {comp_url}\n"
-            f"TITLE: {hint}"
-        )
+        return {
+            "nicho": "—",
+            "similaridade": "—",
+            "perfil": "—",
+            "motivo": "Falha ao baixar a homepage (direct + ScrapingBee + TinyFish)",
+        }
 
     client_niche = (
         f"Nicho: {briefing.get('nicho','')} | "
@@ -1019,12 +1109,7 @@ PERFIL vs client niche "{briefing.get('nicho_principal','')}":
     except Exception as e:
         return {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro LLM: {e}"}
 
-    out = _parse_similarity_response(raw)
-    if not fetched and out.get("motivo"):
-        out["motivo"] = f"(sem HTML) {out['motivo']}"
-    elif not fetched and not out.get("motivo"):
-        out["motivo"] = "Homepage fetch failed; scored from URL"
-    return out
+    return _parse_similarity_response(raw)
 
 
 def classify_client_profile(url: str, site: dict, briefing: dict) -> str:
