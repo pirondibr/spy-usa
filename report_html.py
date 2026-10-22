@@ -1626,11 +1626,15 @@ def render_report_html(
             _esc(c.get("nicho") or "—"),
             _link_cell(site, "Site"),
         ])
+        if competitors_only:
+            row.append(_esc(c.get("motivo") or "—"))
         comp_rows.append(row)
     comp_headers = ["#", "Company", "Domain", "Similarity"]
     if competitors_only:
         comp_headers += ["Fonte", "Perfil"]
     comp_headers += ["Niche", "Link"]
+    if competitors_only:
+        comp_headers.append("Motivo")
 
     market = _report_market(report, meta)
     compare_all = bool(report.get("compare_all") or meta.get("compare_all"))

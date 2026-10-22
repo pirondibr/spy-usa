@@ -1648,6 +1648,7 @@ def load_competitors_xlsx(
                     "perfil": str(_get(row, idx, "perfil") or "n/d"),
                     "fonte": str(_get(row, idx, "fonte") or "n/d"),
                     "nicho": str(_get(row, idx, "nicho (llm)", "nicho") or "").strip(),
+                    "motivo": str(_get(row, idx, "motivo") or "").strip(),
                     "url": str(_get(row, idx, "url") or ""),
                     "is_client": False,
                 })
@@ -1684,6 +1685,7 @@ def load_competitors_xlsx(
             "perfil": e.get("perfil") or "n/d",
             "fonte": e.get("fonte") or "n/d",
             "nicho": e.get("nicho") or "",
+            "motivo": e.get("motivo") or "",
             "url": e.get("url") or "",
             "is_client": bool(e.get("is_client")),
             "preferred": (not e.get("is_client")) and (

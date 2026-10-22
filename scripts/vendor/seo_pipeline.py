@@ -882,10 +882,12 @@ SIMILARITY_LEVELS = {"alto": "Alto", "alta": "Alto", "high": "Alto",
 def scrape_url_text(url: str, max_chars: int = 4000) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": ACCEPT_LANGUAGE if "ACCEPT_LANGUAGE" in globals() else "en-US,en;q=0.9",
     }
     try:
-        r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+        r = requests.get(url, headers=headers, timeout=12, allow_redirects=True)
         r.raise_for_status()
     except Exception:
         return ""
@@ -912,10 +914,70 @@ def _parse_profile(val: str) -> str:
     return PROFILE_LEVELS.get(v, val.capitalize() if val else "")
 
 
-def analyze_similarity(comp_url: str, client_url: str, briefing: dict) -> dict:
+def _norm_sim_token(val: str) -> str:
+    v = unicodedata.normalize("NFKD", (val or "").lower()).encode("ascii", "ignore").decode("ascii")
+    v = re.sub(r"[^a-z]", "", v)
+    return SIMILARITY_LEVELS.get(v, "")
+
+
+def _parse_similarity_response(raw: str) -> dict:
+    out = {"nicho": "", "similaridade": "", "perfil": "", "motivo": ""}
+    try:
+        data = extract_json(raw)
+        if isinstance(data, dict):
+            out["nicho"] = str(data.get("nicho") or data.get("niche") or "").strip()
+            out["similaridade"] = _norm_sim_token(
+                str(data.get("similaridade") or data.get("similarity") or "")
+            )
+            out["perfil"] = _parse_profile(str(data.get("perfil") or data.get("profile") or ""))
+            out["motivo"] = str(data.get("motivo") or data.get("reason") or "").strip()
+    except Exception:
+        pass
+    aliases = {
+        "nicho": "nicho", "niche": "nicho",
+        "similaridade": "similaridade", "similarity": "similaridade",
+        "perfil": "perfil", "profile": "perfil",
+        "motivo": "motivo", "reason": "motivo", "rationale": "motivo",
+    }
+    for line in (raw or "").splitlines():
+        line = line.strip().lstrip("*-•").strip()
+        if ":" not in line:
+            continue
+        key, _, rest = line.partition(":")
+        mapped = aliases.get(re.sub(r"[^a-z]", "", key.lower()))
+        if not mapped or not rest.strip():
+            continue
+        if mapped == "similaridade":
+            if not out["similaridade"]:
+                out["similaridade"] = _norm_sim_token(rest)
+        elif mapped == "perfil":
+            if not out["perfil"]:
+                out["perfil"] = _parse_profile(rest.strip())
+        elif not out[mapped]:
+            out[mapped] = rest.strip()
+    if not out["similaridade"]:
+        out["similaridade"] = "—"
+    if not out["perfil"]:
+        out["perfil"] = "—"
+    return out
+
+
+def analyze_similarity(
+    comp_url: str,
+    client_url: str,
+    briefing: dict,
+    page_hint: str = "",
+) -> dict:
     content = scrape_url_text(comp_url)
+    fetched = bool(content)
     if not content:
-        return {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": "Falha ao acessar URL"}
+        hint = (page_hint or "").strip()
+        content = (
+            f"(homepage fetch failed on this host; classify from URL"
+            f"{' and SERP title' if hint else ''})\n"
+            f"URL: {comp_url}\n"
+            f"TITLE: {hint}"
+        )
 
     client_niche = (
         f"Nicho: {briefing.get('nicho','')} | "
@@ -925,60 +987,43 @@ def analyze_similarity(comp_url: str, client_url: str, briefing: dict) -> dict:
         f"Escopo: {briefing.get('escopo','')}"
     )
 
-    prompt = f"""Analise o conteudo do website abaixo e compare com o cliente principal.
+    prompt = f"""Compare this website to the client company.
 
-WEBSITE A ANALISAR:
+WEBSITE TO SCORE:
 URL: {comp_url}
-Conteudo: {content}
+Content: {content}
 
-CLIENTE PRINCIPAL:
+CLIENT:
 URL: {client_url}
-Nicho/Descricao: {client_niche}
+Niche: {client_niche}
 
-Responda EXATAMENTE neste formato (4 linhas):
+Return EXACTLY these 4 labels (do not translate the labels):
 
-NICHO: [o nicho principal deste website em poucas palavras]
-SIMILARIDADE: [Baixo, Medio ou Alto]
-PERFIL: [Especialista ou Generalista]
-MOTIVO: [explicacao breve, 1 frase, considerando nicho, publico-alvo, servicos E perfil]
+NICHO: [short niche of this website]
+SIMILARIDADE: [Alto or Medio or Baixo]
+PERFIL: [Especialista or Generalista]
+MOTIVO: [one sentence]
 
-Criterios de SIMILARIDADE:
-- Alto: Mesmo nicho, mesmo publico-alvo, servicos muito similares (concorrente direto que disputa os mesmos clientes)
-- Medio: Nicho relacionado, alguma sobreposicao de publico ou servicos (ex: portal de imoveis vs construtora especifica)
-- Baixo: Nicho diferente, pouca ou nenhuma relacao (ex: site de noticias, agregador generico, blog)
+SIMILARIDADE:
+- Alto: same niche, same audience, direct competitor
+- Medio: related niche, some overlap
+- Baixo: different niche / news / aggregator / weak relation
 
-Criterios de PERFIL (em relacao ao nicho do cliente "{briefing.get('nicho_principal','')}"):
-- Especialista: o website tem foco UNICO ou PRINCIPAL no mesmo nicho do cliente. Ex: cliente vende "plano de saude pet" e o concorrente TAMBEM so vende plano de saude pet (sem outros produtos relevantes).
-- Generalista: o website oferece MULTIPLOS produtos/servicos e o nicho do cliente eh apenas UM entre varios (e nao necessariamente o principal). Ex: cliente vende plano pet e o concorrente eh uma seguradora gigante com seguro auto, vida, residencial, cartao, etc., onde plano pet eh so um produto secundario.
-
-Use o conteudo do BODY/H1/MENU para inferir o perfil. Se o site tem menu com varias categorias nao-relacionadas ao nicho do cliente, eh Generalista. Se todo o conteudo gira em torno do mesmo nicho, eh Especialista.
-
-Responda em ingles americano (US English) para o mercado USA."""
+PERFIL vs client niche "{briefing.get('nicho_principal','')}":
+- Especialista: main focus is the same niche
+- Generalista: many products; client niche is only one of them
+"""
 
     try:
         raw = call_openrouter(prompt, max_tokens=350, temperature=0.2)
     except Exception as e:
         return {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro LLM: {e}"}
 
-    out = {"nicho": "", "similaridade": "", "perfil": "", "motivo": ""}
-    for line in raw.splitlines():
-        line = line.strip().lstrip("*-•").strip()
-        low = line.lower()
-        if low.startswith("nicho:"):
-            out["nicho"] = line.split(":", 1)[1].strip()
-        elif low.startswith("similaridade:"):
-            val = line.split(":", 1)[1].strip().lower()
-            val = unicodedata.normalize("NFKD", val).encode("ascii", "ignore").decode("ascii")
-            val = re.sub(r"[^a-z]", "", val)
-            out["similaridade"] = SIMILARITY_LEVELS.get(val, val.capitalize() or "—")
-        elif low.startswith("perfil:"):
-            out["perfil"] = _parse_profile(line.split(":", 1)[1].strip())
-        elif low.startswith("motivo:"):
-            out["motivo"] = line.split(":", 1)[1].strip()
-    if not out["similaridade"]:
-        out["similaridade"] = "—"
-    if not out["perfil"]:
-        out["perfil"] = "—"
+    out = _parse_similarity_response(raw)
+    if not fetched and out.get("motivo"):
+        out["motivo"] = f"(sem HTML) {out['motivo']}"
+    elif not fetched and not out.get("motivo"):
+        out["motivo"] = "Homepage fetch failed; scored from URL"
     return out
 
 

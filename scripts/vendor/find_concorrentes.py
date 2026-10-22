@@ -391,8 +391,16 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
     print(f"[4] Analisando similaridade/perfil de {len(competitors)} concorrentes (LLM, {workers} threads) ...")
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        future_to_comp = {pool.submit(analyze_similarity, c["url"], client_url, briefing): c
-                          for c in competitors}
+        future_to_comp = {
+            pool.submit(
+                analyze_similarity,
+                c.get("url") or "",
+                client_url,
+                briefing,
+                c.get("title") or "",
+            ): c
+            for c in competitors
+        }
         done = 0
         for fut in as_completed(future_to_comp):
             c = future_to_comp[fut]
@@ -402,7 +410,12 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
                 r = {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro: {e}"}
             results.append({**c, **r})
             done += 1
-            print(f"[4]   ({done}/{len(competitors)}) {r.get('similaridade','—')}/{r.get('perfil','—')}  {c['domain']}")
+            extra = r.get("motivo") or ""
+            extra = f"  {extra[:80]}" if extra and r.get("similaridade") in ("—", "", None) else ""
+            print(
+                f"[4]   ({done}/{len(competitors)}) "
+                f"{r.get('similaridade','—')}/{r.get('perfil','—')}  {c['domain']}{extra}"
+            )
     # ordena: Alto primeiro, depois numero de aparicoes
     sim_rank = {"Alto": 3, "Medio": 2, "Baixo": 1, "—": 0}
     results.sort(key=lambda x: (sim_rank.get(x.get("similaridade", "—"), 0),
