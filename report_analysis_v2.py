@@ -27,7 +27,24 @@ def build_analysis_v2(
         _esc,
         _resolve_run_log,
         _summary_channel_url,
+        _summary_companies,
     )
+
+    companies = _summary_companies(report)
+    if with_competitors or len(companies) > 1:
+        from report_analysis_compare import build_analysis_compare
+
+        return build_analysis_compare(
+            report,
+            meta,
+            briefing=briefing,
+            client=client,
+            site_url=site_url,
+            site_host=site_host,
+            run_id=run_id,
+            market=market,
+            companies=companies,
+        )
 
     def client_row(key: str) -> Optional[dict[str, Any]]:
         sec = report.get(key)

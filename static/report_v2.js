@@ -48,6 +48,23 @@
 })();
 
 (function () {
+  var root = document.getElementById("analysis-v2");
+  if (!root) return;
+  root.addEventListener("click", function (ev) {
+    var b = ev.target.closest(".tb");
+    if (!b || !root.contains(b)) return;
+    var id = b.getAttribute("data-tabs");
+    var i = b.getAttribute("data-i");
+    root.querySelectorAll('.tb[data-tabs="' + id + '"]').forEach(function (x) {
+      x.setAttribute("aria-selected", x.getAttribute("data-i") === i ? "true" : "false");
+    });
+    root.querySelectorAll('.tp[data-tabs="' + id + '"]').forEach(function (x) {
+      x.hidden = x.getAttribute("data-i") !== i;
+    });
+  });
+})();
+
+(function () {
   var dataEl = document.getElementById("comp-v2-data");
   var root = document.getElementById("comp-v2");
   var card = document.getElementById("sec-competitors");

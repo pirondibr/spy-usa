@@ -407,6 +407,7 @@
     function hasCompetitors(r) {
       if (r.competitors_only) return false;
       if (r.has_competitors) return true;
+      if (r.compare_all) return true;
       return r.site_only === false;
     }
 

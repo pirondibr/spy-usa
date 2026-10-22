@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.27"
+REPORT_UI_VERSION = "0.4.28"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2406,7 +2406,10 @@ def render_report_html(
     site_host = urlparse(site_url if "://" in site_url else f"https://{site_url}").netloc if site_url else ""
     site_host = site_host[4:] if site_host.startswith("www.") else site_host
     with_competitors = (not competitors_only) and (
-        meta.get("site_only") is False or report.get("site_only") is False
+        meta.get("site_only") is False
+        or report.get("site_only") is False
+        or compare_all
+        or len(_summary_companies(report)) > 1
     )
     chips = [f'<span class="chip accent">Market {_esc(market)}</span>']
     if compare_all:

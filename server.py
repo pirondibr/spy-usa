@@ -57,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.27"
+APP_VERSION = "0.4.28"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -92,7 +92,7 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "include_brand_growth": bool(getattr(job, "include_brand_growth", False)),
         "include_similarweb_alto": bool(getattr(job, "include_similarweb_alto", False)),
         "has_competitors": (not bool(getattr(job, "competitors_only", False)))
-        and (not bool(job.site_only)),
+        and ((not bool(job.site_only)) or bool(getattr(job, "compare_all", False))),
         "peer_urls": list(job.parsed.competitors or []),
         "include_google_ads": bool(job.include_google_ads),
         "include_linkedin": bool(job.include_linkedin),
@@ -178,7 +178,7 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "compare_all": bool(job.compare_all),
             "competitors_only": bool(getattr(job, "competitors_only", False)),
             "has_competitors": (not bool(getattr(job, "competitors_only", False)))
-            and (not bool(job.site_only)),
+            and ((not bool(job.site_only)) or bool(job.compare_all)),
             "include_google_ads": job.include_google_ads,
             "include_linkedin": job.include_linkedin,
             "include_youtube_influencers": bool(job.include_youtube_influencers),
@@ -201,7 +201,7 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
     rows = sorted(by_id.values(), key=_sort_key, reverse=True)
     for m in rows:
         m["has_competitors"] = (not bool(m.get("competitors_only"))) and (
-            m.get("site_only") is False
+            m.get("site_only") is False or bool(m.get("compare_all"))
         )
     return rows[:limit]
 
