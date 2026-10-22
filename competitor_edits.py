@@ -136,6 +136,14 @@ def _enrich_one(row: dict[str, Any], report: dict[str, Any], *, want_sw: Optiona
         row["similarweb_visits"] = sw.get("traffic") or sw.get("latest_visits")
         row["similarweb_fmt"] = sw.get("traffic_fmt") or ""
         row["similarweb_error"] = sw.get("error") or ""
+    if not str(row.get("started") or "").strip():
+        from semrush_started import attach_started_batch  # noqa: E402
+
+        attach_started_batch(
+            [row],
+            market=str(report.get("market") or ""),
+            only_missing=True,
+        )
 
 
 def _recheck_brand_fp(report: dict[str, Any], rows: list[dict[str, Any]]) -> None:

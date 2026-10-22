@@ -256,6 +256,28 @@ def _growth_seq_cell(c: dict[str, Any]) -> str:
     )
 
 
+def _started_cell(c: dict[str, Any]) -> str:
+    label = str(c.get("started_fmt") or "").strip()
+    ym = str(c.get("started") or "").strip()
+    if not label and ym:
+        label = ym
+    if not label:
+        return "—"
+    if c.get("started_truncated"):
+        tip = (
+            f"Oldest Semrush month already had traffic ({ym}). "
+            "Launch may be earlier than the history."
+        )
+    else:
+        tip = f"First Semrush organic traffic after leading zeros: {ym}"
+    return f'<span title="{_esc(tip)}">{_esc(label)}</span>'
+
+
+def _started_sort(c: dict[str, Any]) -> str:
+    raw = str(c.get("started") or "").replace("-", "")
+    return raw if raw.isdigit() else ""
+
+
 def _rows_table(
     headers: list[str],
     rows: list[list[str]],
@@ -292,9 +314,9 @@ def _rows_table(
             extras.append(f'data-col="{_esc(key)}"')
             if compact_keys and key not in compact_keys:
                 extras.append('data-extra="1"')
-            if key in ("brand", "growth"):
+            if key in ("brand", "growth", "started"):
                 classes.append("num")
-        if header and interactive and key not in ("brand", "growth"):
+        if header and interactive and key not in ("brand", "growth", "started"):
             extras.append(f'title="Clique para ordenar · × oculta {_esc(headers[c])}"')
         if header and interactive:
             classes.append("sortable")
@@ -326,6 +348,12 @@ def _rows_table(
                 help_q = (
                     '<button type="button" class="col-help" data-tip="'
                     'Total growth Aug 2026 vs 2024 &gt; last year Aug 2026 vs 2025">'
+                    '?</button>'
+                )
+            elif key == "started":
+                help_q = (
+                    '<button type="button" class="col-help" data-tip="'
+                    'First Semrush organic-traffic month after the leading zeros">'
                     '?</button>'
                 )
             label = (
@@ -1961,6 +1989,8 @@ def render_report_html(
                     row.append(f'<span title="{_esc(full)}">{_esc(compact)}</span>')
             else:
                 row.append("—")
+        if competitors_only:
+            row.append(_started_cell(c))
         row.append(_clip_cell(_row_title(c), limit=22))
         row.append(_clip_cell(c.get("nicho"), limit=28))
         sort_row = [
@@ -1982,6 +2012,8 @@ def render_report_html(
             ]
         if show_sw:
             sort_row.append(_sort_num(c.get("similarweb_visits")))
+        if competitors_only:
+            sort_row.append(_started_sort(c))
         sort_row += [_row_title(c).lower(), str(c.get("nicho") or "").lower()]
         comp_rows.append(row)
         sort_rows.append(sort_row)
@@ -2000,6 +2032,8 @@ def render_report_html(
         comp_headers += ["Brand", "Growth"]
     if show_sw:
         comp_headers.append("SimilarWeb")
+    if competitors_only:
+        comp_headers.append("Started")
     comp_headers += ["Title", "Niche"]
     _COMP_KEY = {
         "#": "idx",
@@ -2014,11 +2048,12 @@ def render_report_html(
         "Brand": "brand",
         "Growth": "growth",
         "SimilarWeb": "similarweb",
+        "Started": "started",
     }
     comp_keys = [_COMP_KEY.get(h, h.lower()) for h in comp_headers]
     compact_keys = {
         "company", "title", "similarity", "niche",
-        "brand", "growth", "similarweb",
+        "brand", "growth", "similarweb", "started",
     }
 
     market = _report_market(report, meta)
@@ -2090,6 +2125,8 @@ def render_report_html(
         chips.append('<span class="chip">Brand Aug 26/25/24</span>')
     if report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"):
         chips.append('<span class="chip">SimilarWeb Alto</span>')
+    if competitors_only:
+        chips.append('<span class="chip">Started Semrush</span>')
     if meta.get("site_only") and not compare_all and not competitors_only:
         chips.append('<span class="chip">Sem concorrentes</span>')
     mast_meta = []

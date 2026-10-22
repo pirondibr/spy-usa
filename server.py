@@ -49,7 +49,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.10"
+APP_VERSION = "0.4.11"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -797,6 +797,18 @@ def run_report(run_id: str):
                         print(f"[TITLE] backfill saved for {run_id}: {filled}", flush=True)
                 except Exception as e:
                     print(f"[TITLE] backfill skipped for {run_id}: {e}", flush=True)
+            if report.get("competitors_only") and not report.get("started_checked"):
+                try:
+                    from pipeline import _enrich_started
+
+                    _enrich_started(report)
+                    (RUNS_DIR / run_id / "report.json").write_text(
+                        json.dumps(report, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    print(f"[STARTED] backfill saved for {run_id}", flush=True)
+                except Exception as e:
+                    print(f"[STARTED] backfill skipped for {run_id}: {e}", flush=True)
             if report.get("include_brand_growth") and not report.get("brand_fp_checked"):
                 try:
                     vendor = Path(__file__).resolve().parent / "scripts" / "vendor"

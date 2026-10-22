@@ -1216,6 +1216,36 @@ def _enrich_competitors_brand_sw(
     return report
 
 
+def _enrich_started(report: dict, *, emit: Optional[EmitFn] = None) -> dict:
+    """Attach Semrush first-traffic month onto competitor rows."""
+    rows = list(report.get("competitors") or report.get("competitors_raw") or [])
+    if not rows:
+        return report
+
+    def _log(line: str) -> None:
+        if emit:
+            emit("log", line=line)
+
+    sys.path.insert(0, str(FINAL_DIR))
+    sys.path.insert(0, str(FINAL_DIR / "vendor"))
+    try:
+        from semrush_started import attach_started_batch  # noqa: E402
+
+        attach_started_batch(
+            rows,
+            market=str(report.get("market") or os.environ.get("SPY_MARKET") or "us"),
+            only_missing=True,
+            emit=_log,
+        )
+        report["started_checked"] = True
+        report["competitors"] = rows
+        report["competitors_raw"] = rows
+    except Exception as e:
+        _log(f"[STARTED] Falhou: {e}")
+        report["started_error"] = str(e)
+    return report
+
+
 def _competitors_only_report(
     slug: str,
     url: str,
@@ -1364,6 +1394,7 @@ def run_competitors_only_pipeline(
                 report, include_brand_growth=True, include_similarweb_alto=False, emit=emit,
             )
             _prog("brand_growth", "done", "Brand growth ready")
+        report = _enrich_started(report, emit=emit)
         html_url = f"/runs/{run_id}/report.html" if run_id else ""
         if run_id:
             _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
@@ -1416,6 +1447,7 @@ def run_competitors_only_pipeline(
             report, include_brand_growth=True, include_similarweb_alto=False, emit=emit,
         )
         _prog("brand_growth", "done", "Brand growth ready")
+    report = _enrich_started(report, emit=emit)
     html_url = ""
     if run_id:
         _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
