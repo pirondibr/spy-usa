@@ -294,11 +294,7 @@ def _rows_table(
                 extras.append('data-extra="1"')
             if key in ("brand", "growth"):
                 classes.append("num")
-        if header and key == "brand":
-            extras.append('title="Brand search · Aug 2026 > Aug 2025 > Aug 2024"')
-        elif header and key == "growth":
-            extras.append('title="Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025"')
-        elif header and interactive:
+        if header and interactive and key not in ("brand", "growth"):
             extras.append(f'title="Clique para ordenar · × oculta {_esc(headers[c])}"')
         if header and interactive:
             classes.append("sortable")
@@ -322,13 +318,15 @@ def _rows_table(
             help_q = ""
             if key == "brand":
                 help_q = (
-                    '<span class="col-help" title="DataForSEO brand search volume: '
-                    'Aug 2026 > Aug 2025 > Aug 2024">?</span>'
+                    '<button type="button" class="col-help" data-tip="'
+                    'DataForSEO brand search volume: Aug 2026 &gt; Aug 2025 &gt; Aug 2024">'
+                    '?</button>'
                 )
             elif key == "growth":
                 help_q = (
-                    '<span class="col-help" title="Total growth Aug 2026 vs 2024 > '
-                    'last year Aug 2026 vs 2025">?</span>'
+                    '<button type="button" class="col-help" data-tip="'
+                    'Total growth Aug 2026 vs 2024 &gt; last year Aug 2026 vs 2025">'
+                    '?</button>'
                 )
             label = (
                 f'<span class="th-wrap">'
@@ -1954,7 +1952,13 @@ def render_report_html(
         if show_sw:
             sim = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
             if c.get("is_client") or sim == "alto":
-                row.append(_esc(c.get("similarweb_fmt") or _fmt_vol(c.get("similarweb_visits"))))
+                compact, full = _brand_vol_text(c.get("similarweb_visits"))
+                if compact == "—" and c.get("similarweb_fmt"):
+                    row.append(_esc(c.get("similarweb_fmt")))
+                elif not full or compact == full:
+                    row.append(_esc(compact))
+                else:
+                    row.append(f'<span title="{_esc(full)}">{_esc(compact)}</span>')
             else:
                 row.append("—")
         row.append(_clip_cell(_row_title(c), limit=22))
@@ -2356,9 +2360,12 @@ td[data-col="title"] .clip,td[data-col="niche"] .clip{max-width:132px}
 .table-hint{margin:0 0 10px}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:100%}
-.col-help{display:inline-block;margin-left:5px;width:14px;height:14px;border-radius:50%;
-  background:#e2e8f0;color:#475569;font-size:10px;font-weight:800;line-height:14px;text-align:center;
-  cursor:help;vertical-align:1px}
+.col-help{display:inline-grid;place-items:center;margin-left:5px;width:16px;height:16px;border:0;border-radius:50%;
+  background:#e2e8f0;color:#334155;font:800 11px/1 inherit;cursor:help;vertical-align:1px;padding:0}
+.col-help:hover{background:#0f172a;color:#fff}
+.float-tip{position:fixed;z-index:80;max-width:260px;padding:8px 10px;border-radius:8px;
+  background:#0f172a;color:#fff;font-size:12px;font-weight:600;line-height:1.35;letter-spacing:0;
+  text-transform:none;box-shadow:0 8px 24px rgba(15,23,42,.2);pointer-events:none;white-space:normal}
 .brand-seq,.growth-seq{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .seq-sep{color:#94a3b8;font-weight:700;font-size:11px}
 .seq-n{font-weight:650}
@@ -2709,6 +2716,7 @@ _REPORT_JS = """
         if(!th) return;
         var col=[].indexOf.call(th.parentNode.children, th);
         if(col<0) return;
+        if(ev.target.closest('.col-help')) return;
         if(hideBtn){ev.preventDefault();hideCol(col);return;}
         sortBy(col);
       });
@@ -2788,6 +2796,37 @@ _REPORT_JS = """
         if(btn) btn.disabled=false;
       });
   });
+})();
+(function(){
+  var tip=document.querySelector('.float-tip');
+  if(!tip){
+    tip=document.createElement('div');
+    tip.className='float-tip';
+    tip.hidden=true;
+    document.body.appendChild(tip);
+  }
+  function hide(){ tip.hidden=true; }
+  function show(el){
+    var text=el.getAttribute('data-tip')||'';
+    if(!text){ hide(); return; }
+    tip.textContent=text;
+    tip.hidden=false;
+    var r=el.getBoundingClientRect();
+    var left=Math.min(window.innerWidth-tip.offsetWidth-8, Math.max(8, r.left+r.width/2-tip.offsetWidth/2));
+    var top=r.bottom+8;
+    if(top+tip.offsetHeight>window.innerHeight-8) top=Math.max(8, r.top-tip.offsetHeight-8);
+    tip.style.left=left+'px';
+    tip.style.top=top+'px';
+  }
+  document.addEventListener('mouseover',function(ev){
+    var el=ev.target.closest('[data-tip]');
+    if(el) show(el); else if(!ev.target.closest('.float-tip')) hide();
+  });
+  document.addEventListener('focusin',function(ev){
+    var el=ev.target.closest('[data-tip]');
+    if(el) show(el);
+  });
+  document.addEventListener('scroll',hide,true);
 })();
 """
 
