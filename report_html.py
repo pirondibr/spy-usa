@@ -356,7 +356,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.23"
+REPORT_UI_VERSION = "0.4.24"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -486,7 +486,12 @@ def _competitors_v2_panel(
         <h2>Competitors</h2>
         <span class="num" id="v2-shown" style="font-size:13px;color:var(--muted)"></span>
       </div>
-      <div class="tabs" role="group" aria-label="Filter by similarity" id="v2-tabs"></div>
+      <div class="head-menu">
+        <div class="tabs" role="group" aria-label="Row order">
+          <button type="button" class="tab" id="v2-default-view" data-default-view="1" aria-pressed="true">Default view</button>
+        </div>
+        <div class="tabs" role="group" aria-label="Filter by similarity" id="v2-tabs"></div>
+      </div>
     </div>
     <div class="filters" aria-label="Filters">
       <label class="field" style="flex:1 1 200px">Search

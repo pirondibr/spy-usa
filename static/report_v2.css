@@ -29,6 +29,7 @@ html:not([data-ui]) #sec-competitors::before{display:none}
   justify-content:space-between;gap:14px;border-bottom:1px solid var(--line)
 }
 #comp-v2 .card-head h2{margin:0;font-size:20px;letter-spacing:-.01em;font-weight:700}
+#comp-v2 .head-menu{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 #comp-v2 .tabs{display:flex;flex-wrap:wrap;gap:4px;background:#F1F3F5;padding:4px;border-radius:10px}
 #comp-v2 .tab{
   border:0;border-radius:7px;padding:0 12px;min-height:36px;font:inherit;font-size:13px;
@@ -85,7 +86,7 @@ html:not([data-ui]) #sec-competitors::before{display:none}
 #comp-v2 .scroll{overflow-x:auto}
 #comp-v2 .grid{
   display:grid;
-  grid-template-columns:44px minmax(200px,1.1fr) 58px 220px 170px 128px 112px minmax(200px,1.2fr) minmax(180px,1.1fr);
+  grid-template-columns:44px minmax(200px,1.1fr) 58px 220px 170px 72px 112px minmax(200px,1.2fr) minmax(180px,1.1fr);
   gap:0 14px;align-items:center;min-width:1320px
 }
 #comp-v2 .thead{
@@ -123,6 +124,7 @@ html.compact #comp-v2 .row{padding:7px 24px}
 #comp-v2 .brand-stack{align-items:flex-start;gap:0;width:100%}
 #comp-v2 .brand-hit{text-align:left;display:flex;align-items:center;gap:12px;width:100%}
 #comp-v2 .brand-hit:hover .btxt{text-decoration:underline;text-underline-offset:2px}
+#comp-v2 .btxt-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
 #comp-v2 .spark{display:flex;align-items:flex-end;gap:3px;height:24px;width:30px;flex-shrink:0}
 #comp-v2 .spark span{display:block;width:8px;border-radius:2px}
 #comp-v2 .btxt{
@@ -133,8 +135,8 @@ html.compact #comp-v2 .row{padding:7px 24px}
 #comp-v2 .bv.now{font-size:14.5px;font-weight:600;color:#0E1116}
 #comp-v2 .btxt .arrow{color:#A7AFB9;font-size:12px}
 #comp-v2 .brand-tag{
-  display:inline-block;margin-left:6px;padding:0 5px;border-radius:999px;background:#e2e8f0;color:#475569;
-  font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;vertical-align:1px;max-width:88px;
+  display:inline-block;margin-left:0;padding:0 5px;border-radius:999px;background:#e2e8f0;color:#475569;
+  font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;max-width:100%;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap
 }
 #comp-v2 .gseq{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:14px;font-variant-numeric:tabular-nums lining-nums}
@@ -145,11 +147,7 @@ html.compact #comp-v2 .row{padding:7px 24px}
 #comp-v2 .g.flat{color:#4B5563}
 #comp-v2 .g.na{color:#9AA3AE}
 #comp-v2 .gsep{color:#A7AFB9;font-size:12px;font-weight:600}
-#comp-v2 .sw{display:flex;align-items:center;gap:10px;min-width:0}
-#comp-v2 .swbar{flex:1 1 auto;height:6px;background:#EEF0F3;border-radius:999px;overflow:hidden}
-#comp-v2 .swbar span{display:block;height:100%;border-radius:999px;background:#4B5563}
-#comp-v2 .you .swbar span{background:var(--accent)}
-#comp-v2 .swn{font-size:13px;width:52px;text-align:right;font-variant-numeric:tabular-nums lining-nums;font-weight:500;color:#111827}
+#comp-v2 .swn{font-size:13.5px;text-align:right;font-variant-numeric:tabular-nums lining-nums;font-weight:500;color:#111827}
 #comp-v2 .started{font-size:14px;font-weight:400;color:#111827;letter-spacing:.005em;font-variant-numeric:tabular-nums lining-nums}
 #comp-v2 .niche{
   font-size:14px;line-height:1.4;color:#111827;font-weight:400;letter-spacing:.005em;white-space:normal;

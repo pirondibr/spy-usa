@@ -92,15 +92,13 @@
     return r;
   };
   var ROWS = D.map(enrich);
-  var maxSw = ROWS.reduce(function (m, r) {
-    return r.sw != null && r.sw > m ? r.sw : m;
-  }, 0);
+  var SIM_RANK = { Cliente: 4, Alto: 3, Medio: 2, Baixo: 1, "—": 0 };
 
   var state = {
     sim: "all",
     q: "",
-    key: "idx",
-    dir: "asc",
+    key: "default",
+    dir: "desc",
     open: null,
     brand: null,
     growth: null,
@@ -145,10 +143,11 @@
     var inner =
       '<span class="spark" aria-hidden="true">' +
       bars +
-      '</span><span class="btxt" title="' +
+      '</span><span class="btxt-wrap"><span class="btxt" title="' +
       esc(title) +
       '">' +
       nums +
+      "</span>" +
       tag +
       "</span>";
     if (!editable) {
@@ -176,22 +175,13 @@
   }
 
   function swHtml(r) {
-    if (r.sw == null) {
-      return '<span class="sw"><span class="swn">—</span></span>';
-    }
-    var pctW = 0;
-    if (maxSw > 0) {
-      pctW = Math.max(4, Math.round((Math.log10(r.sw + 1) / Math.log10(maxSw + 1)) * 100));
-    }
-    var full = Number(r.sw).toLocaleString("en-US");
+    if (r.sw == null) return '<span class="swn">—</span>';
     return (
-      '<span class="sw" title="' +
-      esc(full) +
-      ' visits"><span class="swbar"><span style="width:' +
-      pctW +
-      '%"></span></span><span class="swn">' +
+      '<span class="swn" title="' +
+      esc(Number(r.sw).toLocaleString("en-US")) +
+      ' visits">' +
       fmt(r.sw) +
-      "</span></span>"
+      "</span>"
     );
   }
 
@@ -380,6 +370,18 @@
     var k = state.key;
     var dir = state.dir === "asc" ? 1 : -1;
     rest.sort(function (a, b) {
+      if (k === "default") {
+        var sa = SIM_RANK[a.sim] || 0;
+        var sb = SIM_RANK[b.sim] || 0;
+        if (sa !== sb) return sb - sa;
+        var ba = a.brand26;
+        var bb = b.brand26;
+        if (ba == null && bb == null) return a.idx - b.idx;
+        if (ba == null) return 1;
+        if (bb == null) return -1;
+        if (bb !== ba) return bb - ba;
+        return a.idx - b.idx;
+      }
       var va = a[k],
         vb = b[k];
       if (va == null && vb == null) return 0;
@@ -387,6 +389,10 @@
       if (vb == null) return -1;
       return typeof va === "string" ? va.localeCompare(vb) * dir : (va - vb) * dir;
     });
+    var defBtn = document.getElementById("v2-default-view");
+    if (defBtn) {
+      defBtn.setAttribute("aria-pressed", k === "default" ? "true" : "false");
+    }
     var out = client.concat(rest);
     var shown = document.getElementById("v2-shown");
     if (shown) shown.textContent = rest.length + " shown";
@@ -421,6 +427,12 @@
   };
 
   root.addEventListener("click", function (e) {
+    if (e.target.closest("[data-default-view]")) {
+      state.key = "default";
+      state.dir = "desc";
+      render();
+      return;
+    }
     var s = e.target.closest("[data-sort]");
     if (s) {
       var k = s.getAttribute("data-sort");
