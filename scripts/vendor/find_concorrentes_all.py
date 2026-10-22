@@ -307,7 +307,14 @@ def find_competitors_via_llm(client_url: str, briefing: dict,
     Retorno: lista de dicts no formato esperado por analyze_all_competitors:
       [{"domain", "url", "title", "keywords": [], "best_rank": 1}, ...]
     """
-    print(f"[LLM/1] Pedindo concorrentes diretos ao Gemini (max {max_competitors}) ...")
+    try:
+        from market import MARKET_SHORT  # type: ignore
+        mkt = str(MARKET_SHORT or "US").upper()
+    except Exception:
+        mkt = str(os.environ.get("SPY_MARKET") or "us").strip().upper() or "US"
+    if mkt in ("USA", "UNITED STATES"):
+        mkt = "US"
+    print(f"[LLM/1] Pedindo concorrentes diretos ao Gemini (max {max_competitors}, mercado={mkt}) ...")
 
     cli_norm = normalize_domain(client_url)
     cli_brand = brand_token_from_domain(client_url)
@@ -326,54 +333,59 @@ def find_competitors_via_llm(client_url: str, briefing: dict,
     cidades = briefing.get("cidades") or []
     if cidades:
         contexto += f"Cidade(s) alvo: {', '.join(cidades)}\n"
-
-    try:
-        from market import MARKET_SHORT  # type: ignore
-        mkt = str(MARKET_SHORT or "US").upper()
-    except Exception:
-        mkt = str(os.environ.get("SPY_MARKET") or "us").strip().upper() or "US"
     if mkt == "BR":
-        geo_rule = (
-            "Retorne SOMENTE concorrentes diretos brasileiros "
-            "(ou globais ativos no Brasil)."
-        )
-        example_url = "https://dominio.com.br"
-    else:
-        geo_rule = (
-            "Retorne SOMENTE concorrentes diretos dos Estados Unidos "
-            "(ou globais ativos nos USA). Prefira empresas US."
-        )
-        example_url = "https://domain.com"
-
-    prompt = f"""Voce e um analista de mercado especializado em SEO/SEM.
+        prompt = f"""Voce e um analista de mercado (Brasil).
 
 Liste ATE {max_competitors} CONCORRENTES DIRETOS da empresa abaixo (mesmo nicho,
 mesmo publico, mesmo tipo de produto/servico). NAO inclua plataformas genericas
-(YouTube, Instagram, Wikipedia, FAQ Whatsapp, agregadores, gov, marketplaces
-genericos, blogs de comparativos).
+(YouTube, Instagram, Wikipedia, marketplaces, gov, blogs de comparativos).
 
 EMPRESA-CLIENTE:
 {contexto}
 
 REGRAS:
-- {geo_rule}
+- SOMENTE concorrentes diretos brasileiros (ou globais com operacao forte no Brasil).
+- Prefira dominios .com.br quando existirem.
 - NAO inclua o proprio cliente ("{cli_norm}").
-- NAO inclua dominios genericos: google.com, instagram.com, facebook.com,
-  youtube.com, linkedin.com, wikipedia.org, bbb.org, whatsapp.com,
-  telegram.org, gov, capterra.com, etc.
-- Cada URL deve ser a HOMEPAGE do concorrente (ex: {example_url}),
-  nao paginas de blog/artigo.
+- NAO inclua google.com, instagram.com, facebook.com, youtube.com, linkedin.com,
+  wikipedia.org, capterra.com, gov.
+- Cada URL deve ser a HOMEPAGE (ex: https://dominio.com.br).
 - Use http:// ou https://.
 
-RETORNE APENAS JSON valido no formato exato:
+RETORNE APENAS JSON:
 {{
   "concorrentes": [
-    "{example_url.replace('domain.com', 'competitor1.com').replace('dominio.com.br', 'concorrente1.com.br')}",
-    "{example_url.replace('domain.com', 'competitor2.com').replace('dominio.com.br', 'concorrente2.com.br')}"
+    "https://concorrente1.com.br",
+    "https://concorrente2.com.br"
   ]
 }}
+"""
+    else:
+        prompt = f"""You are a US market analyst.
 
-Sem texto antes ou depois.
+List UP TO {max_competitors} DIRECT COMPETITORS of the company below (same niche,
+same audience, same product/service type). Do NOT include generic platforms
+(YouTube, Instagram, Wikipedia, marketplaces, gov, comparison blogs).
+
+CLIENT COMPANY:
+{contexto}
+
+RULES:
+- ONLY US-based direct competitors (or globals with a strong United States operation).
+- Prefer .com / .io / .ai US companies. Do NOT return Brazilian .com.br companies.
+- Do NOT include the client itself ("{cli_norm}").
+- Do NOT include google.com, instagram.com, facebook.com, youtube.com, linkedin.com,
+  wikipedia.org, capterra.com, gov.
+- Each URL must be the competitor HOMEPAGE (e.g. https://competitor.com).
+- Use http:// or https://.
+
+RETURN JSON ONLY:
+{{
+  "concorrentes": [
+    "https://competitor1.com",
+    "https://competitor2.com"
+  ]
+}}
 """
 
     try:
@@ -405,6 +417,8 @@ Sem texto antes ou depois.
         if dom == cli_norm:
             continue
         if dom in LLM_DOMAINS_IGNORE:
+            continue
+        if mkt == "US" and (dom.endswith(".com.br") or dom.endswith(".br")):
             continue
         # heuristica extra: nao trazer o brand do cliente em subdomínios
         if cli_brand and cli_brand in dom.replace(".", ""):

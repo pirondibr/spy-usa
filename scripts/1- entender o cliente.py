@@ -27,9 +27,10 @@ import unicodedata
 from pathlib import Path
 
 try:
-    from market import SCRAPINGBEE_COUNTRY, ACCEPT_LANGUAGE
+    from market import SCRAPINGBEE_COUNTRY, ACCEPT_LANGUAGE, MARKET_SHORT, MARKET
 except ImportError:
     SCRAPINGBEE_COUNTRY, ACCEPT_LANGUAGE = "us", "en-US,en;q=0.9"
+    MARKET_SHORT, MARKET = "US", "us"
 
 from urllib.parse import urlparse
 from datetime import datetime
@@ -277,10 +278,35 @@ def extract_json(text: str) -> dict:
     return json.loads(text)
 
 
+def _briefing_market_rules() -> str:
+    """Idioma + geo dos campos de busca (nicho / seo_keywords)."""
+    mkt = str(MARKET_SHORT or "US").upper()
+    if mkt == "BR":
+        return (
+            "MERCADO ATIVO: Brasil (BR).\n"
+            "- Escreva nicho, publico_alvo, seo_keywords e termos_raiz em PORTUGUES "
+            "(termos que um brasileiro busca no Google.com.br).\n"
+            "- Exemplos seo_keywords: \"construtora itajai, apartamento praia\".\n"
+            "- Se Local, cidades em portugues sem acento: [\"itajai\", \"balneario camboriu\"].\n"
+            "- NAO traduza para ingles. O publico-alvo e o Brasil."
+        )
+    return (
+        "ACTIVE MARKET: United States (US).\n"
+        "- Write nicho, publico_alvo, seo_keywords and termos_raiz in ENGLISH "
+        "(terms an American would type on Google.com).\n"
+        "- seo_keywords examples: \"project management software, team collaboration tool\". "
+        "NEVER Portuguese (\"software de gestao\", \"construtora\").\n"
+        "- If Local, cities in English: [\"austin\", \"dallas\"].\n"
+        "- Target market is the USA. Do NOT use Brazil/Portuguese search terms."
+    )
+
+
 def llm_briefing(url: str, site: dict) -> dict:
-    print("[1B] Gerando briefing com LLM ...")
+    print(f"[1B] Gerando briefing com LLM ... mercado={MARKET_SHORT}")
     fields_str = "\n".join(f'  - "{k}": {label}' for k, label in BRIEFING_FIELDS)
     prompt = f"""Voce e um analista de SEO. Leia o conteudo do site abaixo e responda em JSON valido com cada campo preenchido.
+
+{_briefing_market_rules()}
 
 URL: {url}
 

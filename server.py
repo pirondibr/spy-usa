@@ -352,7 +352,6 @@ def _flags_from_body(body: dict) -> tuple:
     if competitors_only:
         site_only = False
         compare_all = False
-        market = "us"
     return (
         force,
         site_only,
@@ -455,7 +454,6 @@ def _start_jobs_from_raw(
     if competitors_only:
         site_only = False
         compare_all = False
-        market = "us"
     if compare_all:
         site_only = True
 

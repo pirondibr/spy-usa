@@ -50,7 +50,7 @@ EmitFn = Callable[..., None]
 
 COMPETITORS_ONLY_STEPS = [
     {"id": "briefing_concorrentes", "label": "Briefing", "index": 1, "eta_live": 180},
-    {"id": "competitors_discover", "label": "Find competitors (US)", "index": 2, "eta_live": 360},
+    {"id": "competitors_discover", "label": "Find competitors", "index": 2, "eta_live": 360},
 ]
 
 STEP_DEFS = [
@@ -1133,14 +1133,14 @@ def _competitors_only_report(
         "competitors": shown,
         "competitors_count": count,
         "competitors_note": (
-            f"Modo isolado — discovery nacional US (SEO SERP + LLM). "
-            f"{count} encontrados · Alto={alto} · Médio={medio}."
+            f"Modo isolado — discovery nacional {(os.environ.get('SPY_MARKET') or 'us').upper()} "
+            f"(SEO SERP + LLM). {count} encontrados · Alto={alto} · Médio={medio}."
         ),
         "competitors_stats": stats,
         "competitors_raw": raw,
         "display_tier": "all",
         "competitors_only": True,
-        "market": "US",
+        "market": (os.environ.get("SPY_MARKET") or "us").upper(),
         "compare_all": False,
     }
     return report
@@ -1167,7 +1167,7 @@ def run_competitors_only_pipeline(
     if missing:
         raise RuntimeError("Missing API keys: " + ", ".join(missing))
 
-    market = "us"
+    market = _normalize_market(market)
     os.environ["SPY_MARKET"] = market
     url = normalize_url(parsed.url) or parsed.url
     if not url:
@@ -1206,7 +1206,7 @@ def run_competitors_only_pipeline(
     emit(
         "pipeline_meta",
         mode="competitors_only",
-        market="US",
+        market=market.upper(),
         site_only=False,
         compare_all=False,
         competitors_only=True,

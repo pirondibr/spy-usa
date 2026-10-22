@@ -280,11 +280,18 @@
     <form id="formCompetitors" class="panel" data-panel="competitors">
       <label>
         Domain / URL
-        <span class="hint-field">Uma empresa por vez (ou várias linhas = jobs separados). Só briefing + discovery US — sem SEO/Brand/Ads/social.</span>
+        <span class="hint-field">Uma empresa por vez (ou várias linhas = jobs separados). Só briefing + discovery — sem SEO/Brand/Ads/social.</span>
         <textarea id="urlCompetitors" name="url" placeholder="semrush.com" required autocomplete="off"></textarea>
       </label>
       <div class="opts">
-        <p class="hint-field" style="margin:0">Mercado fixo: <strong>US</strong> · fontes: SEO SERP + LLM · similaridade Alto/Médio/Baixo</p>
+        <div>
+          <div class="filter-label">Mercado</div>
+          <div class="seg" style="margin-top:6px">
+            <label><input type="radio" name="marketComp" id="marketCompUs" value="us" checked /> USA</label>
+            <label><input type="radio" name="marketComp" id="marketCompBr" value="br" /> BR</label>
+          </div>
+        </div>
+        <p class="hint-field" style="margin:0">USA = Google US + prompt em inglês. BR = Google Brasil + prompt em português. Fontes: SEO SERP + LLM.</p>
         <label class="check">
           <input id="forceCompetitors" type="checkbox" />
           Force refresh
@@ -329,7 +336,7 @@
       $("form").classList.toggle("on", activeTab === "analyze");
       $("formCompetitors").classList.toggle("on", activeTab === "competitors");
       $("lede").textContent = activeTab === "competitors"
-        ? "Teste isolado: achar concorrentes nos USA (SEO + LLM). Depois reintegramos no modo principal."
+        ? "Teste isolado: achar concorrentes (SEO + LLM). Escolha USA ou BR — o idioma do briefing e da SERP seguem o mercado."
         : "Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.";
     }
     $("tabAnalyze").addEventListener("click", () => setTab("analyze"));
@@ -369,6 +376,11 @@
 
     function selectedMarket() {
       const br = $("marketBr");
+      return br && br.checked ? "br" : "us";
+    }
+
+    function selectedMarketCompetitors() {
+      const br = $("marketCompBr");
       return br && br.checked ? "br" : "us";
     }
 
@@ -613,7 +625,7 @@
         url: $("urlCompetitors").value.trim(),
         force: $("forceCompetitors").checked,
         competitors_only: true,
-        market: "us",
+        market: selectedMarketCompetitors(),
         site_only: false,
         compare_all: false,
         include_google_ads: false,
