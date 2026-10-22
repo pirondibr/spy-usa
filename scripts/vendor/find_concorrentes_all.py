@@ -39,7 +39,8 @@ setup_workspace()
 
 from seo_pipeline import (  # type: ignore  # noqa: E402
     fetch_serps, normalize_domain, classify_client_profile, scrape_site,
-    call_openrouter, extract_json,
+    call_openrouter, extract_json, fetch_semrush_organic_competitors,
+    SEMRUSH_COMPETITORS_TOP_N,
 )
 from find_concorrentes import (  # type: ignore  # noqa: E402
     find_client_xlsx, read_briefing_from_xlsx, read_keywords_from_xlsx,
@@ -70,13 +71,13 @@ OUT_DIR = _THIS_DIR / "output"
 EXECUTION_MODES = {
     "completo": {
         "label": "Completo",
-        "channels": ["SEO", "Maps", "Ads", "LLM"],
+        "channels": ["SEO", "Maps", "Ads", "LLM", "Semrush"],
         "seo_depth": SERP_DEPTH_TOP10,
         "traffic_limit": 15,
     },
     "nacional": {
         "label": "Nacional",
-        "channels": ["SEO", "LLM"],
+        "channels": ["SEO", "LLM", "Semrush"],
         "seo_depth": 20,
         "traffic_limit": 15,
     },
@@ -460,54 +461,112 @@ def run_llm_mode(briefing: dict) -> dict:
     return {"competitors_full": competitors_full}
 
 
+def find_competitors_via_semrush(client_url: str,
+                                 limit: int = SEMRUSH_COMPETITORS_TOP_N) -> list:
+    """Top N concorrentes organicos do Semrush (db = mercado US/BR)."""
+    try:
+        from market import SEMRUSH_DB, MARKET_SHORT  # type: ignore
+        db = SEMRUSH_DB or "us"
+        mkt = str(MARKET_SHORT or "US").upper()
+    except Exception:
+        db = "us"
+        mkt = str(os.environ.get("SPY_MARKET") or "us").strip().upper() or "US"
+    if mkt in ("USA", "UNITED STATES"):
+        mkt = "US"
+    print(f"[SEMRUSH/1] Card concorrentes organicos (top {limit}, db={db}, mercado={mkt})")
+    return fetch_semrush_organic_competitors(
+        client_url, db=db, limit=limit, market=mkt,
+    )
+
+
+def run_semrush_mode(briefing: dict) -> dict:
+    """Modo Semrush: top 5 concorrentes organicos do dominio (db do mercado)."""
+    print("\n" + "=" * 60)
+    print(" MODO: SEMRUSH (concorrentes organicos, top 5)")
+    print("=" * 60)
+    client_url = briefing.get("url", "")
+    if not client_url:
+        print("[SEMRUSH] URL do cliente ausente.")
+        return {"competitors_full": []}
+    competitors = find_competitors_via_semrush(client_url)
+    if not competitors:
+        print("[SEMRUSH] Nenhum concorrente retornado.")
+        return {"competitors_full": []}
+    competitors_full = analyze_all_competitors(competitors, client_url, briefing, workers=5)
+    return {"competitors_full": competitors_full}
+
+
 # ----------------------------------------------------------------------
-# Merge entre os quatro modos
+# Merge entre os modos
 # ----------------------------------------------------------------------
-_FONTE_ORDER = ["SEO", "Maps", "Ads", "LLM"]
+_FONTE_ORDER = ["seo", "llm", "semrush", "maps", "ads"]
+_FONTE_ALIASES = {
+    "seo": "seo",
+    "llm": "llm",
+    "semrush": "semrush",
+    "maps": "maps",
+    "ads": "ads",
+}
+
+
+def _fonte_parts(raw: str) -> set:
+    parts = set()
+    for token in re.split(r"[,+]", raw or ""):
+        key = token.strip().lower()
+        if not key:
+            continue
+        parts.add(_FONTE_ALIASES.get(key, key))
+    return parts
+
+
+def _fonte_join(parts: set) -> str:
+    return ",".join(p for p in _FONTE_ORDER if p in parts) or ",".join(sorted(parts))
 
 
 def _merge_one(by_dom: dict, comp: dict, fonte_label: str):
     """Helper: incorpora 1 concorrente, atualizando fonte combinada."""
     d = comp["domain"]
+    label = _FONTE_ALIASES.get(fonte_label.strip().lower(), fonte_label.strip().lower())
     if d in by_dom:
         existing = by_dom[d]
         merged_kws = list(existing.get("keywords", [])) + list(comp.get("keywords", []))
         existing["keywords"] = merged_kws
-        # combina fonte (set ordenado: SEO, Maps, Ads, LLM)
-        parts = set(existing.get("fonte", "").split(" + ")) if existing.get("fonte") else set()
-        parts.add(fonte_label)
-        parts.discard("")
-        existing["fonte"] = " + ".join([p for p in _FONTE_ORDER if p in parts])
-        # campos extras de outras fontes
+        parts = _fonte_parts(existing.get("fonte", ""))
+        parts.add(label)
+        existing["fonte"] = _fonte_join(parts)
         for f in ("maps_rank", "category", "rating", "rating_count",
                   "address", "phone", "place_id",
-                  "ads_count", "ads_titles", "displayed_urls"):
+                  "ads_count", "ads_titles", "displayed_urls",
+                  "semrush_competition", "semrush_common_keywords",
+                  "semrush_organic_traffic"):
             if comp.get(f) and not existing.get(f):
                 existing[f] = comp[f]
     else:
-        by_dom[d] = {**comp, "fonte": fonte_label}
+        by_dom[d] = {**comp, "fonte": label}
 
 
 def merge_competitors(seo_list: list, maps_list: list,
-                       ads_list: list = None, llm_list: list = None) -> list:
+                       ads_list: list = None, llm_list: list = None,
+                       semrush_list: list = None) -> list:
     """Une as N listas deduplicando por dominio. Cada item ganha campo
-    'fonte' = combinacao ordenada de {SEO, Maps, Ads, LLM}."""
+    'fonte' = citacao minuscula (seo,llm,semrush)."""
     by_dom = {}
     for c in seo_list:
-        _merge_one(by_dom, c, "SEO")
-    for c in maps_list:
-        _merge_one(by_dom, c, "Maps")
-    for c in (ads_list or []):
-        _merge_one(by_dom, c, "Ads")
+        _merge_one(by_dom, c, "seo")
     for c in (llm_list or []):
-        _merge_one(by_dom, c, "LLM")
+        _merge_one(by_dom, c, "llm")
+    for c in (semrush_list or []):
+        _merge_one(by_dom, c, "semrush")
+    for c in maps_list:
+        _merge_one(by_dom, c, "maps")
+    for c in (ads_list or []):
+        _merge_one(by_dom, c, "ads")
 
     out = list(by_dom.values())
-    # ordenar: Alto > Medio > Baixo, depois quantidade de fontes, depois nº keywords
     sim_rank = {"Alto": 3, "Medio": 2, "Baixo": 1, "—": 0}
     out.sort(key=lambda x: (
         sim_rank.get(x.get("similaridade", "—"), 0),
-        len((x.get("fonte") or "").split(" + ")),
+        len(_fonte_parts(x.get("fonte") or "")),
         len(x.get("keywords", [])),
     ), reverse=True)
     return out
@@ -578,7 +637,7 @@ def _write_competitors_sheet(wb: Workbook, sheet_name: str, competitors: list,
     base_w = [4, 28, 13, 13]
     extras_w = []
     for e in extras_lower:
-        if e == "fonte": extras_w.append(15)
+        if e == "fonte": extras_w.append(24)
         elif e == "categoria maps": extras_w.append(22)
         elif e == "rating": extras_w.append(13)
         elif e == "pos maps": extras_w.append(9)
@@ -766,7 +825,8 @@ def write_unified_xlsx(out_path: Path, client_input: str, briefing: dict,
                         seo_result: dict, maps_result: dict, ads_result: dict,
                         llm_result: dict,
                         merged: list, traffic: dict, client_profile: str,
-                        mode_key: str = "completo", mode_cfg: dict | None = None):
+                        mode_key: str = "completo", mode_cfg: dict | None = None,
+                        semrush_result: dict | None = None):
     wb = Workbook()
     ws = wb.active
     ws.title = "Resumo"
@@ -869,6 +929,23 @@ def write_unified_xlsx(out_path: Path, client_input: str, briefing: dict,
     ws.append(["LLM - Baixo", sim_llm["Baixo"]])
     ws.append([])
 
+    # Semrush mode
+    semrush_result = semrush_result or {}
+    semrush_comp = semrush_result.get("competitors_full") or []
+    ws.append(["MODO 5 - Semrush (concorrentes organicos, top 5)"])
+    last_row = ws.max_row
+    ws.cell(row=last_row, column=1).font = Font(bold=True, color="0F766E")
+    sim_sm = {"Alto": 0, "Medio": 0, "Baixo": 0}
+    for c in semrush_comp:
+        s = c.get("similaridade", "—")
+        if s in sim_sm:
+            sim_sm[s] += 1
+    ws.append(["Concorrentes Semrush (top 5)", len(semrush_comp)])
+    ws.append(["Semrush - Alto", sim_sm["Alto"]])
+    ws.append(["Semrush - Medio", sim_sm["Medio"]])
+    ws.append(["Semrush - Baixo", sim_sm["Baixo"]])
+    ws.append([])
+
     # Unificado
     ws.append(["UNIFICADO"])
     last_row = ws.max_row
@@ -904,6 +981,8 @@ def write_unified_xlsx(out_path: Path, client_input: str, briefing: dict,
                                   extra_cols=["# Ads", "Titulos Ads"])
     if llm_comp:
         _write_competitors_sheet(wb, "Concorrentes LLM", llm_comp)
+    if semrush_comp:
+        _write_competitors_sheet(wb, "Concorrentes Semrush", semrush_comp)
     if merged:
         _write_competitors_sheet(wb, "Concorrentes Unificado", merged,
                                   extra_cols=["Fonte", "Categoria Maps", "Rating", "# Ads"])
@@ -969,6 +1048,8 @@ def main():
     # 5) modo LLM (Gemini sugere concorrentes diretos)
     llm_result = run_llm_mode(briefing) if "LLM" in channels else {"competitors_full": []}
 
+    semrush_result = run_semrush_mode(briefing) if "Semrush" in channels else {"competitors_full": []}
+
     # 6) merge
     print("\n" + "=" * 60)
     print(f" MERGE: {' + '.join(mode_cfg.get('channels') or [])}")
@@ -976,7 +1057,8 @@ def main():
     merged = merge_competitors(seo_result["competitors_full"],
                                 maps_result["competitors_full"],
                                 ads_result["competitors_full"],
-                                llm_result.get("competitors_full") or [])
+                                llm_result.get("competitors_full") or [],
+                                semrush_result.get("competitors_full") or [])
     print(f"[MERGE] {len(merged)} concorrentes unicos:")
     fonte_counts = {}
     for c in merged:
@@ -1013,7 +1095,8 @@ def main():
     saved = write_unified_xlsx(out_path, client_input, briefing,
                                  seo_result, maps_result, ads_result, llm_result,
                                  merged, traffic, client_profile,
-                                 mode_key=mode_key, mode_cfg=mode_cfg)
+                                 mode_key=mode_key, mode_cfg=mode_cfg,
+                                 semrush_result=semrush_result)
     print(f"[OUT] XLSX salvo: {saved}")
     try:
         from gerar_html_concorrentes import generate_html_from_xlsx

@@ -49,10 +49,12 @@ from find_concorrentes import (  # noqa: E402
 from find_concorrentes_all import (  # noqa: E402
     SERP_DEPTH_TOP10,
     find_competitors_via_llm,
+    find_competitors_via_semrush,
     merge_competitors,
     run_ads_mode,
     run_llm_mode,
     run_maps_mode,
+    run_semrush_mode,
     run_seo_mode,
     write_unified_xlsx,
 )
@@ -70,14 +72,14 @@ LOCAL_OUT_DIR = OUT_CONCORRENTES
 EXECUTION_MODES = {
     "nacional": {
         "label": "Nacional",
-        "channels": ["SEO", "LLM"],
+        "channels": ["SEO", "LLM", "Semrush"],
         "seo_depth": SERP_DEPTH_TOP10,  # 10 (antes 20; consolidate so usa top 10)
         "traffic_limit": 15,
         "fast": True,
     },
     "completo": {
         "label": "Completo",
-        "channels": ["SEO", "Maps", "Ads", "LLM"],
+        "channels": ["SEO", "Maps", "Ads", "LLM", "Semrush"],
         "seo_depth": SERP_DEPTH_TOP10,
         "traffic_limit": 15,
         "fast": False,
@@ -134,24 +136,24 @@ def _discover_llm_raw(briefing: dict) -> dict:
     return {"competitors_raw": competitors or []}
 
 
-def _dedupe_raw(seo_raw: list, llm_raw: list) -> tuple[list, set, set]:
-    """Une listas cruas por dominio. Retorna (combined, seo_domains, llm_domains)."""
-    by_dom: dict = {}
-    seo_domains: set = set()
-    llm_domains: set = set()
+def _discover_semrush_raw(briefing: dict) -> dict:
+    print("\n" + "=" * 60)
+    print(" DISCOVERY SEMRUSH (top 5 organicos, sem analyze)")
+    print("=" * 60)
+    client_url = briefing.get("url", "")
+    if not client_url:
+        print("[SEMRUSH] URL do cliente ausente.")
+        return {"competitors_raw": []}
+    return {"competitors_raw": find_competitors_via_semrush(client_url) or []}
 
-    for c in seo_raw:
+
+def _absorb(by_dom: dict, raw: list) -> set:
+    domains: set = set()
+    for c in raw:
         d = c.get("domain")
         if not d:
             continue
-        seo_domains.add(d)
-        by_dom[d] = dict(c)
-
-    for c in llm_raw:
-        d = c.get("domain")
-        if not d:
-            continue
-        llm_domains.add(d)
+        domains.add(d)
         if d in by_dom:
             existing = by_dom[d]
             merged_kws = list(existing.get("keywords") or []) + list(c.get("keywords") or [])
@@ -160,31 +162,47 @@ def _dedupe_raw(seo_raw: list, llm_raw: list) -> tuple[list, set, set]:
                 existing["title"] = c["title"]
             if not existing.get("url") and c.get("url"):
                 existing["url"] = c["url"]
+            for key in ("semrush_competition", "semrush_common_keywords", "semrush_organic_traffic"):
+                if c.get(key) and not existing.get(key):
+                    existing[key] = c[key]
         else:
             by_dom[d] = dict(c)
+    return domains
 
-    return list(by_dom.values()), seo_domains, llm_domains
+
+def _dedupe_raw(seo_raw: list, llm_raw: list, semrush_raw: list | None = None
+                ) -> tuple[list, set, set, set]:
+    """Une listas cruas por dominio. Retorna (combined, seo, llm, semrush)."""
+    by_dom: dict = {}
+    seo_domains = _absorb(by_dom, seo_raw)
+    llm_domains = _absorb(by_dom, llm_raw)
+    semrush_domains = _absorb(by_dom, semrush_raw or [])
+    return list(by_dom.values()), seo_domains, llm_domains, semrush_domains
 
 
 def run_nacional_fast(briefing: dict, xlsx_path: Path, mode_cfg: dict):
-    """SEO ∥ LLM discovery, depois uma unica analise de similaridade."""
+    """SEO ∥ LLM ∥ Semrush discovery, depois uma unica analise de similaridade."""
     serp_depth = int(mode_cfg.get("seo_depth") or SERP_DEPTH_TOP10)
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         fut_seo = pool.submit(_discover_seo_raw, briefing, xlsx_path, serp_depth)
         fut_llm = pool.submit(_discover_llm_raw, briefing)
+        fut_sm = pool.submit(_discover_semrush_raw, briefing)
         seo_disc = fut_seo.result()
         llm_disc = fut_llm.result()
+        sm_disc = fut_sm.result()
 
-    combined_raw, seo_domains, llm_domains = _dedupe_raw(
+    combined_raw, seo_domains, llm_domains, semrush_domains = _dedupe_raw(
         seo_disc.get("competitors_raw") or [],
         llm_disc.get("competitors_raw") or [],
+        sm_disc.get("competitors_raw") or [],
     )
+    overlap = (seo_domains & llm_domains) | (seo_domains & semrush_domains) | (llm_domains & semrush_domains)
     print("\n" + "=" * 60)
     print(
         f" ANALYZE UNICO: {len(combined_raw)} dominios "
-        f"(SEO={len(seo_domains)}, LLM={len(llm_domains)}, overlap="
-        f"{len(seo_domains & llm_domains)})"
+        f"(SEO={len(seo_domains)}, LLM={len(llm_domains)}, "
+        f"Semrush={len(semrush_domains)}, overlap={len(overlap)})"
     )
     print("=" * 60)
 
@@ -196,15 +214,17 @@ def run_nacional_fast(briefing: dict, xlsx_path: Path, mode_cfg: dict):
 
     seo_full = [c for c in analyzed if c.get("domain") in seo_domains]
     llm_full = [c for c in analyzed if c.get("domain") in llm_domains]
+    semrush_full = [c for c in analyzed if c.get("domain") in semrush_domains]
 
     seo_result = {
         "selected_kws": seo_disc.get("selected_kws") or [],
         "competitors_full": seo_full,
     }
     llm_result = {"competitors_full": llm_full}
+    semrush_result = {"competitors_full": semrush_full}
     empty_maps = {"maps_lookup": {}, "competitors_full": []}
     empty_ads = {"keywords": [], "competitors_full": [], "raw_results": []}
-    return seo_result, empty_maps, empty_ads, llm_result
+    return seo_result, empty_maps, empty_ads, llm_result, semrush_result
 
 
 def main() -> None:
@@ -232,8 +252,8 @@ def main() -> None:
         sys.exit(1)
     client_slug = xlsx_path.parent.name
 
-    if mode_cfg.get("fast") and channels == {"SEO", "LLM"}:
-        seo_result, maps_result, ads_result, llm_result = run_nacional_fast(
+    if mode_cfg.get("fast") and channels == {"SEO", "LLM", "Semrush"}:
+        seo_result, maps_result, ads_result, llm_result, semrush_result = run_nacional_fast(
             briefing, xlsx_path, mode_cfg,
         )
     else:
@@ -257,15 +277,21 @@ def main() -> None:
             if "LLM" in channels else
             {"competitors_full": []}
         )
+        semrush_result = (
+            run_semrush_mode(briefing)
+            if "Semrush" in channels else
+            {"competitors_full": []}
+        )
 
     print("\n" + "=" * 60)
-    print(f" MERGE: {' + '.join(mode_cfg['channels'])}")
+    print(f" MERGE: {','.join(c.lower() for c in mode_cfg['channels'])}")
     print("=" * 60)
     merged = merge_competitors(
         seo_result.get("competitors_full") or [],
         maps_result.get("competitors_full") or [],
         ads_result.get("competitors_full") or [],
         llm_result.get("competitors_full") or [],
+        semrush_result.get("competitors_full") or [],
     )
     print(f"[MERGE] {len(merged)} concorrentes unicos")
 
@@ -301,6 +327,7 @@ def main() -> None:
         client_profile,
         mode_key=mode_key,
         mode_cfg=mode_cfg,
+        semrush_result=semrush_result,
     )
     print(f"[OUT] XLSX salvo: {saved}")
 

@@ -22,6 +22,18 @@ def _md_lite(text: str) -> str:
 
 
 _NEUTRAL_CELLS = {"", "—", "-", "n/a", "n/d"}
+
+
+def _fonte_cell(raw: Any) -> str:
+    text = "" if raw is None else str(raw).strip()
+    if not text or text in _NEUTRAL_CELLS:
+        return "—"
+    parts = [p.strip() for p in re.split(r"[,+]", text) if p.strip()]
+    if not parts:
+        return "—"
+    return "".join(f'<span class="chip">{_esc(p)}</span>' for p in parts)
+
+
 _NUM_CELL_RE = re.compile(
     r"^[\s$€£+\-−]*(?:R\$\s*)?\d[\d.,]*\s*[%KMBkmb]?"
     r"(?:\s*(?:/mo|visits|views|likes|ads|vol\.?))?\s*$"
@@ -1651,7 +1663,7 @@ def render_report_html(
             _esc(c.get("similaridade") or ("Client" if c.get("is_client") else "—")),
         ]
         if competitors_only:
-            row.append(_esc(c.get("fonte") or "—"))
+            row.append(_fonte_cell(c.get("fonte")))
             row.append(_esc(c.get("perfil") or "—"))
         row.extend([
             _esc(c.get("nicho") or "—"),

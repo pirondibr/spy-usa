@@ -1282,6 +1282,126 @@ def fetch_semrush_monthly_trend(domain: str, db: str = SEMRUSH_DB) -> list:
     return out
 
 
+SEMRUSH_COMPETITORS_TOP_N = 5
+SEMRUSH_COMPETITOR_IGNORE = {
+    "google.com", "google.com.br", "facebook.com", "instagram.com",
+    "youtube.com", "linkedin.com", "wikipedia.org", "twitter.com", "x.com",
+    "tiktok.com", "pinterest.com", "whatsapp.com",
+}
+
+
+def fetch_semrush_organic_competitors(
+    domain: str,
+    db: str = SEMRUSH_DB,
+    limit: int = SEMRUSH_COMPETITORS_TOP_N,
+    market: str = "",
+) -> list:
+    """Top N concorrentes organicos do card Semrush (organic.CompetitorsOverview).
+
+    Precisa ir em batch com MonthlyTrend e args.dateType=daily — senão o
+    Semrush responde Invalid Request / Invalid params. db segue o mercado
+    (us ou br).
+    """
+    clean = normalize_domain(domain)
+    if not SEMRUSH_API_KEY:
+        print("[SEMRUSH] SEMRUSH_API_KEY ausente — pulando concorrentes Semrush")
+        return []
+    if not clean:
+        return []
+
+    rid = _semrush_request_id()
+    user_id = os.environ.get("SEMRUSH_USER_ID", "").strip()
+    mkt = (market or os.environ.get("SPY_MARKET") or "").strip().lower()
+
+    def _rpc(call_id: int, method: str, extra_args: dict | None = None) -> dict:
+        args = {
+            "database": db,
+            "searchItem": clean,
+            "searchType": "domain",
+            "filter": {},
+        }
+        if extra_args:
+            args.update(extra_args)
+        params = {
+            "request_id": rid,
+            "report": "organic.overview",
+            "args": args,
+            "apiKey": SEMRUSH_API_KEY,
+        }
+        if user_id:
+            try:
+                params["userId"] = int(user_id)
+            except ValueError:
+                params["userId"] = user_id
+        return {
+            "id": call_id,
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        }
+
+    payload = [
+        _rpc(7, "organic.MonthlyTrend"),
+        _rpc(9, "organic.CompetitorsOverview", {"dateType": "daily"}),
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Origin": "https://www.semrush.com",
+        "Referer": "https://www.semrush.com/analytics/overview/",
+    }
+    print(f"[SEMRUSH] Concorrentes organicos de {clean} (db={db}, top {limit})")
+    try:
+        r = requests.post(SEMRUSH_RPC_URL, json=payload, headers=headers, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"[SEMRUSH] Erro CompetitorsOverview ({clean}): {e}")
+        return []
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        print(f"[SEMRUSH] Resposta inesperada: {str(data)[:200]}")
+        return []
+    part = next((p for p in data if isinstance(p, dict) and p.get("id") == 9), None)
+    if part is None:
+        print(f"[SEMRUSH] Sem bloco CompetitorsOverview: {str(data)[:200]}")
+        return []
+    if part.get("error"):
+        print(f"[SEMRUSH] Erro RPC: {part['error']}")
+        return []
+    result = part.get("result") or []
+    if not isinstance(result, list):
+        return []
+
+    out = []
+    seen = set()
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        dom = normalize_domain(item.get("domain") or "")
+        if not dom or dom == clean or dom in seen or dom in SEMRUSH_COMPETITOR_IGNORE:
+            continue
+        if mkt in ("us", "usa") and (dom.endswith(".com.br") or dom.endswith(".br")):
+            continue
+        seen.add(dom)
+        out.append({
+            "domain": dom,
+            "url": f"https://{dom}",
+            "title": "",
+            "keywords": [],
+            "best_rank": len(out) + 1,
+            "semrush_competition": item.get("competitionLvl"),
+            "semrush_common_keywords": item.get("commonKeywords"),
+            "semrush_organic_traffic": item.get("organicTraffic"),
+        })
+        if len(out) >= max(1, int(limit or SEMRUSH_COMPETITORS_TOP_N)):
+            break
+    print(f"[SEMRUSH] {len(out)} concorrente(s): " + ", ".join(c["domain"] for c in out))
+    return out
+
+
 def _pick_trend_points(series: list) -> dict:
     """A partir de uma serie mensal, pega o ponto mais recente ('current')
     e o ponto ~12 meses antes ('year_ago')."""

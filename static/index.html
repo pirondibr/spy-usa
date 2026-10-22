@@ -291,7 +291,7 @@
             <label><input type="radio" name="marketComp" id="marketCompBr" value="br" /> BR</label>
           </div>
         </div>
-        <p class="hint-field" style="margin:0">USA = Google US + prompt em inglês. BR = Google Brasil + prompt em português. Fontes: SEO SERP + LLM.</p>
+        <p class="hint-field" style="margin:0">USA = Google US + Semrush db=us + prompt em inglês. BR = Google Brasil + Semrush db=br + prompt em português. Fontes: SEO SERP + LLM + Semrush (top 5). Citação quando o domínio aparece em mais de uma: seo,llm,semrush.</p>
         <label class="check">
           <input id="brandGrowth" type="checkbox" checked />
           Crescimento da marca
@@ -346,7 +346,7 @@
       $("form").classList.toggle("on", activeTab === "analyze");
       $("formCompetitors").classList.toggle("on", activeTab === "competitors");
       $("lede").textContent = activeTab === "competitors"
-        ? "Teste isolado: achar concorrentes (SEO + LLM). Escolha USA ou BR — o idioma do briefing e da SERP seguem o mercado."
+        ? "Teste isolado: achar concorrentes (SEO + LLM + Semrush top 5). Escolha USA ou BR — SERP, Semrush e o idioma do briefing seguem o mercado."
         : "Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.";
     }
     $("tabAnalyze").addEventListener("click", () => setTab("analyze"));

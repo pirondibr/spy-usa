@@ -1231,7 +1231,7 @@ def _competitors_only_report(
         "competitors_count": count,
         "competitors_note": (
             f"Modo isolado — discovery nacional {(os.environ.get('SPY_MARKET') or 'us').upper()} "
-            f"(SEO SERP + LLM). {count} encontrados · Alto={alto} · Médio={medio}."
+            f"(SEO SERP + LLM + Semrush top 5). {count} encontrados · Alto={alto} · Médio={medio}."
         ),
         "competitors_stats": stats,
         "competitors_raw": raw,
@@ -1254,7 +1254,7 @@ def run_competitors_only_pipeline(
     include_brand_growth: bool = False,
     include_similarweb_alto: bool = False,
 ) -> dict:
-    """Briefing + discovery nacional (SEO + LLM). Sem métricas de canal."""
+    """Briefing + discovery nacional (SEO + LLM + Semrush). Sem métricas de canal."""
     required = (
         "OPENROUTER_API_KEY",
         "SCRAPINGBEE_API_KEY",
@@ -1384,7 +1384,7 @@ def run_competitors_only_pipeline(
         raise RuntimeError(f"Briefing not generated for '{slug}'.")
     _prog("briefing_concorrentes", "done", "Briefing ready")
 
-    _prog("competitors_discover", "running", "Discovery nacional US (SEO + LLM)…")
+    _prog("competitors_discover", "running", f"Discovery nacional {market.upper()} (SEO + LLM + Semrush)…")
     _run_script(
         [sys.executable, str(SCRIPT_CONCORRENTES), slug, "nacional"],
         FINAL_DIR,

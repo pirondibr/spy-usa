@@ -279,7 +279,7 @@ def render_competitor_table(sheet_name: str, rows: list[list], tab_id: str) -> s
                     label = f'<span title="{_esc(val)}">{_esc(val[:26])}...</span>'
                 tds.append(td_wrap(f'<a class="dom" href="{_esc(url)}" target="_blank" rel="noopener">{label}</a>', "clip"))
             elif hl == "fonte":
-                tags = "".join(f'<span class="fonte">{_esc(p.strip())}</span>' for p in val.split("+") if p.strip())
+                tags = "".join(f'<span class="fonte">{_esc(p.strip())}</span>' for p in re.split(r"[,+]", val) if p.strip())
                 tds.append(td_wrap(tags or _esc(val)))
             elif hl == "motivo":
                 full = val or ""
