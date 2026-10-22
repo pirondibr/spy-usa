@@ -18,7 +18,7 @@ from typing import Any, Optional
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from parse_input import ParsedInput, parse_company_list
-from competitor_edits import add_competitor, set_competitor_similarity
+from competitor_edits import add_competitor, parse_site_list, set_competitor_similarity
 from pipeline import RUNS_DIR, STEP_DEFS, clear_slug_cache, run_pipeline
 from report_html import load_saved_report, render_report_html
 
@@ -49,7 +49,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.8"
+APP_VERSION = "0.4.9"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -842,12 +842,33 @@ def run_classify_competitor(run_id: str):
 @app.post("/api/runs/<run_id>/competitors/add")
 def run_add_competitor(run_id: str):
     body = request.get_json(silent=True) or {}
+    sim = str(body.get("similaridade") or body.get("similarity") or "")
+    raw = body.get("urls") if body.get("urls") not in (None, "") else (
+        body.get("url") or body.get("domain") or ""
+    )
+    sites = parse_site_list(raw)
+    if not sites:
+        return jsonify({"error": "A valid website URL is required"}), 400
     try:
-        return jsonify(add_competitor(
-            run_id,
-            str(body.get("url") or body.get("domain") or ""),
-            str(body.get("similaridade") or body.get("similarity") or ""),
-        ))
+        if len(sites) == 1:
+            return jsonify(add_competitor(run_id, sites[0], sim))
+        added, skipped, errors = [], [], []
+        for href in sites:
+            try:
+                result = add_competitor(run_id, href, sim)
+                if result.get("skipped"):
+                    skipped.append(result)
+                else:
+                    added.append(result)
+            except Exception as e:
+                errors.append({"url": href, "error": str(e)})
+        return jsonify({
+            "ok": True,
+            "added": added,
+            "skipped": skipped,
+            "errors": errors,
+            "html_url": f"/runs/{run_id}/report.html",
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 

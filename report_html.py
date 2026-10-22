@@ -2111,14 +2111,21 @@ def render_report_html(
     if sim_editable:
         add_form = """
       <form class="add-comp" id="add-competitor">
-        <input type="text" name="url" placeholder="https://competitor.com" required>
-        <select name="similaridade" title="Similarity">
-          <option value="">Auto</option>
-          <option value="Alto">Alto</option>
-          <option value="Medio">Médio</option>
-          <option value="Baixo">Baixo</option>
-        </select>
-        <button type="submit">Add website</button>
+        <div class="add-comp-main">
+          <textarea name="urls" rows="4" placeholder="One website per line — paste 15 at once&#10;junglescout.com&#10;helium10.com&#10;https://example.com"></textarea>
+          <div class="add-comp-side">
+            <select name="similaridade" title="Similarity">
+              <option value="">Auto</option>
+              <option value="Alto">Alto</option>
+              <option value="Medio">Médio</option>
+              <option value="Baixo">Baixo</option>
+            </select>
+            <button type="submit">Add websites</button>
+          </div>
+        </div>
+        <p class="add-hint">Cole um por linha, vírgula ou espaço. Já na lista = ignorado. Cada site busca página + Brand (+ SimilarWeb se Alto) — mantenha esta aba aberta.</p>
+        <div class="add-preview" hidden></div>
+        <ul class="add-log" hidden></ul>
         <span class="add-status"></span>
       </form>"""
 
@@ -2411,11 +2418,24 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
 .fp-mark{margin-left:2px;color:#b45309;font-weight:800;cursor:help;font-size:14px;line-height:1}
 .sim-edit{font:inherit;font-size:12px;font-weight:700;border:1px solid var(--border);border-radius:8px;padding:3px 6px;background:#fff;cursor:pointer;max-width:100%}
 .sim-edit:disabled{opacity:.5}
-.add-comp{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
-.add-comp input[type=text]{flex:1;min-width:220px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit}
-.add-comp select{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit}
-.add-comp button{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
+.add-comp{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:#f8fafc}
+.add-comp-main{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch}
+.add-comp textarea{flex:1;min-width:260px;min-height:84px;resize:vertical;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;line-height:1.45}
+.add-comp-side{display:flex;flex-direction:column;gap:8px;min-width:148px}
+.add-comp select,.add-comp button{width:100%;border-radius:8px;padding:8px 12px;font:inherit}
+.add-comp select{border:1px solid var(--border);background:#fff}
+.add-comp button{border:0;background:#0f172a;color:#fff;font-weight:700;cursor:pointer}
 .add-comp button:disabled{opacity:.55;cursor:default}
+.add-hint{margin:0;font-size:12px;color:var(--muted);line-height:1.4}
+.add-preview{display:flex;flex-wrap:wrap;gap:6px}
+.add-preview[hidden],.add-log[hidden]{display:none}
+.add-chip{font-size:11px;font-weight:650;padding:3px 8px;border-radius:999px;background:#e2e8f0;color:#334155}
+.add-chip.is-dup{background:#fef3c7;color:#92400e}
+.add-log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:170px;overflow:auto;font-size:12px}
+.add-log li.ok{color:#166534}
+.add-log li.skip{color:#92400e}
+.add-log li.err{color:#b91c1c}
+.add-log li.run{color:#0f172a;font-weight:700}
 .add-status{font-size:12px;color:var(--muted)}
 .sim-filter.is-active{background:#0f172a;border-color:#0f172a;color:#fff}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
@@ -2781,20 +2801,119 @@ _REPORT_JS = """
   });
   var form=card.querySelector('#add-competitor');
   if(!form) return;
+  var area=form.querySelector('[name=urls]');
+  var btn=form.querySelector('button[type=submit]');
+  var st=form.querySelector('.add-status');
+  var preview=form.querySelector('.add-preview');
+  var log=form.querySelector('.add-log');
+  function existingDomains(){
+    var have={};
+    card.querySelectorAll('tr[data-domain]').forEach(function(tr){
+      var d=String(tr.getAttribute('data-domain')||'').toLowerCase();
+      if(d) have[d]=1;
+    });
+    return have;
+  }
+  function parseSites(text){
+    var parts=String(text||'').split(/[\\s,;|]+/);
+    var seen={}, out=[];
+    parts.forEach(function(item){
+      item=String(item||'').trim();
+      if(!item || item.charAt(0)==='#') return;
+      var host=item.replace(/^https?:\\/\\//i,'').replace(/^www\\./i,'').split('/')[0].toLowerCase();
+      host=host.replace(/:\\d+$/,'');
+      if(!host || host.indexOf('.')<0) return;
+      if(seen[host]) return;
+      seen[host]=1;
+      out.push({domain:host, url:/^https?:\\/\\//i.test(item)?item:('https://'+host)});
+    });
+    return out;
+  }
+  function refreshPreview(){
+    if(!preview || !area) return;
+    var sites=parseSites(area.value);
+    var have=existingDomains();
+    preview.innerHTML='';
+    if(!sites.length){
+      preview.hidden=true;
+      if(btn) btn.textContent='Add websites';
+      return;
+    }
+    preview.hidden=false;
+    var fresh=0;
+    sites.forEach(function(s){
+      var chip=document.createElement('span');
+      var dup=!!have[s.domain];
+      chip.className='add-chip'+(dup?' is-dup':'');
+      chip.textContent=s.domain+(dup?' · já na lista':'');
+      preview.appendChild(chip);
+      if(!dup) fresh++;
+    });
+    if(btn) btn.textContent=fresh===1?'Add 1 website':'Add '+fresh+' websites';
+  }
+  function addLog(cls, text){
+    if(!log) return;
+    log.hidden=false;
+    var li=document.createElement('li');
+    li.className=cls||'';
+    li.textContent=text;
+    log.appendChild(li);
+    log.scrollTop=log.scrollHeight;
+    return li;
+  }
+  if(area){
+    area.addEventListener('input',refreshPreview);
+    refreshPreview();
+  }
   form.addEventListener('submit',function(ev){
     ev.preventDefault();
-    var url=(form.querySelector('[name=url]')||{}).value||'';
+    var sites=parseSites(area?area.value:'');
+    var have=existingDomains();
     var sim=(form.querySelector('[name=similaridade]')||{}).value||'';
-    var btn=form.querySelector('button[type=submit]');
-    var st=form.querySelector('.add-status');
+    var queue=sites.filter(function(s){ return !have[s.domain]; });
+    var skipped=sites.length-queue.length;
+    if(!sites.length){
+      if(st) st.textContent='Cole um ou mais sites válidos.';
+      return;
+    }
+    if(!queue.length){
+      if(st) st.textContent='Todos já estão na lista.';
+      return;
+    }
     if(btn) btn.disabled=true;
-    if(st) st.textContent='Fetching brand + SimilarWeb…';
-    postJson('/api/runs/'+runId+'/competitors/add',{url:url,similaridade:sim})
-      .then(function(){ location.reload(); })
-      .catch(function(err){
-        if(st) st.textContent=err.message||String(err);
+    if(area) area.disabled=true;
+    if(log){ log.innerHTML=''; log.hidden=false; }
+    if(skipped) addLog('skip', skipped+' já na lista — ignorado');
+    var i=0, added=0, failed=0;
+    function next(){
+      if(i>=queue.length){
+        if(st) st.textContent=added+' added · '+failed+' failed · '+skipped+' skipped. Reloading…';
+        if(added){ location.reload(); return; }
         if(btn) btn.disabled=false;
-      });
+        if(area) area.disabled=false;
+        return;
+      }
+      var site=queue[i];
+      var n=i+1;
+      if(st) st.textContent='Adding '+n+'/'+queue.length+' — '+site.domain+' (page + Brand'+(sim==='Alto'?' + SimilarWeb':'')+')…';
+      var row=addLog('run', n+'/'+queue.length+' '+site.domain+'…');
+      postJson('/api/runs/'+runId+'/competitors/add',{url:site.url,similaridade:sim})
+        .then(function(d){
+          if(d && d.skipped){
+            skipped++;
+            if(row){ row.className='skip'; row.textContent=site.domain+' — already on the list'; }
+          } else {
+            added++;
+            if(row){ row.className='ok'; row.textContent=site.domain+' — added'+(d && d.similaridade?' · '+d.similaridade:''); }
+          }
+        })
+        .catch(function(err){
+          failed++;
+          if(row){ row.className='err'; row.textContent=site.domain+' — '+(err.message||err); }
+        })
+        .then(function(){ i++; next(); });
+    }
+    next();
   });
 })();
 (function(){

@@ -174,6 +174,31 @@ def set_competitor_similarity(run_id: str, domain: str, similaridade: str) -> di
     return {"ok": True, "domain": want, "similaridade": sim, "html_url": f"/runs/{run_id}/report.html"}
 
 
+_SITE_SPLIT = re.compile(r"[\s,;|]+")
+
+
+def parse_site_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        parts = [str(x or "") for x in value]
+    else:
+        parts = _SITE_SPLIT.split(str(value or ""))
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        raw = part.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        href = _abs_url(raw)
+        dom = _domain_of(href)
+        if not dom or "." not in dom:
+            continue
+        if dom in seen:
+            continue
+        seen.add(dom)
+        out.append(href)
+    return out
+
+
 def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, Any]:
     report = _load(run_id)
     href = _abs_url(url)
@@ -182,7 +207,13 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
         raise ValueError("A valid website URL is required")
     rows = _rows_of(report)
     if any(_domain_of(c.get("domain") or "") == dom for c in rows):
-        raise ValueError(f"{dom} is already on the list")
+        return {
+            "ok": True,
+            "skipped": True,
+            "domain": dom,
+            "reason": "already",
+            "html_url": f"/runs/{run_id}/report.html",
+        }
 
     briefing = report.get("briefing") or {}
     client_url = str(briefing.get("url") or "").strip()
