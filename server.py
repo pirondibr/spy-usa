@@ -56,7 +56,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.18"
+APP_VERSION = "0.4.19"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -804,6 +804,26 @@ def run_report(run_id: str):
                         print(f"[TITLE] backfill saved for {run_id}: {filled}", flush=True)
                 except Exception as e:
                     print(f"[TITLE] backfill skipped for {run_id}: {e}", flush=True)
+            if rows and not report.get("titles_llm_checked"):
+                try:
+                    vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+                    if str(vendor) not in sys.path:
+                        sys.path.insert(0, str(vendor))
+                    from seo_pipeline import fill_missing_titles  # noqa: E402
+
+                    rows = list(report.get("competitors") or report.get("competitors_raw") or [])
+                    filled_llm = fill_missing_titles(rows)
+                    report["titles_llm_checked"] = True
+                    if filled_llm:
+                        report["competitors"] = rows
+                        report["competitors_raw"] = rows
+                        (RUNS_DIR / run_id / "report.json").write_text(
+                            json.dumps(report, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                    print(f"[TITLE/LLM] backfill {run_id}: {filled_llm}", flush=True)
+                except Exception as e:
+                    print(f"[TITLE/LLM] backfill skipped for {run_id}: {e}", flush=True)
             if report.get("competitors_only") and not report.get("started_checked"):
                 try:
                     from pipeline import _enrich_started

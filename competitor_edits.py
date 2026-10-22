@@ -254,6 +254,18 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
             page_title = re.sub(r"\s+", " ", soup.title.string).strip()[:200]
     except Exception:
         page_title = ""
+    try:
+        from seo_pipeline import fill_missing_titles, title_is_missing  # noqa: E402
+
+        if title_is_missing(page_title) and not title_is_missing(analyzed.get("title") or ""):
+            page_title = str(analyzed.get("title") or "").strip()
+        elif title_is_missing(page_title):
+            tmp = {"domain": dom, "name": _name_from_domain(dom),
+                   "nicho": analyzed.get("nicho") or "", "motivo": analyzed.get("motivo") or ""}
+            fill_missing_titles([tmp])
+            page_title = str(tmp.get("title") or "").strip()
+    except Exception:
+        pass
 
     row = {
         "name": _name_from_domain(dom),

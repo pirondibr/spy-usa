@@ -46,6 +46,8 @@ from seo_pipeline import (  # type: ignore  # noqa: E402
     scrape_site,
     brand_token_from_domain,
     is_brand_keyword,
+    title_is_missing,
+    fill_missing_titles,
 )
 
 
@@ -410,7 +412,13 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
             except Exception as e:
                 r = {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro: {e}"}
             home = f"https://{c.get('domain')}/" if c.get("domain") else (c.get("url") or "")
-            results.append({**c, "url": home, **r})
+            merged = {**c, "url": home, **{k: v for k, v in r.items() if k != "title"}}
+            scraped = r.get("title") or ""
+            if not title_is_missing(scraped):
+                merged["title"] = scraped
+            elif title_is_missing(merged.get("title") or ""):
+                merged["title"] = ""
+            results.append(merged)
             done += 1
             extra = r.get("motivo") or ""
             extra = f"  {extra[:80]}" if extra and r.get("similaridade") in ("—", "", None) else ""
@@ -418,6 +426,7 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
                 f"[4]   ({done}/{len(competitors)}) "
                 f"{r.get('similaridade','—')}/{r.get('perfil','—')}  {c['domain']}{extra}"
             )
+    fill_missing_titles(results)
     # ordena: Alto primeiro, depois numero de aparicoes
     sim_rank = {"Alto": 3, "Medio": 2, "Baixo": 1, "—": 0}
     results.sort(key=lambda x: (sim_rank.get(x.get("similaridade", "—"), 0),

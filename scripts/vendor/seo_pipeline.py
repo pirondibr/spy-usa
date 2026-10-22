@@ -1063,6 +1063,89 @@ def _parse_similarity_response(raw: str) -> dict:
     return out
 
 
+_BAD_TITLE = re.compile(
+    r"just a moment|attention required|access denied|access restricted|"
+    r"forbidden|cloudflare|checking your browser|enable javascript|"
+    r"please wait|one moment please|verify you are (a )?human|"
+    r"cf-browser|403 forbidden|404 not found|error 404|error 403|"
+    r"request unsuccessful|blocked|captcha",
+    re.I,
+)
+
+
+def title_is_missing(title: str) -> bool:
+    t = re.sub(r"\s+", " ", (title or "").strip())
+    if not t or t.lower() in {"—", "-", "n/d", "n/a", "na", "none", "null"}:
+        return True
+    if _BAD_TITLE.search(t):
+        return True
+    return len(t) < 3
+
+
+def _title_from_scrape(content: str) -> str:
+    m = re.search(r"(?im)^TITLE:\s*(.+)$", content or "")
+    t = re.sub(r"\s+", " ", (m.group(1) if m else "").strip())
+    return "" if title_is_missing(t) else t[:120]
+
+
+def fill_missing_titles(rows: list, *, chunk: int = 15) -> int:
+    """LLM homepage titles for rows whose scrape/SERP title is empty or a challenge page."""
+    pending = [r for r in (rows or []) if title_is_missing(r.get("title") or r.get("site_title") or "")]
+    if not pending:
+        return 0
+    filled = 0
+    for i in range(0, len(pending), max(1, int(chunk))):
+        batch = pending[i:i + chunk]
+        lines = []
+        for r in batch:
+            lines.append(
+                f"- {(r.get('domain') or '').strip()}: "
+                f"name={(r.get('name') or r.get('company') or '').strip() or 'n/d'}; "
+                f"niche={(r.get('nicho') or '').strip() or 'n/d'}; "
+                f"hint={str(r.get('motivo') or '')[:80]}"
+            )
+        prompt = f"""Write a realistic homepage <title> for each website (what the tab would show).
+
+Return JSON object only: {{"domain.com": "Title here", ...}}
+Rules: 4-70 characters, no quotes, no Cloudflare/challenge phrases, no URL path.
+If unsure, use "Brand — short category".
+
+SITES:
+{chr(10).join(lines)}
+"""
+        try:
+            data = extract_json(call_openrouter(prompt, max_tokens=900, temperature=0.2))
+        except Exception as e:
+            print(f"[TITLE/LLM] batch fail: {e}", flush=True)
+            continue
+        by: dict[str, str] = {}
+        if isinstance(data, dict):
+            items = data.items()
+        elif isinstance(data, list):
+            items = []
+            for it in data:
+                if isinstance(it, dict):
+                    items.append((it.get("domain") or it.get("url") or "", it.get("title") or ""))
+        else:
+            items = []
+        for key, val in items:
+            dom = normalize_domain(str(key or ""))
+            title = re.sub(r"\s+", " ", str(val or "").strip().strip('"').strip("'"))
+            if dom and not title_is_missing(title):
+                by[dom] = title[:120]
+        for r in batch:
+            dom = normalize_domain(r.get("domain") or r.get("url") or "")
+            title = by.get(dom) or ""
+            if title_is_missing(title):
+                continue
+            r["title"] = title
+            r["title_source"] = "llm"
+            filled += 1
+    if filled:
+        print(f"[TITLE/LLM] filled {filled}/{len(pending)} missing titles", flush=True)
+    return filled
+
+
 def analyze_similarity(
     comp_url: str,
     client_url: str,
@@ -1071,12 +1154,14 @@ def analyze_similarity(
 ) -> dict:
     comp_url = homepage_url(comp_url) or (comp_url or "").strip()
     content = scrape_url_text(comp_url)
+    scraped_title = _title_from_scrape(content)
     if not content:
         return {
             "nicho": "—",
             "similaridade": "—",
             "perfil": "—",
             "motivo": "Falha ao baixar a homepage (direct + ScrapingBee + TinyFish)",
+            "title": scraped_title,
         }
 
     client_niche = (
@@ -1117,9 +1202,18 @@ PERFIL vs client niche "{briefing.get('nicho_principal','')}":
     try:
         raw = call_openrouter(prompt, max_tokens=350, temperature=0.2)
     except Exception as e:
-        return {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro LLM: {e}"}
+        return {
+            "nicho": "—",
+            "similaridade": "—",
+            "perfil": "—",
+            "motivo": f"Erro LLM: {e}",
+            "title": scraped_title,
+        }
 
-    return _parse_similarity_response(raw)
+    out = _parse_similarity_response(raw)
+    if scraped_title:
+        out["title"] = scraped_title
+    return out
 
 
 def classify_client_profile(url: str, site: dict, briefing: dict) -> str:

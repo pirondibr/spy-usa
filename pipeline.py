@@ -1266,11 +1266,22 @@ def _competitors_only_report(
     count = len([c for c in shown if not c.get("is_client")])
     alto = stats.get("alto") or stats.get("Alto") or 0
     medio = stats.get("medio") or stats.get("Médio") or stats.get("Medio") or 0
+    try:
+        vendor = FINAL_DIR / "vendor"
+        if str(vendor) not in sys.path:
+            sys.path.insert(0, str(vendor))
+        from seo_pipeline import fill_missing_titles  # noqa: E402
+
+        n_titles = fill_missing_titles(shown)
+        if n_titles:
+            print(f"[TITLE/LLM] competitors_only filled {n_titles}", flush=True)
+    except Exception as e:
+        print(f"[TITLE/LLM] competitors_only skipped: {e}", flush=True)
+
     report = {
         "client": early.get("client") or client_name,
         "briefing": early.get("briefing") or {},
         "competitors": shown,
-        "competitors_count": count,
         "competitors_note": (
             f"Modo isolado — discovery nacional {(os.environ.get('SPY_MARKET') or 'us').upper()} "
             f"(SEO SERP + LLM + Semrush top 5). {count} encontrados · Alto={alto} · Médio={medio}."
