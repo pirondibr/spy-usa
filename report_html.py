@@ -133,6 +133,31 @@ def _fmt_vol(v: Any) -> str:
         return str(v)
 
 
+def _fmt_brand_vol(v: Any) -> str:
+    """Compact brand volume: 165000 → 165k, 24900000 → 24.9m. Full number on hover."""
+    if v is None or v == "":
+        return "—"
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return _esc(str(v))
+    absn = abs(n)
+    if absn >= 1_000_000:
+        compact = f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".") + "m"
+    elif absn >= 1_000:
+        compact = f"{n / 1_000:.1f}".rstrip("0").rstrip(".") + "k"
+    else:
+        compact = f"{int(n):,}"
+    full = f"{int(n):,}"
+    if compact == full:
+        return _esc(compact)
+    return f'<span title="{_esc(full)}">{_esc(compact)}</span>'
+
+
+def _row_title(c: dict[str, Any]) -> str:
+    return str(c.get("title") or c.get("site_title") or c.get("page_title") or "").strip()
+
+
 def _fmt_growth(v: Any) -> str:
     if v is None or v == "":
         return "—"
@@ -1799,13 +1824,14 @@ def render_report_html(
         row = [
             str(i),
             name,
+            _clip_cell(_row_title(c), limit=22),
             _esc(c.get("domain") or "—"),
             _sim_edit_cell(c, editable=sim_editable),
         ]
         if competitors_only:
             row.append(_fonte_cell(c.get("fonte")))
             row.append(_esc(c.get("perfil") or "—"))
-        row.append(_esc(c.get("nicho") or "—"))
+        row.append(_clip_cell(c.get("nicho"), limit=28))
         if competitors_only:
             row.append(_clip_cell(c.get("motivo"), limit=48))
         show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
@@ -1813,9 +1839,9 @@ def render_report_html(
         if show_brand:
             row.extend([
                 _esc(c.get("brand_keyword") or "—"),
-                _fmt_vol(c.get("brand_aug_2026")),
-                _fmt_vol(c.get("brand_aug_2025")),
-                _fmt_vol(c.get("brand_aug_2024")),
+                _fmt_brand_vol(c.get("brand_aug_2026")),
+                _fmt_brand_vol(c.get("brand_aug_2025")),
+                _fmt_brand_vol(c.get("brand_aug_2024")),
                 _fmt_growth(c.get("brand_growth_26_24")),
             ])
         if show_sw:
@@ -1827,6 +1853,7 @@ def render_report_html(
         sort_row = [
             str(i),
             str(c.get("name") or c.get("domain") or "").lower(),
+            _row_title(c).lower(),
             str(c.get("domain") or "").lower(),
             _sort_sim(c),
         ]
@@ -1853,7 +1880,7 @@ def render_report_html(
         })
     show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
     show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
-    comp_headers = ["#", "Company", "Domain", "Similarity"]
+    comp_headers = ["#", "Company", "Title", "Domain", "Similarity"]
     if competitors_only:
         comp_headers += ["Fonte", "Perfil"]
     comp_headers.append("Niche")
@@ -1866,6 +1893,7 @@ def render_report_html(
     _COMP_KEY = {
         "#": "idx",
         "Company": "company",
+        "Title": "title",
         "Domain": "domain",
         "Similarity": "similarity",
         "Fonte": "fonte",
@@ -1880,7 +1908,10 @@ def render_report_html(
         "SimilarWeb": "similarweb",
     }
     comp_keys = [_COMP_KEY.get(h, h.lower()) for h in comp_headers]
-    compact_keys = {"company", "similarity", "ago2026", "ago2025", "ago2024", "cresc", "similarweb"}
+    compact_keys = {
+        "company", "title", "similarity", "niche",
+        "ago2026", "ago2025", "ago2024", "cresc", "similarweb",
+    }
 
     market = _report_market(report, meta)
     compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
@@ -2216,6 +2247,7 @@ tr.is-you td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 th.idx,td.idx{width:36px;color:var(--soft);font-variant-numeric:tabular-nums}
 th.motivo,td.motivo{max-width:168px}
+td[data-col="title"] .clip,td[data-col="niche"] .clip{max-width:132px}
 .clip{display:inline-block;max-width:156px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;vertical-align:bottom}
 .table-hint{margin:0 0 10px}
 th.sortable{cursor:pointer;user-select:none}

@@ -49,7 +49,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.4"
+APP_VERSION = "0.4.5"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -776,6 +776,27 @@ def run_report(run_id: str):
     report = load_saved_report(run_id, RUNS_DIR)
     if report is not None:
         try:
+            rows = list(report.get("competitors") or report.get("competitors_raw") or [])
+            meta_now = _read_run_meta(run_id) or {}
+            if rows and not report.get("titles_backfilled"):
+                try:
+                    from pipeline import find_concorrentes_xlsx
+                    from report_builder import attach_titles_from_xlsx
+
+                    slug = str(meta_now.get("slug") or report.get("slug") or "").strip()
+                    xlsx = find_concorrentes_xlsx(slug) if slug else None
+                    filled = attach_titles_from_xlsx(rows, xlsx) if xlsx else 0
+                    report["titles_backfilled"] = True
+                    if filled:
+                        report["competitors"] = rows
+                        report["competitors_raw"] = rows
+                        (RUNS_DIR / run_id / "report.json").write_text(
+                            json.dumps(report, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        print(f"[TITLE] backfill saved for {run_id}: {filled}", flush=True)
+                except Exception as e:
+                    print(f"[TITLE] backfill skipped for {run_id}: {e}", flush=True)
             if report.get("include_brand_growth") and not report.get("brand_fp_checked"):
                 try:
                     vendor = Path(__file__).resolve().parent / "scripts" / "vendor"

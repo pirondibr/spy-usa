@@ -198,10 +198,28 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
         analyzed["motivo"] = f"Added manually (classify failed: {e})"
     sim = forced or normalize_similarity(analyzed.get("similaridade") or "") or "Medio"
 
+    page_title = ""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        resp = requests.get(
+            href,
+            timeout=12,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; SpyUSA/1.0)"},
+            allow_redirects=True,
+        )
+        soup = BeautifulSoup(resp.text or "", "html.parser")
+        if soup.title and soup.title.string:
+            page_title = re.sub(r"\s+", " ", soup.title.string).strip()[:200]
+    except Exception:
+        page_title = ""
+
     row = {
         "name": _name_from_domain(dom),
         "domain": dom,
         "url": href if href.endswith("/") else href + "/",
+        "title": page_title,
         "similaridade": sim,
         "perfil": analyzed.get("perfil") or "—",
         "nicho": analyzed.get("nicho") or "—",

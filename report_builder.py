@@ -1649,6 +1649,7 @@ def load_competitors_xlsx(
                     "fonte": str(_get(row, idx, "fonte") or "n/d"),
                     "nicho": str(_get(row, idx, "nicho (llm)", "nicho") or "").strip(),
                     "motivo": str(_get(row, idx, "motivo") or "").strip(),
+                    "title": str(_get(row, idx, "titulo", "título", "title") or "").strip(),
                     "url": str(_get(row, idx, "url") or ""),
                     "is_client": False,
                 })
@@ -1686,6 +1687,7 @@ def load_competitors_xlsx(
             "fonte": e.get("fonte") or "n/d",
             "nicho": e.get("nicho") or "",
             "motivo": e.get("motivo") or "",
+            "title": e.get("title") or "",
             "url": e.get("url") or "",
             "is_client": bool(e.get("is_client")),
             "preferred": (not e.get("is_client")) and (
@@ -1705,6 +1707,40 @@ def load_competitors_xlsx(
         "competitors_raw": ranked,  # lista completa antes do filtro UI
         "filter_meta": filter_meta,
     }
+
+
+def titles_from_concorrentes_xlsx(xlsx_path: Path) -> dict[str, str]:
+    """domain → page title from the unified competitors sheet."""
+    out: dict[str, str] = {}
+    if not xlsx_path or not Path(xlsx_path).exists():
+        return out
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    unified_rows = _load_sheet_rows(wb, "Concorrentes Unificado")
+    wb.close()
+    if not unified_rows:
+        return out
+    idx = _header_index(unified_rows[0])
+    for row in unified_rows[1:]:
+        if not row or not any(row):
+            continue
+        domain = str(_get(row, idx, "dominio", "domínio") or "").strip().lower()
+        title = str(_get(row, idx, "titulo", "título", "title") or "").strip()
+        if domain and title:
+            out[domain] = title
+    return out
+
+
+def attach_titles_from_xlsx(rows: list[dict[str, Any]], xlsx_path: Path) -> int:
+    by_dom = titles_from_concorrentes_xlsx(xlsx_path)
+    filled = 0
+    for c in rows:
+        if str(c.get("title") or c.get("site_title") or "").strip():
+            continue
+        t = by_dom.get(str(c.get("domain") or "").strip().lower())
+        if t:
+            c["title"] = t
+            filled += 1
+    return filled
 
 
 def build_early_briefing_competitors(
