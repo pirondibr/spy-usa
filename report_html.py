@@ -34,6 +34,16 @@ def _fonte_cell(raw: Any) -> str:
     return "".join(f'<span class="chip">{_esc(p)}</span>' for p in parts)
 
 
+def _clip_cell(raw: Any, *, limit: int = 48) -> str:
+    text = "" if raw is None else str(raw).strip()
+    if not text or text in _NEUTRAL_CELLS:
+        return "—"
+    if len(text) <= limit:
+        return _esc(text)
+    short = text[: max(1, limit - 1)].rstrip() + "…"
+    return f'<span class="clip" title="{_esc(text)}">{_esc(short)}</span>'
+
+
 _NUM_CELL_RE = re.compile(
     r"^[\s$€£+\-−]*(?:R\$\s*)?\d[\d.,]*\s*[%KMBkmb]?"
     r"(?:\s*(?:/mo|visits|views|likes|ads|vol\.?))?\s*$"
@@ -111,6 +121,8 @@ def _rows_table(headers: list[str], rows: list[list[str]], *, page_size: int = 0
     def _cls(c: int) -> str:
         if c < len(headers) and headers[c] == "#":
             return ' class="idx"'
+        if c < len(headers) and str(headers[c]).lower() == "motivo":
+            return ' class="motivo"'
         return ' class="num"' if c in num_cols else ""
 
     thead = "".join(f"<th{_cls(i)}>{_esc(h)}</th>" for i, h in enumerate(headers))
@@ -1670,7 +1682,7 @@ def render_report_html(
             _link_cell(site, "Site"),
         ])
         if competitors_only:
-            row.append(_esc(c.get("motivo") or "—"))
+            row.append(_clip_cell(c.get("motivo"), limit=48))
         show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
         show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
         if show_brand:
@@ -1999,6 +2011,8 @@ tr.is-you:hover td{background:#d1fae5}
 tr.is-you td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 th.idx,td.idx{width:36px;color:var(--soft);font-variant-numeric:tabular-nums}
+th.motivo,td.motivo{max-width:168px}
+.clip{display:inline-block;max-width:156px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;vertical-align:bottom}
 td.empty{color:var(--soft);text-align:center;padding:22px}
 .you{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
