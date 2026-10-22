@@ -356,6 +356,185 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
+REPORT_UI_VERSION = "0.4.22"
+
+
+def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
+    out: list[Optional[int]] = []
+    any_n = False
+    for v in vals:
+        if v in (None, ""):
+            out.append(None)
+            continue
+        try:
+            out.append(int(float(v)))
+            any_n = True
+        except (TypeError, ValueError):
+            out.append(None)
+    return out if any_n else None
+
+
+def _sim_key(c: dict[str, Any]) -> str:
+    if c.get("is_client"):
+        return "Cliente"
+    s = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
+    return {"alto": "Alto", "medio": "Medio", "baixo": "Baixo"}.get(s, "—")
+
+
+def _competitor_v2_row(c: dict[str, Any], *, fp: bool) -> dict[str, Any]:
+    domain = str(c.get("domain") or "").strip().lower()
+    url = str(c.get("url") or c.get("site_url") or "").strip()
+    if not url and domain:
+        url = f"https://{domain}/"
+    ym = str(c.get("started") or "").strip()
+    started_txt = str(c.get("started_fmt") or "").strip() or "—"
+    if c.get("started_truncated") and started_txt != "—" and not started_txt.startswith("≤"):
+        started_txt = "≤ " + started_txt
+    sw = c.get("similarweb_visits")
+    try:
+        sw_n: Optional[int] = int(float(sw)) if sw not in (None, "") else None
+    except (TypeError, ValueError):
+        sw_n = None
+    return {
+        "domain": domain,
+        "name": str(c.get("name") or domain or "—"),
+        "url": url,
+        "sim": _sim_key(c),
+        "src": str(c.get("fonte") or "—"),
+        "profile": str(c.get("perfil") or "—"),
+        "motivo": str(c.get("motivo") or ""),
+        "title": _row_title(c) or "—",
+        "niche": str(c.get("nicho") or "—"),
+        "sw": sw_n,
+        "startedKey": ym or None,
+        "startedTxt": started_txt,
+        "fp": bool(fp),
+        "isYou": bool(c.get("is_client")),
+        "view": _brand_view_of(c),
+        "kw": str(c.get("sm_kw") or "").strip(),
+        "brandKw": str(c.get("brand_keyword") or "").strip(),
+        "dfs": _vol_nums((c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024"))),
+        "semrush": _vol_nums((c.get("sm_marca_aug_2026"), c.get("sm_marca_aug_2025"), c.get("sm_marca_aug_2024"))),
+        "pesquisar": _vol_nums((c.get("sm_kw_aug_2026"), c.get("sm_kw_aug_2025"), c.get("sm_kw_aug_2024"))),
+    }
+
+
+def _competitors_v2_json(rows: list[dict[str, Any]]) -> str:
+    return json.dumps(rows, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
+
+
+def _competitors_v2_panel(
+    rows_json: str,
+    *,
+    sim_editable: bool,
+    show_brand: bool,
+    show_sw: bool,
+    sw_missing: int,
+) -> str:
+    brand_in = ""
+    if show_brand:
+        brand_in = (
+            '<label class="field">Brand ≥'
+            '<input type="text" id="v2-fbrand" inputmode="decimal" placeholder="e.g. 1k"></label>'
+            '<label class="field">Growth ≥'
+            '<input type="text" id="v2-fgrowth" inputmode="decimal" placeholder="e.g. 50"></label>'
+        )
+    sw_in = ""
+    if show_sw:
+        sw_in = (
+            '<label class="field">SimilarWeb ≥'
+            '<input type="text" id="v2-fsw" inputmode="decimal" placeholder="e.g. 10k"></label>'
+        )
+    sw_btn = ""
+    if sim_editable and sw_missing:
+        sw_btn = (
+            f'<button type="button" class="btn dark" id="v2-sw-fill" data-count="{sw_missing}">'
+            f"Check SimilarWeb ({sw_missing})</button>"
+            '<span class="sw-fill-status" id="v2-sw-status"></span>'
+        )
+    pick = ""
+    if sim_editable:
+        pick = (
+            '<label class="field chk"><input type="checkbox" id="v2-picktoggle">Select</label>'
+            '<button type="button" class="del" id="v2-del" disabled>Delete selected</button>'
+        )
+    add = ""
+    if sim_editable:
+        add = """
+    <div class="tools">
+      <label class="field" style="flex:2 1 320px">Add competitors
+        <textarea id="v2-urls" rows="1" placeholder="One domain per line, e.g. kalodata.com"></textarea>
+      </label>
+      <label class="field">Similarity
+        <select id="v2-add-sim">
+          <option value="">Auto-detect</option>
+          <option value="Alto">High</option>
+          <option value="Medio">Medium</option>
+          <option value="Baixo">Low</option>
+        </select>
+      </label>
+      <button type="button" class="add" id="v2-add">Add</button>
+      <span class="add-status" id="v2-add-status"></span>
+      <ul class="add-log" id="v2-add-log" hidden></ul>
+    </div>"""
+    editable_attr = "1" if sim_editable else "0"
+    return f"""
+  <div id="comp-v2" data-editable="{editable_attr}">
+    <script type="application/json" id="comp-v2-data">{rows_json}</script>
+    <div class="card-head">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <h2>Competitors</h2>
+        <span class="num" id="v2-shown" style="font-size:13px;color:var(--muted)"></span>
+      </div>
+      <div class="tabs" role="group" aria-label="Filter by similarity" id="v2-tabs"></div>
+    </div>
+    <div class="filters" aria-label="Filters">
+      <label class="field" style="flex:1 1 200px">Search
+        <input type="search" id="v2-q" placeholder="Company, domain or niche">
+      </label>
+      <label class="field">Similarity
+        <select id="v2-fsim">
+          <option value="all">All</option>
+          <option value="Alto">High</option>
+          <option value="Medio">Medium</option>
+          <option value="Baixo">Low</option>
+          <option value="—">Unrated</option>
+        </select>
+      </label>
+      {brand_in}
+      {sw_in}
+      <button type="button" class="clear" id="v2-fclear">Clear</button>
+      {pick}
+      {sw_btn}
+      <label class="field">Density
+        <select id="v2-density">
+          <option value="">Comfortable</option>
+          <option value="compact">Compact</option>
+        </select>
+      </label>
+    </div>
+    {add}
+    <div class="scroll">
+      <div class="thead grid">
+        <button type="button" class="hbtn" data-sort="idx"># <i></i></button>
+        <button type="button" class="hbtn" data-sort="name">Company <i></i></button>
+        <span title="Similarity">Sim.</span>
+        <button type="button" class="hbtn" data-sort="brand26" title="Monthly brand searches, August of each year">Brand ’26 → ’24 <i></i></button>
+        <button type="button" class="hbtn" data-sort="g2" title="Total: Aug 2026 vs Aug 2024 › Last year: Aug 2026 vs Aug 2025">Growth <i></i></button>
+        <button type="button" class="hbtn" data-sort="startedKey" title="First month with Semrush organic traffic">Started <i></i></button>
+        <button type="button" class="hbtn" data-sort="title">Title <i></i></button>
+        <span>Niche</span>
+      </div>
+      <div id="v2-rows"></div>
+    </div>
+    <div class="foot-note">
+      <span>Click a company for match rationale and source.</span>
+      <span>Click Brand to switch DataForSEO / Semrush / Pesquisar.</span>
+      <span>“≤ Jan 2012” = Semrush history starts there; launch may be earlier.</span>
+    </div>
+  </div>"""
+
+
 def _rows_table(
     headers: list[str],
     rows: list[list[str]],
@@ -2312,19 +2491,45 @@ def render_report_html(
         {del_bar}
       </div>"""
 
+    v2_rows = [
+        _competitor_v2_row(
+            c,
+            fp=(c.get("domain") or "").strip().lower() in fp_domains,
+        )
+        for c in comps
+    ]
+    v2_html = _competitors_v2_panel(
+        _competitors_v2_json(v2_rows),
+        sim_editable=sim_editable,
+        show_brand=show_brand,
+        show_sw=show_sw,
+        sw_missing=sw_missing,
+    )
+    ui_ver = REPORT_UI_VERSION
+
     return f"""<!DOCTYPE html>
 <html lang="en-US">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spy USA — {_esc(client)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/report_v2.css?v={_esc(ui_ver)}">
 <style>{_REPORT_CSS}</style>
+<script>
+(function(){{try{{var v=localStorage.getItem('spy-report-ui');document.documentElement.setAttribute('data-ui',v==='v1'?'v1':'v2');}}catch(e){{document.documentElement.setAttribute('data-ui','v2');}}}})();
+</script>
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand"><span class="logo">S</span>Spy USA<span class="crumb">/ {_esc(client)}</span></div>
     <div class="actions">
+      <div class="ui-switch" role="group" aria-label="Table version">
+        <button type="button" class="ui-ver" data-ui="v1" aria-pressed="false">v1</button>
+        <button type="button" class="ui-ver is-active" data-ui="v2" aria-pressed="true">v2</button>
+      </div>
       <a href="/">New analysis</a>
       {rerun}
       <button type="button" class="primary" onclick="window.print()">Print / PDF</button>
@@ -2350,6 +2555,7 @@ def render_report_html(
     </div>
 
     <div class="card" id="sec-competitors" data-group="overview" data-view="compact" data-run-id="{_esc(run_id)}">
+      <div id="comp-v1">
       <div class="card-head">
         <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
         <div class="sort-bar" role="group" aria-label="Colunas dos concorrentes">
@@ -2370,6 +2576,8 @@ def render_report_html(
           interactive=True,
           row_attrs=row_attrs,
       )}
+      </div>
+      {v2_html}
     </div>
 
     {cards}
@@ -2378,6 +2586,7 @@ def render_report_html(
   </main>
 </div>
 <script>{_REPORT_JS}</script>
+<script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
 </body>
 </html>
 """
@@ -2697,7 +2906,7 @@ p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 1
   .hero-val{font-size:24px}
 }
 @media print{
-  .topbar,.toc{display:none!important}
+  .topbar,.toc,.ui-switch{display:none!important}
   .layout{display:block;padding:0}
   body{background:#fff}
   .card{box-shadow:none}
@@ -3145,21 +3354,25 @@ _REPORT_JS = """
     if(view==='semrush') tag='Semrush';
     if(view==='pesquisar') tag=stack.getAttribute('data-kw')||'pesquisar';
     var hit=stack.querySelector('.brand-hit');
-    if(hit) hit.innerHTML=renderBrandLine(vals, tag);
     var tr=stack.closest('tr');
-    if(!tr) return;
-    var g26=growthPct(vals[0], vals[2]);
-    var g25=growthPct(vals[0], vals[1]);
-    var gCell=tr.querySelector('[data-col="growth"]');
-    if(gCell){
-      gCell.innerHTML='<span class="growth-seq" title="Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025">'
-        +growthChip(g26)+'<span class="seq-sep">></span>'+growthChip(g25)+'</span>';
-      gCell.setAttribute('data-sort', g26==null?'':String(g26));
+    if(tr && hit) hit.innerHTML=renderBrandLine(vals, tag);
+    if(tr){
+      var g26=growthPct(vals[0], vals[2]);
+      var g25=growthPct(vals[0], vals[1]);
+      var gCell=tr.querySelector('[data-col="growth"]');
+      if(gCell){
+        gCell.innerHTML='<span class="growth-seq" title="Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025">'
+          +growthChip(g26)+'<span class="seq-sep">></span>'+growthChip(g25)+'</span>';
+        gCell.setAttribute('data-sort', g26==null?'':String(g26));
+      }
+      var bCell=tr.querySelector('[data-col="brand"]');
+      if(bCell) bCell.setAttribute('data-sort', vals[0]==null?'':String(vals[0]));
+      tr.setAttribute('data-brand', vals[0]==null?'':String(vals[0]));
+      tr.setAttribute('data-growth', g26==null?'':String(g26));
     }
-    var bCell=tr.querySelector('[data-col="brand"]');
-    if(bCell) bCell.setAttribute('data-sort', vals[0]==null?'':String(vals[0]));
-    tr.setAttribute('data-brand', vals[0]==null?'':String(vals[0]));
-    tr.setAttribute('data-growth', g26==null?'':String(g26));
+    if(window.__spyV2 && typeof window.__spyV2.setView==='function'){
+      window.__spyV2.setView(stack.getAttribute('data-domain')||'', view, vals, stack.getAttribute('data-kw')||'');
+    }
   }
   function showBrandPop(btn){
     var stack=btn.closest('.brand-stack');
@@ -3200,7 +3413,8 @@ _REPORT_JS = """
     var view=b.getAttribute('data-view')||'';
     var fetchIt=b.getAttribute('data-fetch')==='1';
     var kind=b.getAttribute('data-kind')||'';
-    var stack=card.querySelector('.brand-stack[data-domain="'+domain+'"]');
+    var stack=card.querySelector('#comp-v2 .brand-stack[data-domain="'+domain+'"]')
+      || card.querySelector('.brand-stack[data-domain="'+domain+'"]');
     if(fetchIt){
       brandPop.querySelectorAll('button').forEach(function(x){ x.disabled=true; });
       b.textContent='Buscando…';
