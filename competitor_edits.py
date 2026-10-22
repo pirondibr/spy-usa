@@ -278,3 +278,119 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
         "similaridade": sim,
         "html_url": f"/runs/{run_id}/report.html",
     }
+
+
+def _fold_token(value: str) -> str:
+    raw = (value or "").strip().lower()
+    raw = re.sub(r"^https?://", "", raw)
+    raw = raw.replace("www.", "")
+    raw = re.sub(r"[^a-z0-9]+", "", raw)
+    return raw
+
+
+def _brand_hints(row: dict[str, Any]) -> set[str]:
+    hints: set[str] = set()
+    domain = _domain_of(row.get("domain") or "")
+    token = domain.split(".")[0] if domain else ""
+    for raw in (
+        row.get("brand_keyword"),
+        row.get("name"),
+        token,
+        domain,
+    ):
+        t = _fold_token(str(raw or ""))
+        if len(t) >= 3:
+            hints.add(t)
+    return hints
+
+
+def _pick_brand_keyword(keywords: list[dict[str, Any]], row: dict[str, Any]) -> dict[str, Any] | None:
+    hints = _brand_hints(row)
+    if not hints:
+        return None
+    best = None
+    best_vol = -1
+    for item in keywords or []:
+        phrase = str(item.get("phrase") or item.get("palavra_chave") or "").strip()
+        folded = _fold_token(phrase)
+        if len(folded) < 3:
+            continue
+        if not any(h in folded or folded in h for h in hints):
+            continue
+        try:
+            vol = int(item.get("volume") or 0)
+        except (TypeError, ValueError):
+            vol = 0
+        if vol > best_vol:
+            best = {**item, "phrase": phrase, "volume": vol}
+            best_vol = vol
+    return best
+
+
+def _series_field(series: list[dict[str, Any]], ym: str, field: str) -> Any:
+    for p in series or []:
+        if str(p.get("date") or "") == ym:
+            try:
+                return int(p.get(field) or 0)
+            except (TypeError, ValueError):
+                return 0
+    return None
+
+
+def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, Any]:
+    """Manual per-row Semrush brand extras: branded traffic or top-10 brand keyword."""
+    want = _domain_of(domain)
+    if not want:
+        raise ValueError("Domain is required")
+    mode = (kind or "").strip().lower()
+    if mode not in ("marca", "pesquisar"):
+        raise ValueError("kind must be marca or pesquisar")
+    report = _load(run_id)
+    rows = _rows_of(report)
+    row = next((c for c in rows if _domain_of(c.get("domain") or "") == want), None)
+    if not row:
+        raise ValueError(f"Competitor not found: {want}")
+
+    _vendor_path()
+    market = str(report.get("market") or "").strip().lower() or "us"
+    db = "br" if market == "br" else "us"
+
+    if mode == "marca":
+        from seo_pipeline import fetch_semrush_monthly_trend  # noqa: E402
+
+        series = fetch_semrush_monthly_trend(want, db=db)
+        if not series:
+            raise ValueError(f"Semrush MonthlyTrend empty for {want}")
+        row["sm_marca_aug_2026"] = _series_field(series, "2026-08", "branded")
+        row["sm_marca_aug_2025"] = _series_field(series, "2025-08", "branded")
+        row["sm_marca_aug_2024"] = _series_field(series, "2024-08", "branded")
+        row["sm_marca_source"] = "semrush_branded"
+    else:
+        from semrush_keywords import fetch_top_keywords  # noqa: E402
+        from brand_dataforseo import august_windows, fetch_brand_volumes  # noqa: E402
+
+        keywords = fetch_top_keywords(want, db=db, limit=10)
+        picked = _pick_brand_keyword(keywords, row)
+        if not picked:
+            raise ValueError(f"No brand keyword in Semrush top 10 for {want}")
+        phrase = str(picked.get("phrase") or "").strip()
+        volumes = fetch_brand_volumes([phrase])
+        data = volumes.get(phrase.lower()) or {}
+        aug = august_windows(data.get("monthly") or [])
+        row["sm_kw"] = phrase
+        row["sm_kw_volume"] = picked.get("volume")
+        row["sm_kw_aug_2026"] = aug.get("vol_2026_08")
+        row["sm_kw_aug_2025"] = aug.get("vol_2025_08")
+        row["sm_kw_aug_2024"] = aug.get("vol_2024_08")
+        if row["sm_kw_aug_2026"] is None and picked.get("volume") is not None:
+            row["sm_kw_aug_2026"] = picked.get("volume")
+        row["sm_kw_source"] = "semrush_top10"
+
+    persist_report(run_id, report)
+    return {
+        "ok": True,
+        "kind": mode,
+        "domain": want,
+        "keyword": row.get("sm_kw") or "",
+        "html_url": f"/runs/{run_id}/report.html",
+    }

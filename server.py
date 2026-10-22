@@ -18,7 +18,12 @@ from typing import Any, Optional
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from parse_input import ParsedInput, parse_company_list
-from competitor_edits import add_competitor, parse_site_list, set_competitor_similarity
+from competitor_edits import (
+    add_competitor,
+    fetch_semrush_brand_extra,
+    parse_site_list,
+    set_competitor_similarity,
+)
 from pipeline import RUNS_DIR, STEP_DEFS, clear_slug_cache, run_pipeline
 from report_html import load_saved_report, render_report_html
 
@@ -49,7 +54,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.12"
+APP_VERSION = "0.4.13"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -846,6 +851,19 @@ def run_classify_competitor(run_id: str):
             run_id,
             str(body.get("domain") or ""),
             str(body.get("similaridade") or body.get("similarity") or ""),
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/competitors/semrush-brand")
+def run_semrush_brand_extra(run_id: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(fetch_semrush_brand_extra(
+            run_id,
+            str(body.get("domain") or ""),
+            str(body.get("kind") or body.get("mode") or ""),
         ))
     except Exception as e:
         return jsonify({"error": str(e)}), 400

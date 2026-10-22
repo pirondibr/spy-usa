@@ -202,25 +202,63 @@ def _brand_vol_text(v: Any) -> tuple[str, str]:
     return compact, full
 
 
-def _brand_seq_cell(c: dict[str, Any]) -> str:
+def _brand_line(vals: tuple[Any, ...], *, title: str, tag: str = "", cls: str = "brand-seq") -> str:
     parts = []
     tips = []
     labels = ("Aug 2026", "Aug 2025", "Aug 2024")
-    vals = (c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024"))
     for lab, val in zip(labels, vals):
         compact, full = _brand_vol_text(val)
         parts.append(compact)
         tips.append(f"{lab}: {full or compact}")
     if all(p == "—" for p in parts):
-        return "—"
-    kw = str(c.get("brand_keyword") or "").strip()
-    title = "Brand search volume · " + " · ".join(tips)
-    if kw:
-        title += f" · keyword {kw}"
+        return ""
+    tip = title + " · " + " · ".join(tips)
     inner = '<span class="seq-sep">></span>'.join(
         f'<span class="seq-n">{_esc(p)}</span>' for p in parts
     )
-    return f'<span class="brand-seq" title="{_esc(title)}">{inner}</span>'
+    tag_html = f'<span class="brand-tag">{_esc(tag)}</span>' if tag else ""
+    return f'<span class="{_esc(cls)}" title="{_esc(tip)}">{inner}{tag_html}</span>'
+
+
+def _brand_seq_cell(c: dict[str, Any], *, editable: bool = False) -> str:
+    kw = str(c.get("brand_keyword") or "").strip()
+    title = "Brand search volume"
+    if kw:
+        title += f" · keyword {kw}"
+    main = _brand_line(
+        (c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024")),
+        title=title,
+    ) or '<span class="brand-seq">—</span>'
+    extras: list[str] = []
+    marca = _brand_line(
+        (c.get("sm_marca_aug_2026"), c.get("sm_marca_aug_2025"), c.get("sm_marca_aug_2024")),
+        title="Semrush branded organic traffic",
+        tag="marca",
+        cls="brand-seq sub",
+    )
+    if marca:
+        extras.append(marca)
+    sm_kw = str(c.get("sm_kw") or "").strip()
+    pesquisar = _brand_line(
+        (c.get("sm_kw_aug_2026"), c.get("sm_kw_aug_2025"), c.get("sm_kw_aug_2024")),
+        title=f"Semrush top-10 brand keyword {sm_kw}".strip(),
+        tag=sm_kw or "pesquisar",
+        cls="brand-seq sub",
+    )
+    if pesquisar:
+        extras.append(pesquisar)
+    extra_html = "".join(extras)
+    if not editable:
+        if not extras and main == '<span class="brand-seq">—</span>':
+            return "—"
+        return f'<div class="brand-stack">{main}{extra_html}</div>' if extras else main
+    domain = _esc(c.get("domain") or "")
+    return (
+        f'<div class="brand-stack" data-domain="{domain}">'
+        f'<button type="button" class="brand-hit" title="Semrush brand extras">{main}</button>'
+        f'<div class="brand-extra">{extra_html}</div>'
+        f"</div>"
+    )
 
 
 def _growth_chip(n: Optional[float]) -> str:
@@ -1980,7 +2018,7 @@ def render_report_html(
         show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
         if show_brand:
             row.extend([
-                _brand_seq_cell(c),
+                _brand_seq_cell(c, editable=sim_editable),
                 _growth_seq_cell(c),
             ])
         if show_sw:
@@ -2447,6 +2485,20 @@ th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:10
 .float-tip{position:fixed;z-index:80;max-width:260px;padding:8px 10px;border-radius:8px;
   background:#0f172a;color:#fff;font-size:12px;font-weight:600;line-height:1.35;letter-spacing:0;
   text-transform:none;box-shadow:0 8px 24px rgba(15,23,42,.2);pointer-events:none;white-space:normal}
+.brand-stack{display:flex;flex-direction:column;align-items:flex-end;gap:3px;position:relative}
+.brand-hit{border:0;background:transparent;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:right;line-height:1.2}
+.brand-hit:hover .brand-seq{text-decoration:underline;text-underline-offset:2px}
+.brand-seq.sub{font-size:11px;color:#64748b;font-weight:650}
+.brand-tag{display:inline-block;margin-left:6px;padding:0 5px;border-radius:999px;background:#e2e8f0;color:#475569;
+  font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;vertical-align:1px;max-width:72px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand-pop{position:fixed;z-index:90;min-width:168px;padding:6px;border:1px solid var(--border);border-radius:10px;
+  background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.14);display:flex;flex-direction:column;gap:4px}
+.brand-pop[hidden]{display:none}
+.brand-pop button{border:0;background:#f8fafc;border-radius:8px;padding:7px 10px;font:inherit;font-size:12px;
+  font-weight:700;text-align:left;cursor:pointer;color:var(--text)}
+.brand-pop button:hover{background:#0f172a;color:#fff}
+.brand-pop button:disabled{opacity:.55;cursor:default}
 .brand-seq,.growth-seq{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .seq-sep{color:#94a3b8;font-weight:700;font-size:11px}
 .seq-n{font-weight:650}
@@ -2902,6 +2954,60 @@ _REPORT_JS = """
       similaridade:sel.value
     }).then(function(){ location.reload(); })
       .catch(function(err){ alert(err.message||err); sel.disabled=false; });
+  });
+  var brandPop=document.querySelector('.brand-pop');
+  if(!brandPop){
+    brandPop=document.createElement('div');
+    brandPop.className='brand-pop';
+    brandPop.hidden=true;
+    brandPop.innerHTML='<button type="button" data-kind="marca">Marca Semrush</button>'
+      +'<button type="button" data-kind="pesquisar">Pesquisar Semrush</button>';
+    document.body.appendChild(brandPop);
+  }
+  function hideBrandPop(){ brandPop.hidden=true; }
+  function resetBrandPop(){
+    brandPop.querySelectorAll('button').forEach(function(x){ x.disabled=false; });
+    var m=brandPop.querySelector('[data-kind="marca"]');
+    var p=brandPop.querySelector('[data-kind="pesquisar"]');
+    if(m) m.textContent='Marca Semrush';
+    if(p) p.textContent='Pesquisar Semrush';
+  }
+  function showBrandPop(btn){
+    var stack=btn.closest('.brand-stack');
+    brandPop.setAttribute('data-domain', stack?(stack.getAttribute('data-domain')||''):'');
+    resetBrandPop();
+    brandPop.hidden=false;
+    var r=btn.getBoundingClientRect();
+    var left=Math.min(window.innerWidth-brandPop.offsetWidth-8, Math.max(8, r.right-brandPop.offsetWidth));
+    var top=r.bottom+6;
+    if(top+brandPop.offsetHeight>window.innerHeight-8) top=Math.max(8, r.top-brandPop.offsetHeight-6);
+    brandPop.style.left=left+'px';
+    brandPop.style.top=top+'px';
+  }
+  card.addEventListener('click',function(ev){
+    var hit=ev.target.closest('.brand-hit');
+    if(!hit) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    showBrandPop(hit);
+  });
+  brandPop.addEventListener('click',function(ev){
+    var b=ev.target.closest('[data-kind]');
+    if(!b) return;
+    var kind=b.getAttribute('data-kind')||'';
+    var domain=brandPop.getAttribute('data-domain')||'';
+    brandPop.querySelectorAll('button').forEach(function(x){ x.disabled=true; });
+    b.textContent='Buscando…';
+    postJson('/api/runs/'+runId+'/competitors/semrush-brand',{domain:domain,kind:kind})
+      .then(function(){ location.reload(); })
+      .catch(function(err){
+        alert(err.message||err);
+        resetBrandPop();
+      });
+  });
+  document.addEventListener('click',function(ev){
+    if(ev.target.closest('.brand-hit') || ev.target.closest('.brand-pop')) return;
+    hideBrandPop();
   });
   var form=card.querySelector('#add-competitor');
   if(!form) return;
