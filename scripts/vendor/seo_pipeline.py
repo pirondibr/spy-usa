@@ -910,7 +910,10 @@ def _fetch_html_scrapingbee(url: str, render_js: bool = False) -> str:
         "premium_proxy": "true",
         "country_code": SCRAPINGBEE_COUNTRY,
     }
-    r = requests.get(SCRAPINGBEE_URL, params=params, timeout=90)
+    # Homepage scrape that works usually returns in ~10s. Fail fast so the
+    # next fallback (SB+JS / TinyFish) can start instead of sitting on 90s.
+    timeout = 20 if render_js else 15
+    r = requests.get(SCRAPINGBEE_URL, params=params, timeout=timeout)
     r.raise_for_status()
     return r.text or ""
 
@@ -933,10 +936,10 @@ def _fetch_text_tinyfish(url: str, max_chars: int = 4000) -> str:
             "iframe_links": False,
             "page_metadata": True,
             "ttl": 0,
-            "per_url_timeout_ms": 45000,
+            "per_url_timeout_ms": 15000,
             "purpose": "Extract homepage title, meta, headings and body for competitor similarity",
         },
-        timeout=90,
+        timeout=20,
     )
     r.raise_for_status()
     data = r.json() if r.content else {}
