@@ -669,10 +669,21 @@ def build_analysis_v2(
     comps_tag = '<span class="tag-comps">Com concorrentes</span>' if with_competitors else ""
     snap = (client_row("similarweb") or {}).get("snapshot_label") or (section("similarweb") or {}).get("latest_label") or ""
 
+    from report_analysis_compare import COLORS
+    from report_cmp import build_cmp_html, build_cmp_payload
+
+    solo_cos = companies or [{"name": client, "domain": site_host, "is_client": True, "_key": ""}]
+    cmp_html = build_cmp_html(
+        build_cmp_payload(report, solo_cos[:1], market=market, colors=[COLORS[0]]),
+        profile_only=True,
+        root_id="cmp",
+    )
+
     return f"""
 <div id="analysis-v2">
   <nav class="anav" aria-label="Seções">
     <div class="anav-in">
+      {('<a href="#perfil">Perfil</a>' if cmp_html else "")}
       <a href="#resumo">Resumo</a>
       <a href="#busca">Busca &amp; tráfego</a>
       <a href="#paga">Mídia paga</a>
@@ -693,6 +704,7 @@ def build_analysis_v2(
         {f'<div><dt>Run</dt><dd class="num">{_esc(run_id)}</dd></div>' if run_id else ""}
       </dl>
     </section>
+    {cmp_html}
     {summary_html}
     {busca_html}
     {paid_html}

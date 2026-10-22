@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.28"
+REPORT_UI_VERSION = "0.4.29"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2524,6 +2524,7 @@ def render_report_html(
     ui_ver = REPORT_UI_VERSION
     analysis_v2 = ""
     body_cls = ""
+    cmp_v1 = ""
     if not competitors_only:
         body_cls = ' class="is-analysis"'
         analysis_v2 = build_analysis_v2(
@@ -2537,6 +2538,18 @@ def render_report_html(
             market=market,
             with_competitors=with_competitors,
         )
+        if not with_competitors:
+            from report_analysis_compare import COLORS
+            from report_cmp import build_cmp_html, build_cmp_payload
+
+            solo_cos = _summary_companies(report) or [
+                {"name": client, "domain": site_host, "is_client": True, "_key": ""}
+            ]
+            cmp_v1 = build_cmp_html(
+                build_cmp_payload(report, solo_cos[:1], market=market, colors=[COLORS[0]]),
+                profile_only=True,
+                root_id="cmp-v1",
+            )
 
     return f"""<!DOCTYPE html>
 <html lang="en-US">
@@ -2549,8 +2562,9 @@ def render_report_html(
 <link rel="stylesheet" href="/static/report_v2.css?v={_esc(ui_ver)}">
 <style>{_REPORT_CSS}</style>
 <link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
+<link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
 <script>
-(function(){{try{{var v=localStorage.getItem('spy-report-ui');document.documentElement.setAttribute('data-ui',v==='v1'?'v1':'v2');}}catch(e){{document.documentElement.setAttribute('data-ui','v2');}}}})();
+(function(){{try{{var v=localStorage.getItem('spy-report-ui');document.documentElement.setAttribute('data-ui',(v==='v1'||v==='v3')?v:'v2');}}catch(e){{document.documentElement.setAttribute('data-ui','v2');}}}})();
 </script>
 </head>
 <body{body_cls}>
@@ -2561,6 +2575,7 @@ def render_report_html(
       <div class="ui-switch" role="group" aria-label="Report version">
         <button type="button" class="ui-ver" data-ui="v1" aria-pressed="false">v1</button>
         <button type="button" class="ui-ver is-active" data-ui="v2" aria-pressed="true">v2</button>
+        <button type="button" class="ui-ver" data-ui="v3" hidden aria-pressed="false">v3</button>
       </div>
       <a href="/">New analysis</a>
       {rerun}
@@ -2576,6 +2591,7 @@ def render_report_html(
       <h1>{_esc(client)}</h1>
       <div class="mast-meta">{' · '.join(mast_meta)}</div>
     </section>
+    {cmp_v1}
 
     {f'<div class="card" id="sec-summary" data-group="overview">{summary}</div>' if summary else ''}
 
@@ -2620,6 +2636,7 @@ def render_report_html(
 {analysis_v2}
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
+<script src="/static/report_cmp.js?v={_esc(ui_ver)}"></script>
 </body>
 </html>
 """

@@ -920,10 +920,25 @@ def build_analysis_compare(
         row = _row_for_company(section("similarweb"), company) or {}
         snap = row.get("snapshot_label") or snap
 
+    from report_cmp import build_cmp_html, build_cmp_payload
+
+    cmp_html = build_cmp_html(
+        build_cmp_payload(
+            report,
+            [c for c, _ in palette],
+            market=market,
+            colors=[c for _, c in palette],
+        ),
+        profile_only=False,
+        root_id="cmp",
+    )
+
     return f"""
 <div id="analysis-v2" class="is-compare">
   <nav class="anav" aria-label="Seções">
     <div class="anav-in">
+      {('<a href="#perfil">Perfil</a>' if cmp_html else "")}
+      {('<a href="#concorrentes">Concorrentes</a>' if cmp_html else "")}
       <a href="#resumo">Resumo</a>
       <a href="#busca">Busca &amp; tráfego</a>
       <a href="#paga">Mídia paga</a>
@@ -945,6 +960,7 @@ def build_analysis_compare(
         {f'<div><dt>Run</dt><dd class="num">{_esc(run_id)}</dd></div>' if run_id else ""}
       </dl>
     </section>
+    {cmp_html}
     {summary_html}
     {busca_html}
     {paid_html}

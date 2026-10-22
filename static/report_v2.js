@@ -1,15 +1,23 @@
 (function () {
   var KEY = "spy-report-ui";
+  var hasV3 = !!document.querySelector("[data-cmp]:not([data-profile-only])");
+  document.querySelectorAll('.ui-ver[data-ui="v3"]').forEach(function (b) {
+    b.hidden = !hasV3;
+  });
   function currentUi() {
     try {
       var v = localStorage.getItem(KEY);
-      return v === "v1" ? "v1" : "v2";
+      if (v === "v1") return "v1";
+      if (v === "v3" && hasV3) return "v3";
+      if (v === "v2") return "v2";
+      return hasV3 ? "v3" : "v2";
     } catch (e) {
-      return "v2";
+      return hasV3 ? "v3" : "v2";
     }
   }
   function applyUi(v) {
-    v = v === "v1" ? "v1" : "v2";
+    if (v === "v3" && !hasV3) v = "v2";
+    if (v !== "v1" && v !== "v3") v = "v2";
     document.documentElement.setAttribute("data-ui", v);
     try {
       localStorage.setItem(KEY, v);
@@ -41,7 +49,7 @@
       });
     });
   }, { rootMargin: "-35% 0px -60% 0px" });
-  ["resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
+  ["perfil", "concorrentes", "resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) io.observe(el);
   });
