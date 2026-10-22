@@ -2123,7 +2123,7 @@ def render_report_html(
             <button type="submit">Add websites</button>
           </div>
         </div>
-        <p class="add-hint">Cole um por linha, vírgula ou espaço. Já na lista = ignorado. Cada site busca página + Brand (+ SimilarWeb se Alto) — mantenha esta aba aberta.</p>
+        <p class="add-hint">Cole a lista — um por linha, vírgula ou espaço. Duplicados e sites já na tabela saem sozinhos. Cada site busca página + Brand (+ SimilarWeb se Alto) — mantenha esta aba aberta.</p>
         <div class="add-preview" hidden></div>
         <ul class="add-log" hidden></ul>
         <span class="add-status"></span>
@@ -2814,25 +2814,57 @@ _REPORT_JS = """
     });
     return have;
   }
-  function parseSites(text){
+  function hostOf(item){
+    var host=String(item||'').trim();
+    if(!host || host.charAt(0)==='#') return '';
+    host=host.replace(/^https?:\\/\\//i,'').replace(/^www\\./i,'').split('/')[0].toLowerCase();
+    host=host.replace(/:\\d+$/,'');
+    if(!host || host.indexOf('.')<0) return '';
+    return host;
+  }
+  function analyzeSites(text){
     var parts=String(text||'').split(/[\\s,;|]+/);
-    var seen={}, out=[];
+    var have=existingDomains();
+    var seen={}, unique=[], fresh=[];
+    var raw=0, repeatInPaste=0, already=0;
     parts.forEach(function(item){
-      item=String(item||'').trim();
-      if(!item || item.charAt(0)==='#') return;
-      var host=item.replace(/^https?:\\/\\//i,'').replace(/^www\\./i,'').split('/')[0].toLowerCase();
-      host=host.replace(/:\\d+$/,'');
-      if(!host || host.indexOf('.')<0) return;
-      if(seen[host]) return;
+      var host=hostOf(item);
+      if(!host) return;
+      raw++;
+      if(seen[host]){ repeatInPaste++; return; }
       seen[host]=1;
-      out.push({domain:host, url:/^https?:\\/\\//i.test(item)?item:('https://'+host)});
+      var site={domain:host, url:'https://'+host};
+      unique.push(site);
+      if(have[host]){ already++; return; }
+      fresh.push(site);
     });
-    return out;
+    return {raw:raw, unique:unique, fresh:fresh, repeatInPaste:repeatInPaste, already:already};
+  }
+  function parseSites(text){
+    return analyzeSites(text).fresh;
+  }
+  function describeClean(info){
+    var bits=[];
+    if(info.repeatInPaste) bits.push(info.repeatInPaste+' repetido'+(info.repeatInPaste>1?'s':'')+' na cola');
+    if(info.already) bits.push(info.already+' já na tabela');
+    if(!bits.length) return '';
+    return 'Removidos da lista: '+bits.join(' · ')+'. Restam '+info.fresh.length+'.';
+  }
+  function cleanList(opts){
+    opts=opts||{};
+    if(!area) return analyzeSites('');
+    var info=analyzeSites(area.value);
+    var next=info.fresh.map(function(s){ return s.domain; }).join('\\n');
+    if(area.value!==next) area.value=next;
+    if(st && (opts.announce || info.repeatInPaste || info.already)){
+      st.textContent=describeClean(info) || (info.fresh.length?info.fresh.length+' sites novos.':'');
+    }
+    return info;
   }
   function refreshPreview(){
     if(!preview || !area) return;
-    var sites=parseSites(area.value);
-    var have=existingDomains();
+    var info=analyzeSites(area.value);
+    var sites=info.fresh;
     preview.innerHTML='';
     if(!sites.length){
       preview.hidden=true;
@@ -2840,16 +2872,13 @@ _REPORT_JS = """
       return;
     }
     preview.hidden=false;
-    var fresh=0;
     sites.forEach(function(s){
       var chip=document.createElement('span');
-      var dup=!!have[s.domain];
-      chip.className='add-chip'+(dup?' is-dup':'');
-      chip.textContent=s.domain+(dup?' · já na lista':'');
+      chip.className='add-chip';
+      chip.textContent=s.domain;
       preview.appendChild(chip);
-      if(!dup) fresh++;
     });
-    if(btn) btn.textContent=fresh===1?'Add 1 website':'Add '+fresh+' websites';
+    if(btn) btn.textContent=sites.length===1?'Add 1 website':'Add '+sites.length+' websites';
   }
   function addLog(cls, text){
     if(!log) return;
@@ -2862,28 +2891,29 @@ _REPORT_JS = """
     return li;
   }
   if(area){
+    area.addEventListener('paste',function(){
+      setTimeout(function(){ cleanList({announce:true}); refreshPreview(); },0);
+    });
+    area.addEventListener('blur',function(){ cleanList({announce:true}); refreshPreview(); });
     area.addEventListener('input',refreshPreview);
     refreshPreview();
   }
   form.addEventListener('submit',function(ev){
     ev.preventDefault();
-    var sites=parseSites(area?area.value:'');
-    var have=existingDomains();
+    var info=cleanList({announce:true});
+    refreshPreview();
+    var sites=info.fresh;
     var sim=(form.querySelector('[name=similaridade]')||{}).value||'';
-    var queue=sites.filter(function(s){ return !have[s.domain]; });
-    var skipped=sites.length-queue.length;
+    var queue=sites;
+    var skipped=info.already+info.repeatInPaste;
     if(!sites.length){
-      if(st) st.textContent='Cole um ou mais sites válidos.';
-      return;
-    }
-    if(!queue.length){
-      if(st) st.textContent='Todos já estão na lista.';
+      if(st) st.textContent=describeClean(info) || 'Cole um ou mais sites válidos.';
       return;
     }
     if(btn) btn.disabled=true;
     if(area) area.disabled=true;
     if(log){ log.innerHTML=''; log.hidden=false; }
-    if(skipped) addLog('skip', skipped+' já na lista — ignorado');
+    if(skipped) addLog('skip', describeClean(info));
     var i=0, added=0, failed=0;
     function next(){
       if(i>=queue.length){
