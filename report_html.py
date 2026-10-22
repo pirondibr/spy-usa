@@ -211,6 +211,44 @@ def _brand_vol_text(v: Any) -> tuple[str, str]:
     return compact, full
 
 
+def _series_has_data(vals: tuple[Any, ...]) -> bool:
+    return any(v not in (None, "") for v in vals)
+
+
+def _brand_vols_for_view(c: dict[str, Any], view: str) -> tuple[Any, Any, Any]:
+    if view == "semrush":
+        return (c.get("sm_marca_aug_2026"), c.get("sm_marca_aug_2025"), c.get("sm_marca_aug_2024"))
+    if view == "pesquisar":
+        return (c.get("sm_kw_aug_2026"), c.get("sm_kw_aug_2025"), c.get("sm_kw_aug_2024"))
+    return (c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024"))
+
+
+def _brand_view_of(c: dict[str, Any]) -> str:
+    raw = str(c.get("brand_view") or "dfs").strip().lower()
+    if raw in ("marca", "semrush"):
+        view = "semrush"
+    elif raw in ("pesquisar", "keyword", "kw"):
+        view = "pesquisar"
+    else:
+        view = "dfs"
+    if view != "dfs" and not _series_has_data(_brand_vols_for_view(c, view)):
+        return "dfs"
+    return view
+
+
+def _vol_json(vals: tuple[Any, ...]) -> str:
+    out: list[Any] = []
+    for v in vals:
+        if v in (None, ""):
+            out.append(None)
+            continue
+        try:
+            out.append(int(float(v)))
+        except (TypeError, ValueError):
+            out.append(None)
+    return json.dumps(out, separators=(",", ":"))
+
+
 def _brand_line(vals: tuple[Any, ...], *, title: str, tag: str = "", cls: str = "brand-seq") -> str:
     parts = []
     tips = []
@@ -230,42 +268,32 @@ def _brand_line(vals: tuple[Any, ...], *, title: str, tag: str = "", cls: str = 
 
 
 def _brand_seq_cell(c: dict[str, Any], *, editable: bool = False) -> str:
+    view = _brand_view_of(c)
+    vals = _brand_vols_for_view(c, view)
     kw = str(c.get("brand_keyword") or "").strip()
-    title = "Brand search volume"
-    if kw:
-        title += f" · keyword {kw}"
-    main = _brand_line(
-        (c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024")),
-        title=title,
-    ) or '<span class="brand-seq">—</span>'
-    extras: list[str] = []
-    marca = _brand_line(
-        (c.get("sm_marca_aug_2026"), c.get("sm_marca_aug_2025"), c.get("sm_marca_aug_2024")),
-        title="Semrush branded organic traffic",
-        tag="marca",
-        cls="brand-seq sub",
-    )
-    if marca:
-        extras.append(marca)
     sm_kw = str(c.get("sm_kw") or "").strip()
-    pesquisar = _brand_line(
-        (c.get("sm_kw_aug_2026"), c.get("sm_kw_aug_2025"), c.get("sm_kw_aug_2024")),
-        title=f"Semrush top-10 brand keyword {sm_kw}".strip(),
-        tag=sm_kw or "pesquisar",
-        cls="brand-seq sub",
-    )
-    if pesquisar:
-        extras.append(pesquisar)
-    extra_html = "".join(f'<div class="brand-subline">{bit}</div>' for bit in extras)
+    if view == "semrush":
+        title, tag = "Semrush branded organic traffic", "Semrush"
+    elif view == "pesquisar":
+        title, tag = f"Semrush top-10 brand keyword {sm_kw}".strip(), (sm_kw or "pesquisar")
+    else:
+        title = "Brand search volume" + (f" · keyword {kw}" if kw else "")
+        tag = ""
+    main = _brand_line(vals, title=title, tag=tag) or '<span class="brand-seq">—</span>'
+    dfs = (c.get("brand_aug_2026"), c.get("brand_aug_2025"), c.get("brand_aug_2024"))
+    marca = (c.get("sm_marca_aug_2026"), c.get("sm_marca_aug_2025"), c.get("sm_marca_aug_2024"))
+    pesq = (c.get("sm_kw_aug_2026"), c.get("sm_kw_aug_2025"), c.get("sm_kw_aug_2024"))
     if not editable:
-        if not extras and main == '<span class="brand-seq">—</span>':
+        if main == '<span class="brand-seq">—</span>':
             return "—"
-        return f'<div class="brand-stack">{main}{extra_html}</div>' if extras else main
+        return f'<div class="brand-stack" data-view="{_esc(view)}">{main}</div>'
     domain = _esc(c.get("domain") or "")
     return (
-        f'<div class="brand-stack" data-domain="{domain}">'
-        f'<button type="button" class="brand-hit" title="Semrush brand extras">{main}</button>'
-        f'<div class="brand-extra">{extra_html}</div>'
+        f'<div class="brand-stack" data-domain="{domain}" data-view="{_esc(view)}" '
+        f'data-dfs="{_esc(_vol_json(dfs))}" data-semrush="{_esc(_vol_json(marca))}" '
+        f'data-pesquisar="{_esc(_vol_json(pesq))}" data-kw="{_esc(sm_kw)}" '
+        f'data-brand-kw="{_esc(kw)}">'
+        f'<button type="button" class="brand-hit" title="Choose Brand series">{main}</button>'
         f"</div>"
     )
 
@@ -283,14 +311,17 @@ def _growth_chip(n: Optional[float]) -> str:
 
 
 def _growth_seq_cell(c: dict[str, Any]) -> str:
-    total = c.get("brand_growth_26_24")
-    try:
-        total_n = float(total) if total is not None and total != "" else None
-    except (TypeError, ValueError):
-        total_n = None
-    if total_n is None:
-        total_n = _growth_pct(c.get("brand_aug_2026"), c.get("brand_aug_2024"))
-    y1 = _growth_pct(c.get("brand_aug_2026"), c.get("brand_aug_2025"))
+    view = _brand_view_of(c)
+    v26, v25, v24 = _brand_vols_for_view(c, view)
+    total_n = _growth_pct(v26, v24)
+    if view == "dfs":
+        stored = c.get("brand_growth_26_24")
+        try:
+            if stored not in (None, "") and total_n is None:
+                total_n = float(stored)
+        except (TypeError, ValueError):
+            pass
+    y1 = _growth_pct(v26, v25)
     if total_n is None and y1 is None:
         return "—"
     title = "Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025"
@@ -388,7 +419,8 @@ def _rows_table(
             if key == "brand":
                 help_q = (
                     '<button type="button" class="col-help" data-tip="'
-                    'DataForSEO brand search volume: Aug 2026 &gt; Aug 2025 &gt; Aug 2024">'
+                    'Click a cell to fetch or switch DataForSEO / Semrush / Pesquisar. '
+                    'Aug 2026 &gt; Aug 2025 &gt; Aug 2024">'
                     '?</button>'
                 )
             elif key == "growth":
@@ -2070,11 +2102,11 @@ def render_report_html(
         if competitors_only:
             sort_row.append(str(c.get("motivo") or "").lower())
         if show_brand:
+            view = _brand_view_of(c)
+            v26, v25, v24 = _brand_vols_for_view(c, view)
             sort_row += [
-                _sort_num(c.get("brand_aug_2026")),
-                _sort_num(c.get("brand_growth_26_24") or _growth_pct(
-                    c.get("brand_aug_2026"), c.get("brand_aug_2024")
-                )),
+                _sort_num(v26),
+                _sort_num(_growth_pct(v26, v24)),
             ]
         if show_sw:
             sort_row.append(_sort_num(c.get("similarweb_visits")))
@@ -2083,13 +2115,13 @@ def render_report_html(
         sort_row += [_row_title(c).lower(), str(c.get("nicho") or "").lower()]
         comp_rows.append(row)
         sort_rows.append(sort_row)
-        growth_n = c.get("brand_growth_26_24")
-        if growth_n in (None, ""):
-            growth_n = _growth_pct(c.get("brand_aug_2026"), c.get("brand_aug_2024"))
+        view = _brand_view_of(c)
+        v26, _v25, v24 = _brand_vols_for_view(c, view)
+        growth_n = _growth_pct(v26, v24)
         row_attrs.append({
             "sim": str(c.get("similaridade") or "").strip(),
             "domain": str(c.get("domain") or "").strip().lower(),
-            "brand": _sort_num(c.get("brand_aug_2026")),
+            "brand": _sort_num(v26),
             "growth": _sort_num(growth_n),
             "sw": _sort_num(c.get("similarweb_visits")),
         })
@@ -2539,6 +2571,7 @@ th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:10
   font-weight:700;text-align:left;cursor:pointer;color:var(--text)}
 .brand-pop button:hover{background:#0f172a;color:#fff}
 .brand-pop button:disabled{opacity:.55;cursor:default}
+.brand-pop button.is-current{background:#0f172a;color:#fff}
 .brand-seq,.growth-seq{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .seq-sep{color:#94a3b8;font-weight:700;font-size:11px}
 .seq-n{font-weight:650}
@@ -3058,22 +3091,93 @@ _REPORT_JS = """
     brandPop=document.createElement('div');
     brandPop.className='brand-pop';
     brandPop.hidden=true;
-    brandPop.innerHTML='<button type="button" data-kind="marca">Marca Semrush</button>'
-      +'<button type="button" data-kind="pesquisar">Pesquisar Semrush</button>';
     document.body.appendChild(brandPop);
   }
   function hideBrandPop(){ brandPop.hidden=true; }
-  function resetBrandPop(){
-    brandPop.querySelectorAll('button').forEach(function(x){ x.disabled=false; });
-    var m=brandPop.querySelector('[data-kind="marca"]');
-    var p=brandPop.querySelector('[data-kind="pesquisar"]');
-    if(m) m.textContent='Marca Semrush';
-    if(p) p.textContent='Pesquisar Semrush';
+  function escHtml(s){
+    return String(s||'').replace(/[&<>"']/g,function(ch){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+    });
+  }
+  function parseSeries(stack, key){
+    try{ return JSON.parse(stack.getAttribute('data-'+key)||'[]'); }catch(e){ return []; }
+  }
+  function seriesReady(arr){
+    return (arr||[]).some(function(v){ return v!=null && v!==''; });
+  }
+  function compactVol(v){
+    if(v==null || v==='') return '—';
+    var n=Number(v);
+    if(isNaN(n)) return String(v);
+    var a=Math.abs(n);
+    if(a>=1000000) return (n/1000000).toFixed(1).replace(/\\.0$/,'')+'m';
+    if(a>=1000) return (n/1000).toFixed(1).replace(/\\.0$/,'')+'k';
+    return String(Math.round(n));
+  }
+  function growthPct(n,o){
+    n=Number(n); o=Number(o);
+    if(!isFinite(n)||!isFinite(o)||o===0) return null;
+    return (n-o)/o*100;
+  }
+  function fmtGrowth(n){
+    if(n==null || !isFinite(n)) return '—';
+    var s=n>0?'+':'';
+    return Math.abs(n)>=100 ? s+Math.round(n)+'%' : s+n.toFixed(1)+'%';
+  }
+  function growthChip(n){
+    var cls='growth-flat';
+    if(n!=null && n>0) cls='growth-up';
+    if(n!=null && n<0) cls='growth-down';
+    return '<span class="'+cls+'">'+fmtGrowth(n)+'</span>';
+  }
+  function renderBrandLine(vals, tag){
+    var inner=(vals&&vals.length?vals:[null,null,null]).slice(0,3).map(function(v){
+      return '<span class="seq-n">'+escHtml(compactVol(v))+'</span>';
+    }).join('<span class="seq-sep">></span>');
+    var tagHtml=tag?'<span class="brand-tag">'+escHtml(tag)+'</span>':'';
+    return '<span class="brand-seq">'+inner+tagHtml+'</span>';
+  }
+  function applyBrandView(stack, view){
+    if(!stack) return;
+    stack.setAttribute('data-view', view);
+    var vals=parseSeries(stack, view==='semrush'?'semrush':(view==='pesquisar'?'pesquisar':'dfs'));
+    var tag='';
+    if(view==='semrush') tag='Semrush';
+    if(view==='pesquisar') tag=stack.getAttribute('data-kw')||'pesquisar';
+    var hit=stack.querySelector('.brand-hit');
+    if(hit) hit.innerHTML=renderBrandLine(vals, tag);
+    var tr=stack.closest('tr');
+    if(!tr) return;
+    var g26=growthPct(vals[0], vals[2]);
+    var g25=growthPct(vals[0], vals[1]);
+    var gCell=tr.querySelector('[data-col="growth"]');
+    if(gCell){
+      gCell.innerHTML='<span class="growth-seq" title="Total Aug 2026 vs 2024 > 1 year Aug 2026 vs 2025">'
+        +growthChip(g26)+'<span class="seq-sep">></span>'+growthChip(g25)+'</span>';
+      gCell.setAttribute('data-sort', g26==null?'':String(g26));
+    }
+    var bCell=tr.querySelector('[data-col="brand"]');
+    if(bCell) bCell.setAttribute('data-sort', vals[0]==null?'':String(vals[0]));
+    tr.setAttribute('data-brand', vals[0]==null?'':String(vals[0]));
+    tr.setAttribute('data-growth', g26==null?'':String(g26));
   }
   function showBrandPop(btn){
     var stack=btn.closest('.brand-stack');
-    brandPop.setAttribute('data-domain', stack?(stack.getAttribute('data-domain')||''):'');
-    resetBrandPop();
+    if(!stack) return;
+    var domain=stack.getAttribute('data-domain')||'';
+    var view=stack.getAttribute('data-view')||'dfs';
+    var hasDfs=seriesReady(parseSeries(stack,'dfs'));
+    var hasSm=seriesReady(parseSeries(stack,'semrush'));
+    var hasKw=seriesReady(parseSeries(stack,'pesquisar'));
+    var kw=stack.getAttribute('data-kw')||'';
+    var bits=[];
+    if(hasDfs) bits.push('<button type="button" data-view="dfs"'+(view==='dfs'?' class="is-current"':'')+'>DataForSEO</button>');
+    bits.push('<button type="button" data-view="semrush" data-kind="marca"'+(hasSm?'':' data-fetch="1"')+(view==='semrush'?' class="is-current"':'')+'>'
+      +(hasSm?'Semrush':'Fetch Semrush')+'</button>');
+    bits.push('<button type="button" data-view="pesquisar" data-kind="pesquisar"'+(hasKw?'':' data-fetch="1"')+(view==='pesquisar'?' class="is-current"':'')+'>'
+      +(hasKw?('Pesquisar'+(kw?' · '+escHtml(kw):'')):'Fetch Pesquisar')+'</button>');
+    brandPop.innerHTML=bits.join('');
+    brandPop.setAttribute('data-domain', domain);
     brandPop.hidden=false;
     var r=btn.getBoundingClientRect();
     var left=Math.min(window.innerWidth-brandPop.offsetWidth-8, Math.max(8, r.right-brandPop.offsetWidth));
@@ -3090,18 +3194,28 @@ _REPORT_JS = """
     showBrandPop(hit);
   });
   brandPop.addEventListener('click',function(ev){
-    var b=ev.target.closest('[data-kind]');
+    var b=ev.target.closest('[data-view], [data-kind]');
     if(!b) return;
-    var kind=b.getAttribute('data-kind')||'';
     var domain=brandPop.getAttribute('data-domain')||'';
-    brandPop.querySelectorAll('button').forEach(function(x){ x.disabled=true; });
-    b.textContent='Buscando…';
-    postJson('/api/runs/'+runId+'/competitors/semrush-brand',{domain:domain,kind:kind})
-      .then(function(){ location.reload(); })
-      .catch(function(err){
-        alert(err.message||err);
-        resetBrandPop();
-      });
+    var view=b.getAttribute('data-view')||'';
+    var fetchIt=b.getAttribute('data-fetch')==='1';
+    var kind=b.getAttribute('data-kind')||'';
+    var stack=card.querySelector('.brand-stack[data-domain="'+domain+'"]');
+    if(fetchIt){
+      brandPop.querySelectorAll('button').forEach(function(x){ x.disabled=true; });
+      b.textContent='Buscando…';
+      postJson('/api/runs/'+runId+'/competitors/semrush-brand',{domain:domain,kind:kind})
+        .then(function(){ location.reload(); })
+        .catch(function(err){
+          alert(err.message||err);
+          hideBrandPop();
+        });
+      return;
+    }
+    hideBrandPop();
+    applyBrandView(stack, view);
+    postJson('/api/runs/'+runId+'/competitors/brand-view',{domain:domain,view:view})
+      .catch(function(err){ console.warn(err); });
   });
   document.addEventListener('click',function(ev){
     if(ev.target.closest('.brand-hit') || ev.target.closest('.brand-pop')) return;

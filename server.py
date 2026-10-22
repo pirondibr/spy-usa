@@ -24,6 +24,7 @@ from competitor_edits import (
     fetch_missing_similarweb,
     fetch_semrush_brand_extra,
     parse_site_list,
+    set_brand_view,
     set_competitor_similarity,
 )
 from pipeline import RUNS_DIR, STEP_DEFS, clear_slug_cache, run_pipeline
@@ -56,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.20"
+APP_VERSION = "0.4.21"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -908,6 +909,19 @@ def run_missing_similarweb(run_id: str):
         return jsonify(fetch_missing_similarweb(
             run_id,
             limit=body.get("limit") or 6,
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/competitors/brand-view")
+def run_brand_view(run_id: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(set_brand_view(
+            run_id,
+            str(body.get("domain") or ""),
+            str(body.get("view") or body.get("kind") or ""),
         ))
     except Exception as e:
         return jsonify({"error": str(e)}), 400

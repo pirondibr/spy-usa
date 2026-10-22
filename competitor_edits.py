@@ -182,6 +182,33 @@ def set_competitor_similarity(run_id: str, domain: str, similaridade: str) -> di
     return {"ok": True, "domain": want, "similaridade": sim, "html_url": f"/runs/{run_id}/report.html"}
 
 
+def set_brand_view(run_id: str, domain: str, view: str) -> dict[str, Any]:
+    report = _load(run_id)
+    want = _domain_of(domain)
+    if not want:
+        raise ValueError("Domain is required")
+    raw = (view or "").strip().lower()
+    mapped = {
+        "dfs": "dfs",
+        "dataforseo": "dfs",
+        "brand": "dfs",
+        "marca": "semrush",
+        "semrush": "semrush",
+        "pesquisar": "pesquisar",
+        "keyword": "pesquisar",
+        "kw": "pesquisar",
+    }.get(raw)
+    if not mapped:
+        raise ValueError("view must be dfs, semrush or pesquisar")
+    rows = _rows_of(report)
+    row = next((c for c in rows if _domain_of(c.get("domain") or "") == want), None)
+    if not row:
+        raise ValueError(f"Competitor not found: {want}")
+    row["brand_view"] = mapped
+    persist_report(run_id, report)
+    return {"ok": True, "domain": want, "view": mapped, "html_url": f"/runs/{run_id}/report.html"}
+
+
 _SITE_SPLIT = re.compile(r"[\s,;|]+")
 
 
@@ -442,6 +469,8 @@ def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, 
     if not want:
         raise ValueError("Domain is required")
     mode = (kind or "").strip().lower()
+    if mode in ("semrush",):
+        mode = "marca"
     if mode not in ("marca", "pesquisar"):
         raise ValueError("kind must be marca or pesquisar")
     report = _load(run_id)
@@ -464,6 +493,7 @@ def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, 
         row["sm_marca_aug_2025"] = _series_field(series, "2025-08", "branded")
         row["sm_marca_aug_2024"] = _series_field(series, "2024-08", "branded")
         row["sm_marca_source"] = "semrush_branded"
+        row["brand_view"] = "semrush"
     else:
         from semrush_keywords import fetch_top_keywords  # noqa: E402
         from brand_dataforseo import august_windows, fetch_brand_volumes  # noqa: E402
@@ -494,6 +524,7 @@ def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, 
         if row["sm_kw_aug_2026"] is None and picked.get("volume") is not None:
             row["sm_kw_aug_2026"] = picked.get("volume")
         row["sm_kw_source"] = "semrush_top10"
+        row["brand_view"] = "pesquisar"
 
     persist_report(run_id, report)
     return {
