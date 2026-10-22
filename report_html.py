@@ -44,6 +44,22 @@ def _clip_cell(raw: Any, *, limit: int = 48) -> str:
     return f'<span class="clip" title="{_esc(text)}">{_esc(short)}</span>'
 
 
+def _sort_num(value: Any) -> str:
+    if value is None or value == "" or value == "—":
+        return ""
+    try:
+        return str(float(value))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _sort_sim(comp: dict[str, Any]) -> str:
+    if comp.get("is_client"):
+        return "4"
+    sim = str(comp.get("similaridade") or "").strip().lower().replace("é", "e")
+    return {"alto": "3", "medio": "2", "baixo": "1"}.get(sim, "0")
+
+
 _NUM_CELL_RE = re.compile(
     r"^[\s$€£+\-−]*(?:R\$\s*)?\d[\d.,]*\s*[%KMBkmb]?"
     r"(?:\s*(?:/mo|visits|views|likes|ads|vol\.?))?\s*$"
@@ -115,6 +131,8 @@ def _rows_table(
     page_size: int = 0,
     col_keys: Optional[list[str]] = None,
     compact_keys: Optional[set[str]] = None,
+    sort_rows: Optional[list[list[Any]]] = None,
+    interactive: bool = False,
 ) -> str:
     num_cols: set[int] = set()
     for c, h in enumerate(headers):
@@ -142,20 +160,43 @@ def _rows_table(
             if compact_keys and key not in compact_keys:
                 extras.append('data-extra="1"')
         if header and c < len(headers) and str(headers[c]) == "Cresc.":
-            extras.append('title="Crescimento 2026 vs 2024"')
+            extras.append('title="Crescimento 2026 vs 2024 — clique para ordenar"')
+        elif header and interactive:
+            extras.append(f'title="Clique para ordenar · × oculta {_esc(headers[c])}"')
+        if header and interactive:
+            classes.append("sortable")
         cls = f' class="{" ".join(classes)}"' if classes else ""
         extra = (" " + " ".join(extras)) if extras else ""
         return f"{cls}{extra}"
 
-    thead = "".join(f"<th{_attr(i, header=True)}>{_esc(h)}</th>" for i, h in enumerate(headers))
+    thead_cells = []
+    for i, h in enumerate(headers):
+        label = _esc(h)
+        if interactive:
+            label = (
+                f'<span class="th-wrap">'
+                f'<span class="th-label">{_esc(h)}</span>'
+                f'<button type="button" class="col-hide" title="Ocultar {_esc(h)}" aria-label="Ocultar {_esc(h)}">×</button>'
+                f"</span>"
+            )
+        thead_cells.append(f"<th{_attr(i, header=True)}>{label}</th>")
+    thead = "".join(thead_cells)
     body = []
-    for row in rows:
+    for r_i, row in enumerate(rows):
         is_you = any('class="you"' in str(cell) for cell in row)
-        tds = "".join(f"<td{_attr(i)}>{cell}</td>" for i, cell in enumerate(row))
-        body.append(f'<tr class="is-you">{tds}</tr>' if is_you else f"<tr>{tds}</tr>")
+        tds = []
+        sorts = (sort_rows[r_i] if sort_rows and r_i < len(sort_rows) else None) or []
+        for i, cell in enumerate(row):
+            sv = sorts[i] if i < len(sorts) else ""
+            sort_attr = f' data-sort="{_esc(sv)}"' if sv not in (None, "") else ""
+            tds.append(f"<td{_attr(i)}{sort_attr}>{cell}</td>")
+        tds_html = "".join(tds)
+        body.append(f'<tr class="is-you">{tds_html}</tr>' if is_you else f"<tr>{tds_html}</tr>")
     if not body:
         body.append(f'<tr><td class="empty" colspan="{len(headers)}">No data</td></tr>')
     wrap = "table-wrap paged-table" if page_size else "table-wrap"
+    if interactive:
+        wrap += " interactive-table"
     extra = f' data-page-size="{int(page_size)}"' if page_size else ""
     pager = (
         '<div class="pager">'
@@ -166,8 +207,9 @@ def _rows_table(
         if page_size and len(rows) > page_size
         else ""
     )
+    tray = '<div class="hidden-cols" hidden></div>' if interactive else ""
     return (
-        f'<div class="{wrap}"{extra}><table><thead><tr>{thead}</tr></thead>'
+        f'{tray}<div class="{wrap}"{extra}><table><thead><tr>{thead}</tr></thead>'
         f"<tbody>{''.join(body)}</tbody></table>{pager}</div>"
     )
 
@@ -1683,6 +1725,7 @@ def render_report_html(
         comps = report.get("competitors_raw") or comps
 
     comp_rows = []
+    sort_rows: list[list[Any]] = []
     for i, c in enumerate(comps, 1):
         name = _esc(c.get("name") or c.get("domain") or "—")
         if c.get("is_client"):
@@ -1721,7 +1764,29 @@ def render_report_html(
                 row.append(_esc(c.get("similarweb_fmt") or _fmt_vol(c.get("similarweb_visits"))))
             else:
                 row.append("—")
+        sort_row = [
+            str(i),
+            str(c.get("name") or c.get("domain") or "").lower(),
+            str(c.get("domain") or "").lower(),
+            _sort_sim(c),
+        ]
+        if competitors_only:
+            sort_row += [str(c.get("fonte") or "").lower(), str(c.get("perfil") or "").lower()]
+        sort_row += [str(c.get("nicho") or "").lower(), ""]
+        if competitors_only:
+            sort_row.append(str(c.get("motivo") or "").lower())
+        if show_brand:
+            sort_row += [
+                str(c.get("brand_keyword") or "").lower(),
+                _sort_num(c.get("brand_aug_2026")),
+                _sort_num(c.get("brand_aug_2025")),
+                _sort_num(c.get("brand_aug_2024")),
+                _sort_num(c.get("brand_growth_26_24")),
+            ]
+        if show_sw:
+            sort_row.append(_sort_num(c.get("similarweb_visits")))
         comp_rows.append(row)
+        sort_rows.append(sort_row)
     show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
     show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
     comp_headers = ["#", "Company", "Domain", "Similarity"]
@@ -1887,11 +1952,14 @@ def render_report_html(
         </div>
       </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
+      <p class="muted table-hint">Clique no nome da coluna para ordenar (maior → menor). O × oculta a coluna.</p>
       {_rows_table(
           comp_headers, comp_rows,
           page_size=10 if competitors_only else 0,
           col_keys=comp_keys,
           compact_keys=compact_keys,
+          sort_rows=sort_rows,
+          interactive=True,
       )}
     </div>
 
@@ -2068,6 +2136,24 @@ th.num,td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 th.idx,td.idx{width:36px;color:var(--soft);font-variant-numeric:tabular-nums}
 th.motivo,td.motivo{max-width:168px}
 .clip{display:inline-block;max-width:156px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;vertical-align:bottom}
+.table-hint{margin:0 0 10px}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable .th-wrap{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+th.sortable .th-label{border-bottom:1px dashed transparent}
+th.sortable:hover .th-label{border-bottom-color:#94a3b8}
+th.is-sorted-desc .th-label::after,th.is-sorted-asc .th-label::after{margin-left:4px;font-size:10px;color:var(--accent)}
+th.is-sorted-desc .th-label::after{content:"↓"}
+th.is-sorted-asc .th-label::after{content:"↑"}
+.col-hide{border:0;background:#f1f5f9;color:#64748b;width:18px;height:18px;border-radius:4px;font:inherit;font-size:12px;
+  line-height:1;cursor:pointer;padding:0;opacity:0;transition:opacity .12s}
+th.sortable:hover .col-hide,.col-hide:focus{opacity:1}
+.col-hide:hover{background:#fee2e2;color:#b91c1c}
+#sec-competitors [data-hidden="1"]{display:none!important}
+.hidden-cols{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.hidden-cols[hidden]{display:none}
+.hidden-chip{border:1px dashed var(--border);background:#fff;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;
+  font-weight:600;color:var(--muted);cursor:pointer}
+.hidden-chip:hover{border-color:#0f766e;color:var(--accent)}
 td.empty{color:var(--soft);text-align:center;padding:22px}
 .you{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
@@ -2174,26 +2260,117 @@ _REPORT_JS = """
   });
 })();
 (function(){
-  document.querySelectorAll('.paged-table').forEach(function(wrap){
-    var size=parseInt(wrap.getAttribute('data-page-size')||'10',10)||10;
-    var rows=[].slice.call(wrap.querySelectorAll('tbody tr'));
+  document.querySelectorAll('.paged-table, .interactive-table').forEach(function(wrap){
+    var table=wrap.querySelector('table');
+    if(!table||!table.tBodies[0])return;
+    var tbody=table.tBodies[0];
+    var size=parseInt(wrap.getAttribute('data-page-size')||'0',10)||0;
     var status=wrap.querySelector('.pager-status');
     var prev=wrap.querySelector('.pager-prev');
     var next=wrap.querySelector('.pager-next');
-    if(!rows.length)return;
     var page=0;
-    var pages=Math.max(1, Math.ceil(rows.length/size));
+    var sortCol=-1;
+    var sortDir='desc';
+    var card=wrap.closest('#sec-competitors');
+    var tray=card?card.querySelector('.hidden-cols'):null;
+
+    function rows(){return [].slice.call(tbody.querySelectorAll('tr'));}
     function render(){
-      rows.forEach(function(tr,i){
-        var on=i>=page*size && i<(page+1)*size;
+      var all=rows();
+      var pages=size?Math.max(1,Math.ceil(all.length/size)):1;
+      if(page>pages-1)page=pages-1;
+      if(page<0)page=0;
+      all.forEach(function(tr,i){
+        var on=!size||(i>=page*size && i<(page+1)*size);
         tr.style.display=on?'':'none';
       });
-      if(status) status.textContent='Top '+(page*size+1)+'–'+Math.min(rows.length,(page+1)*size)+' de '+rows.length;
+      if(status&&size){
+        status.textContent='Top '+(all.length?page*size+1:0)+'–'+Math.min(all.length,(page+1)*size)+' de '+all.length;
+      }
       if(prev) prev.disabled=page<=0;
       if(next) next.disabled=page>=pages-1;
     }
+    function parseSort(td){
+      if(!td) return {empty:true,n:0,s:''};
+      var raw=td.getAttribute('data-sort');
+      if(raw!==null && raw!==''){
+        var n=parseFloat(raw);
+        if(!isNaN(n)) return {empty:false,n:n,s:''};
+        return {empty:false,n:0,s:String(raw).toLowerCase()};
+      }
+      var t=(td.textContent||'').replace(/\s+/g,' ').trim();
+      if(!t || t==='—' || t==='-') return {empty:true,n:0,s:''};
+      var n=parseFloat(t.replace(/[%+,]/g,'').replace(/\s/g,''));
+      if(!isNaN(n) && /\d/.test(t)) return {empty:false,n:n,s:''};
+      return {empty:false,n:0,s:t.toLowerCase()};
+    }
+    function sortBy(col){
+      if(sortCol===col) sortDir=sortDir==='desc'?'asc':'desc';
+      else {sortCol=col;sortDir='desc';}
+      var all=rows();
+      all.sort(function(a,b){
+        var va=parseSort(a.children[col]);
+        var vb=parseSort(b.children[col]);
+        if(va.empty&&vb.empty) return 0;
+        if(va.empty) return 1;
+        if(vb.empty) return -1;
+        var cmp=(va.s||vb.s)?va.s.localeCompare(vb.s):(va.n-vb.n);
+        return sortDir==='desc'?-cmp:cmp;
+      });
+      all.forEach(function(tr){tbody.appendChild(tr);});
+      table.querySelectorAll('thead th').forEach(function(th,i){
+        th.classList.toggle('is-sorted-desc', i===col && sortDir==='desc');
+        th.classList.toggle('is-sorted-asc', i===col && sortDir==='asc');
+      });
+      page=0;
+      render();
+    }
+    function hideCol(col){
+      var th=table.querySelectorAll('thead th')[col];
+      if(!th) return;
+      var key=th.getAttribute('data-col')||('c'+col);
+      table.querySelectorAll('[data-col="'+key+'"]').forEach(function(el){el.setAttribute('data-hidden','1');});
+      if(!tray) return;
+      tray.hidden=false;
+      if(tray.querySelector('[data-restore="'+key+'"]')) return;
+      var chip=document.createElement('button');
+      chip.type='button';
+      chip.className='hidden-chip';
+      chip.setAttribute('data-restore',key);
+      var label=(th.querySelector('.th-label')||th).textContent.replace('×','').trim();
+      chip.textContent='Mostrar '+label;
+      tray.appendChild(chip);
+    }
+    function showCol(key){
+      table.querySelectorAll('[data-col="'+key+'"]').forEach(function(el){el.removeAttribute('data-hidden');});
+      if(!tray) return;
+      var chip=tray.querySelector('[data-restore="'+key+'"]');
+      if(chip) chip.remove();
+      if(!tray.children.length) tray.hidden=true;
+    }
+    var head=table.tHead;
+    if(head && wrap.classList.contains('interactive-table')){
+      head.addEventListener('click',function(ev){
+        var hideBtn=ev.target.closest('.col-hide');
+        var th=ev.target.closest('th');
+        if(!th) return;
+        var col=[].indexOf.call(th.parentNode.children, th);
+        if(col<0) return;
+        if(hideBtn){ev.preventDefault();hideCol(col);return;}
+        sortBy(col);
+      });
+    }
+    if(tray){
+      tray.addEventListener('click',function(ev){
+        var chip=ev.target.closest('[data-restore]');
+        if(chip) showCol(chip.getAttribute('data-restore'));
+      });
+    }
     if(prev) prev.addEventListener('click',function(){ if(page>0){page--;render();}});
-    if(next) next.addEventListener('click',function(){ if(page<pages-1){page++;render();}});
+    if(next) next.addEventListener('click',function(){
+      var pages=size?Math.max(1,Math.ceil(rows().length/size)):1;
+      if(page<pages-1){page++;render();}
+    });
     render();
   });
 })();
