@@ -29,6 +29,25 @@
 })();
 
 (function () {
+  var root = document.getElementById("analysis-v2");
+  if (!root || !("IntersectionObserver" in window)) return;
+  var links = [].slice.call(root.querySelectorAll(".anav a"));
+  if (!links.length) return;
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (en) {
+      if (!en.isIntersecting) return;
+      links.forEach(function (a) {
+        a.classList.toggle("active", a.getAttribute("href") === "#" + en.target.id);
+      });
+    });
+  }, { rootMargin: "-35% 0px -60% 0px" });
+  ["resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) io.observe(el);
+  });
+})();
+
+(function () {
   var dataEl = document.getElementById("comp-v2-data");
   var root = document.getElementById("comp-v2");
   var card = document.getElementById("sec-competitors");

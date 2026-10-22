@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from report_analysis_v2 import build_analysis_v2
+
 
 def _esc(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
@@ -356,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.24"
+REPORT_UI_VERSION = "0.4.26"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2512,6 +2514,20 @@ def render_report_html(
         sw_missing=sw_missing,
     )
     ui_ver = REPORT_UI_VERSION
+    analysis_v2 = ""
+    body_cls = ""
+    if not competitors_only:
+        body_cls = ' class="is-analysis"'
+        analysis_v2 = build_analysis_v2(
+            report,
+            meta,
+            briefing=briefing,
+            client=str(client),
+            site_url=site_url,
+            site_host=site_host,
+            run_id=run_id,
+            market=market,
+        )
 
     return f"""<!DOCTYPE html>
 <html lang="en-US">
@@ -2523,16 +2539,17 @@ def render_report_html(
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/report_v2.css?v={_esc(ui_ver)}">
 <style>{_REPORT_CSS}</style>
+<link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
 <script>
 (function(){{try{{var v=localStorage.getItem('spy-report-ui');document.documentElement.setAttribute('data-ui',v==='v1'?'v1':'v2');}}catch(e){{document.documentElement.setAttribute('data-ui','v2');}}}})();
 </script>
 </head>
-<body>
+<body{body_cls}>
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand"><span class="logo">S</span>Spy USA<span class="crumb">/ {_esc(client)}</span></div>
     <div class="actions">
-      <div class="ui-switch" role="group" aria-label="Table version">
+      <div class="ui-switch" role="group" aria-label="Report version">
         <button type="button" class="ui-ver" data-ui="v1" aria-pressed="false">v1</button>
         <button type="button" class="ui-ver is-active" data-ui="v2" aria-pressed="true">v2</button>
       </div>
@@ -2542,7 +2559,7 @@ def render_report_html(
     </div>
   </div>
 </header>
-<div class="layout">
+<div class="layout" id="analysis-v1">
   <aside class="toc"><nav>{toc_html}</nav></aside>
   <main>
     <section class="masthead">
@@ -2591,6 +2608,7 @@ def render_report_html(
     <footer class="foot">Spy USA{(' · run ' + _esc(meta.get('id'))) if meta.get('id') else ''}</footer>
   </main>
 </div>
+{analysis_v2}
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
 </body>
