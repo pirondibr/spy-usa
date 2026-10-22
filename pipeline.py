@@ -1182,6 +1182,10 @@ def _enrich_competitors_brand_sw(
                 if c.get("is_client") or sim == "alto":
                     targets.append(c)
             if targets:
+                names = ", ".join(
+                    (t.get("domain") or t.get("name") or "?") for t in targets[:12]
+                )
+                _log(f"[SIMILARWEB] Apify start ({len(targets)}): {names}")
                 sw_rows = traffic_reports_batch(targets)
                 by_dom = {(r.get("domain") or "").lower(): r for r in sw_rows}
                 for c in rows:
@@ -1348,24 +1352,28 @@ def run_competitors_only_pipeline(
         report = _competitors_only_report(slug, url, client_name, parsed.competitors)
         if include_brand_growth:
             _prog("brand_growth", "running", "DataForSEO marca ago/2026–2024…")
+            report = _enrich_competitors_brand_sw(
+                report, include_brand_growth=True, include_similarweb_alto=False, emit=emit,
+            )
+            _prog("brand_growth", "done", "Brand growth ready")
+        html_url = f"/runs/{run_id}/report.html" if run_id else ""
+        if run_id:
+            _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
+            emit("report_ready", html_url=html_url, status="running",
+                 detail="Relatório pronto — SimilarWeb ainda pode rodar")
+            emit("log", line=f"[REPORT] Página pronta: {html_url}")
         if include_similarweb_alto:
             _prog("similarweb_alto", "running", "SimilarWeb só Alto…")
-        report = _enrich_competitors_brand_sw(
-            report,
-            include_brand_growth=include_brand_growth,
-            include_similarweb_alto=include_similarweb_alto,
-            emit=emit,
-        )
-        if include_brand_growth:
-            _prog("brand_growth", "done", "Brand growth ready")
-        if include_similarweb_alto:
+            report = _enrich_competitors_brand_sw(
+                report, include_brand_growth=False, include_similarweb_alto=True, emit=emit,
+            )
             _prog("similarweb_alto", "done", "SimilarWeb ready")
         if run_id:
             _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
         else:
             attach_run_log(report, recorder)
         emit("partial", section="briefing_concorrentes", data=report, client=client_name)
-        emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
+        emit("done", report=report, html_url=html_url)
         return report
 
     _prog("briefing_concorrentes", "running", f"Briefing US: {url}")
@@ -1396,17 +1404,22 @@ def run_competitors_only_pipeline(
     _prog("competitors_discover", "done", f"{report.get('competitors_count', 0)} competitors")
     if include_brand_growth:
         _prog("brand_growth", "running", "DataForSEO marca ago/2026–2024…")
+        report = _enrich_competitors_brand_sw(
+            report, include_brand_growth=True, include_similarweb_alto=False, emit=emit,
+        )
+        _prog("brand_growth", "done", "Brand growth ready")
+    html_url = ""
+    if run_id:
+        _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
+        html_url = f"/runs/{run_id}/report.html"
+        emit("report_ready", html_url=html_url, status="running",
+             detail="Relatório pronto — SimilarWeb ainda pode rodar")
+        emit("log", line=f"[REPORT] Página pronta: {html_url}")
     if include_similarweb_alto:
         _prog("similarweb_alto", "running", "SimilarWeb só Alto…")
-    report = _enrich_competitors_brand_sw(
-        report,
-        include_brand_growth=include_brand_growth,
-        include_similarweb_alto=include_similarweb_alto,
-        emit=emit,
-    )
-    if include_brand_growth:
-        _prog("brand_growth", "done", "Brand growth ready")
-    if include_similarweb_alto:
+        report = _enrich_competitors_brand_sw(
+            report, include_brand_growth=False, include_similarweb_alto=True, emit=emit,
+        )
         _prog("similarweb_alto", "done", "SimilarWeb ready")
     emit("partial", section="briefing_concorrentes", data=report, client=client_name)
 

@@ -493,6 +493,10 @@
             source.close();
             resolve({ ok: false, job });
           }
+          if (msg.type === "report_ready" && msg.html_url) {
+            attachDone(job.job_id, msg.html_url);
+            $("stepLabel").textContent = msg.detail || "Relatório pronto — ainda enriquecendo";
+          }
           if (msg.type === "finished" || (msg.type === "done" && msg.html_url)) {
             const url = msg.html_url || `/runs/${job.job_id}/report.html`;
             $("bar").style.width = "100%";
@@ -503,7 +507,7 @@
           }
           if (msg.type === "eof") {
             source.close();
-            resolve({ ok: true, job });
+            poll(job.job_id).then(resolve);
           }
         };
         source.onerror = () => {

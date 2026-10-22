@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -271,7 +271,31 @@ def fetch_traffic_batch(domains: list[str], *, waiting: int = 2000) -> dict[str,
             "apifyProxyGroups": ["RESIDENTIAL"],
         },
     }
-    run = client.actor(ACTOR_ID).call(run_input=run_input)
+    actor = client.actor(ACTOR_ID)
+    try:
+        run = actor.call(
+            run_input=run_input,
+            run_timeout=timedelta(seconds=120),
+            wait_duration=timedelta(seconds=150),
+        )
+    except TypeError:
+        try:
+            run = actor.call(
+                run_input=run_input,
+                timeout_secs=120,
+                wait_for_finish=150,
+            )
+        except TypeError:
+            run = actor.call(run_input=run_input, timeout_secs=120)
+    if run is None:
+        raise RuntimeError("Apify SimilarWeb timed out (150s) without a run result")
+    status = ""
+    if isinstance(run, dict):
+        status = str(run.get("status") or "")
+    else:
+        status = str(getattr(run, "status", "") or "")
+    if status.upper() not in ("", "SUCCEEDED", "READY"):
+        raise RuntimeError(f"Apify SimilarWeb status={status} (timeout 150s)")
     ds_id = _dataset_id(run)
     if not ds_id:
         raise RuntimeError("Apify run finished without defaultDatasetId")
