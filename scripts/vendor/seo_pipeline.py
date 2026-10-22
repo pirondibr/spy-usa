@@ -1082,9 +1082,56 @@ def title_is_missing(title: str) -> bool:
     return len(t) < 3
 
 
-def _title_from_scrape(content: str) -> str:
+def _brand_title_tokens(row: dict | None) -> list[str]:
+    row = row or {}
+    parts: list[str] = []
+    domain = normalize_domain(row.get("domain") or row.get("url") or "")
+    if domain:
+        parts.append(domain.split(".")[0])
+        parts.append(domain)
+    for raw in (row.get("name"), row.get("company"), row.get("brand_keyword")):
+        s = str(raw or "").strip()
+        if not s:
+            continue
+        parts.append(s)
+        parts.append(re.sub(r"[^a-zA-Z0-9]+", " ", s).strip())
+        parts.append(re.sub(r"[^a-zA-Z0-9]+", "", s))
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in parts:
+        folded = re.sub(r"\s+", " ", str(p or "")).strip()
+        key = re.sub(r"[^a-z0-9]", "", folded.lower())
+        if len(key) < 3 or key in seen:
+            continue
+        seen.add(key)
+        out.append(folded)
+    out.sort(key=len, reverse=True)
+    return out
+
+
+def clean_page_title(title: str, row: dict | None = None) -> str:
+    """Strip brand name and AI dashes (—, –, --) from a page title."""
+    t = str(title or "")
+    t = t.replace("\u2014", " ").replace("\u2013", " ").replace("\u2212", " ")
+    t = re.sub(r"-{2,}", " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" \t|:/-")
+    dashed_only = t
+    for brand in _brand_title_tokens(row):
+        pat = re.escape(brand)
+        t = re.sub(rf"(?i)^{pat}\s*[:|/\-]+\s*", "", t)
+        t = re.sub(rf"(?i)\s*[:|/\-]+\s*{pat}$", "", t)
+        t = re.sub(rf"(?i)(?<![a-z0-9]){pat}(?![a-z0-9])", " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" \t|:/-")
+    t = re.sub(r"^[:|/\-]+\s*", "", t)
+    if title_is_missing(t):
+        return dashed_only if not title_is_missing(dashed_only) else ""
+    return t[:120]
+
+
+def _title_from_scrape(content: str, row: dict | None = None) -> str:
     m = re.search(r"(?im)^TITLE:\s*(.+)$", content or "")
     t = re.sub(r"\s+", " ", (m.group(1) if m else "").strip())
+    t = clean_page_title(t, row)
     return "" if title_is_missing(t) else t[:120]
 
 
@@ -1104,15 +1151,15 @@ def fill_missing_titles(rows: list, *, chunk: int = 15) -> int:
                 f"niche={(r.get('nicho') or '').strip() or 'n/d'}; "
                 f"hint={str(r.get('motivo') or '')[:80]}"
             )
-        prompt = f"""Write a realistic homepage <title> for each website (what the tab would show).
-
-Return JSON object only: {{"domain.com": "Title here", ...}}
-Rules: 4-70 characters, no quotes, no Cloudflare/challenge phrases, no URL path.
-If unsure, use "Brand — short category".
-
-SITES:
-{chr(10).join(lines)}
-"""
+        prompt = (
+            "Write a short homepage description for each website (what the product/category is).\n"
+            "Return JSON object only: {\"domain.com\": \"Title here\", ...}\n"
+            "Rules: 4-70 characters. Do NOT include the brand/company name. "
+            "Do NOT use -- or em/en dashes.\n"
+            "No quotes, no Cloudflare/challenge phrases, no URL path.\n"
+            "If unsure, use a short category like \"E-commerce analytics platform\".\n\n"
+            "SITES:\n" + "\n".join(lines)
+        )
         try:
             data = extract_json(call_openrouter(prompt, max_tokens=900, temperature=0.2))
         except Exception as e:
@@ -1130,12 +1177,12 @@ SITES:
             items = []
         for key, val in items:
             dom = normalize_domain(str(key or ""))
-            title = re.sub(r"\s+", " ", str(val or "").strip().strip('"').strip("'"))
+            title = clean_page_title(str(val or "").strip().strip('"').strip("'"), {"domain": dom})
             if dom and not title_is_missing(title):
                 by[dom] = title[:120]
         for r in batch:
             dom = normalize_domain(r.get("domain") or r.get("url") or "")
-            title = by.get(dom) or ""
+            title = clean_page_title(by.get(dom) or "", r)
             if title_is_missing(title):
                 continue
             r["title"] = title
@@ -1154,7 +1201,7 @@ def analyze_similarity(
 ) -> dict:
     comp_url = homepage_url(comp_url) or (comp_url or "").strip()
     content = scrape_url_text(comp_url)
-    scraped_title = _title_from_scrape(content)
+    scraped_title = _title_from_scrape(content, {"domain": homepage_url(comp_url) or comp_url})
     if not content:
         return {
             "nicho": "—",

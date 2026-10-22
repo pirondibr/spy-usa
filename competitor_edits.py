@@ -255,15 +255,17 @@ def add_competitor(run_id: str, url: str, similaridade: str = "") -> dict[str, A
     except Exception:
         page_title = ""
     try:
-        from seo_pipeline import fill_missing_titles, title_is_missing  # noqa: E402
+        from seo_pipeline import clean_page_title, fill_missing_titles, title_is_missing  # noqa: E402
 
+        page_title = clean_page_title(page_title, {"domain": dom, "name": _name_from_domain(dom)})
+
+        hint = {"domain": dom, "name": _name_from_domain(dom)}
         if title_is_missing(page_title) and not title_is_missing(analyzed.get("title") or ""):
-            page_title = str(analyzed.get("title") or "").strip()
+            page_title = clean_page_title(analyzed.get("title") or "", hint)
         elif title_is_missing(page_title):
-            tmp = {"domain": dom, "name": _name_from_domain(dom),
-                   "nicho": analyzed.get("nicho") or "", "motivo": analyzed.get("motivo") or ""}
+            tmp = {**hint, "nicho": analyzed.get("nicho") or "", "motivo": analyzed.get("motivo") or ""}
             fill_missing_titles([tmp])
-            page_title = str(tmp.get("title") or "").strip()
+            page_title = clean_page_title(tmp.get("title") or "", tmp)
     except Exception:
         pass
 

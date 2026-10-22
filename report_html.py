@@ -155,7 +155,16 @@ def _fmt_brand_vol(v: Any) -> str:
 
 
 def _row_title(c: dict[str, Any]) -> str:
-    return str(c.get("title") or c.get("site_title") or c.get("page_title") or "").strip()
+    raw = str(c.get("title") or c.get("site_title") or c.get("page_title") or "").strip()
+    try:
+        vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+        if str(vendor) not in sys.path:
+            sys.path.insert(0, str(vendor))
+        from seo_pipeline import clean_page_title  # noqa: E402
+
+        return clean_page_title(raw, c)
+    except Exception:
+        return raw
 
 
 def _fmt_growth(v: Any) -> str:
