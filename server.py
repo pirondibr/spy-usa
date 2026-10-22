@@ -79,6 +79,8 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "site_only": bool(job.site_only),
         "compare_all": bool(getattr(job, "compare_all", False)),
         "competitors_only": bool(getattr(job, "competitors_only", False)),
+        "include_brand_growth": bool(getattr(job, "include_brand_growth", False)),
+        "include_similarweb_alto": bool(getattr(job, "include_similarweb_alto", False)),
         "peer_urls": list(job.parsed.competitors or []),
         "include_google_ads": bool(job.include_google_ads),
         "include_linkedin": bool(job.include_linkedin),
@@ -202,6 +204,8 @@ class Job:
     market: str = "us"
     compare_all: bool = False
     competitors_only: bool = False
+    include_brand_growth: bool = False
+    include_similarweb_alto: bool = False
     queue: Queue = field(default_factory=Queue)
     status: str = "pending"
     current_step: str = ""
@@ -282,6 +286,8 @@ def _worker(job: Job) -> None:
             market=job.market or "us",
             compare_all=bool(job.compare_all),
             competitors_only=bool(job.competitors_only),
+            include_brand_growth=bool(job.include_brand_growth),
+            include_similarweb_alto=bool(job.include_similarweb_alto),
         )
         job.report = report
         job.html_url = f"/runs/{job.job_id}/report.html"
@@ -352,6 +358,12 @@ def _flags_from_body(body: dict) -> tuple:
     if competitors_only:
         site_only = False
         compare_all = False
+    include_brand_growth = _flag(
+        body, "include_brand_growth", "brand_growth", default=False
+    )
+    include_similarweb_alto = _flag(
+        body, "include_similarweb_alto", "similarweb_alto", default=False
+    )
     return (
         force,
         site_only,
@@ -365,6 +377,8 @@ def _flags_from_body(body: dict) -> tuple:
         market,
         compare_all,
         competitors_only,
+        include_brand_growth,
+        include_similarweb_alto,
     )
 
 
@@ -377,6 +391,8 @@ def _job_payload(job: Job) -> dict[str, Any]:
         "site_only": job.site_only,
         "compare_all": bool(job.compare_all),
         "competitors_only": bool(job.competitors_only),
+        "include_brand_growth": bool(job.include_brand_growth),
+        "include_similarweb_alto": bool(job.include_similarweb_alto),
         "market": (job.market or "us").upper(),
         "include_google_ads": job.include_google_ads,
         "include_linkedin": job.include_linkedin,
@@ -445,6 +461,8 @@ def _start_jobs_from_raw(
     market: str = "us",
     compare_all: bool = False,
     competitors_only: bool = False,
+    include_brand_growth: bool = False,
+    include_similarweb_alto: bool = False,
 ) -> list[Job]:
     companies = parse_company_list(raw)
     if not companies:
@@ -487,6 +505,8 @@ def _start_jobs_from_raw(
             market=market,
             compare_all=compare_all,
             competitors_only=competitors_only,
+            include_brand_growth=include_brand_growth,
+            include_similarweb_alto=include_similarweb_alto,
         )
         _enqueue_job(job)
         created.append(job)
@@ -515,6 +535,8 @@ def analyze():
         market,
         compare_all,
         competitors_only,
+        include_brand_growth,
+        include_similarweb_alto,
     ) = _flags_from_body(body)
 
     missing = [k for k, ok in _live_keys_ready().items() if not ok]
@@ -535,6 +557,8 @@ def analyze():
         market=market,
         compare_all=compare_all,
         competitors_only=competitors_only,
+        include_brand_growth=include_brand_growth,
+        include_similarweb_alto=include_similarweb_alto,
     )
     if not created:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400
@@ -549,6 +573,8 @@ def analyze():
         "market": market.upper(),
         "compare_all": compare_all,
         "competitors_only": competitors_only,
+        "include_brand_growth": include_brand_growth,
+        "include_similarweb_alto": include_similarweb_alto,
         "site_only": site_only,
         "include_google_ads": include_google_ads,
         "include_linkedin": include_linkedin,
@@ -580,6 +606,8 @@ def rerun(run_id: str):
     market = "us"
     compare_all = False
     competitors_only = False
+    include_brand_growth = False
+    include_similarweb_alto = False
     peer_urls: list[str] = []
     if meta:
         url = (meta.get("url") or meta.get("company") or "").strip()
@@ -594,6 +622,8 @@ def rerun(run_id: str):
         market = _normalize_market(meta.get("market") or "us")
         compare_all = bool(meta.get("compare_all"))
         competitors_only = bool(meta.get("competitors_only"))
+        include_brand_growth = bool(meta.get("include_brand_growth"))
+        include_similarweb_alto = bool(meta.get("include_similarweb_alto"))
         peer_urls = [str(x).strip() for x in (meta.get("peer_urls") or []) if str(x).strip()]
     if job_mem and not url:
         url = job_mem.parsed.url or job_mem.parsed.company
@@ -608,6 +638,8 @@ def rerun(run_id: str):
         market = _normalize_market(job_mem.market or "us")
         compare_all = bool(job_mem.compare_all)
         competitors_only = bool(job_mem.competitors_only)
+        include_brand_growth = bool(job_mem.include_brand_growth)
+        include_similarweb_alto = bool(job_mem.include_similarweb_alto)
         peer_urls = list(job_mem.parsed.competitors or [])
 
     if not url:
@@ -635,6 +667,8 @@ def rerun(run_id: str):
         market=market,
         compare_all=compare_all,
         competitors_only=competitors_only,
+        include_brand_growth=include_brand_growth,
+        include_similarweb_alto=include_similarweb_alto,
     )
     if not created:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400

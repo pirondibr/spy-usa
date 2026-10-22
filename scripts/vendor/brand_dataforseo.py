@@ -164,6 +164,8 @@ def _pick_month(
     for m in monthly:
         if int(m.get("year") or 0) == year and int(m.get("month") or 0) == month:
             vol = m.get("search_volume")
+            if vol is None:
+                vol = m.get("volume")
             return int(vol) if vol is not None else None
     return None
 
@@ -339,6 +341,20 @@ def brand_report_for_entity(
     }
 
 
+def august_windows(monthly: list[dict] | None, *, month: int = 8) -> dict[str, Any]:
+    """Volumes de agosto 2026 / 2025 / 2024 + crescimento 2026 vs 2024."""
+    rows = monthly or []
+    v26 = _pick_month(rows, 2026, month)
+    v25 = _pick_month(rows, 2025, month)
+    v24 = _pick_month(rows, 2024, month)
+    return {
+        "vol_2026_08": v26,
+        "vol_2025_08": v25,
+        "vol_2024_08": v24,
+        "growth_26_24_pct": _pct(v26, v24),
+    }
+
+
 def brand_reports_batch(entities: list[dict]) -> list[dict]:
     """Resolve keywords, one DFS call, map back to entities."""
     metas = []
@@ -359,6 +375,7 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
         data = volumes.get(kw) or {}
         latest = data.get("latest") or {}
         comps = data.get("comparisons") or {}
+        aug = august_windows(data.get("monthly") or [])
         rows.append({
             "name": e.get("name") or e.get("company") or meta["domain_brand"] or kw,
             "domain": e.get("domain") or meta["domain_brand"],
@@ -379,6 +396,10 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
             "growth_2y_pct": (comps.get("2y") or {}).get("growth_pct"),
             "growth_3y_pct": (comps.get("3y") or {}).get("growth_pct"),
             "growth_5y_pct": (comps.get("5y") or {}).get("growth_pct"),
+            "vol_2026_08": aug.get("vol_2026_08"),
+            "vol_2025_08": aug.get("vol_2025_08"),
+            "vol_2024_08": aug.get("vol_2024_08"),
+            "growth_26_24_pct": aug.get("growth_26_24_pct"),
             "comparisons": comps,
             "months_available": data.get("months_available"),
             "oldest_label": data.get("oldest_label"),

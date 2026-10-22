@@ -293,6 +293,16 @@
         </div>
         <p class="hint-field" style="margin:0">USA = Google US + prompt em inglês. BR = Google Brasil + prompt em português. Fontes: SEO SERP + LLM.</p>
         <label class="check">
+          <input id="brandGrowth" type="checkbox" checked />
+          Crescimento da marca
+          <span class="hint">(DataForSEO · ago/2026 vs ago/2024)</span>
+        </label>
+        <label class="check">
+          <input id="similarwebAlto" type="checkbox" checked />
+          SimilarWeb
+          <span class="hint">(só similaridade Alto + cliente)</span>
+        </label>
+        <label class="check">
           <input id="forceCompetitors" type="checkbox" />
           Force refresh
           <span class="hint">(refaz briefing + lista de concorrentes)</span>
@@ -635,6 +645,8 @@
         include_reddit: false,
         include_twitter: false,
         include_linkedin_profile: false,
+        include_brand_growth: $("brandGrowth").checked,
+        include_similarweb_alto: $("similarwebAlto").checked,
       });
     });
 

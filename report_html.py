@@ -66,7 +66,27 @@ def _compact_num(n: Any) -> str:
     return f"{int(v):,}"
 
 
-def _rows_table(headers: list[str], rows: list[list[str]]) -> str:
+def _fmt_vol(v: Any) -> str:
+    if v is None or v == "":
+        return "—"
+    try:
+        return f"{int(float(v)):,}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _fmt_growth(v: Any) -> str:
+    if v is None or v == "":
+        return "—"
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    sign = "+" if n > 0 else ""
+    return f"{sign}{n:.1f}%"
+
+
+def _rows_table(headers: list[str], rows: list[list[str]], *, page_size: int = 0) -> str:
     num_cols: set[int] = set()
     for c, h in enumerate(headers):
         if h == "#":
@@ -89,9 +109,20 @@ def _rows_table(headers: list[str], rows: list[list[str]]) -> str:
         body.append(f'<tr class="is-you">{tds}</tr>' if is_you else f"<tr>{tds}</tr>")
     if not body:
         body.append(f'<tr><td class="empty" colspan="{len(headers)}">No data</td></tr>')
+    wrap = "table-wrap paged-table" if page_size else "table-wrap"
+    extra = f' data-page-size="{int(page_size)}"' if page_size else ""
+    pager = (
+        '<div class="pager">'
+        '<button type="button" class="pager-prev">Anterior</button>'
+        '<span class="pager-status"></span>'
+        '<button type="button" class="pager-next">Próxima</button>'
+        "</div>"
+        if page_size and len(rows) > page_size
+        else ""
+    )
     return (
-        f'<div class="table-wrap"><table><thead><tr>{thead}</tr></thead>'
-        f"<tbody>{''.join(body)}</tbody></table></div>"
+        f'<div class="{wrap}"{extra}><table><thead><tr>{thead}</tr></thead>'
+        f"<tbody>{''.join(body)}</tbody></table>{pager}</div>"
     )
 
 
@@ -1628,13 +1659,35 @@ def render_report_html(
         ])
         if competitors_only:
             row.append(_esc(c.get("motivo") or "—"))
+        show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
+        show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
+        if show_brand:
+            row.extend([
+                _esc(c.get("brand_keyword") or "—"),
+                _fmt_vol(c.get("brand_aug_2026")),
+                _fmt_vol(c.get("brand_aug_2025")),
+                _fmt_vol(c.get("brand_aug_2024")),
+                _fmt_growth(c.get("brand_growth_26_24")),
+            ])
+        if show_sw:
+            sim = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
+            if c.get("is_client") or sim == "alto":
+                row.append(_esc(c.get("similarweb_fmt") or _fmt_vol(c.get("similarweb_visits"))))
+            else:
+                row.append("—")
         comp_rows.append(row)
+    show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
+    show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
     comp_headers = ["#", "Company", "Domain", "Similarity"]
     if competitors_only:
         comp_headers += ["Fonte", "Perfil"]
     comp_headers += ["Niche", "Link"]
     if competitors_only:
         comp_headers.append("Motivo")
+    if show_brand:
+        comp_headers += ["Marca", "Ago 2026", "Ago 2025", "Ago 2024", "Crescimento 26/24"]
+    if show_sw:
+        comp_headers.append("SimilarWeb")
 
     market = _report_market(report, meta)
     compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
@@ -1701,6 +1754,10 @@ def render_report_html(
         chips.append('<span class="chip">Mode: All</span>')
     if competitors_only:
         chips.append('<span class="chip accent">Concorrentes only</span>')
+    if report.get("include_brand_growth") or meta.get("include_brand_growth"):
+        chips.append('<span class="chip">Marca ago 26/25/24</span>')
+    if report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"):
+        chips.append('<span class="chip">SimilarWeb Alto</span>')
     if meta.get("site_only") and not compare_all and not competitors_only:
         chips.append('<span class="chip">Sem concorrentes</span>')
     mast_meta = []
@@ -1759,7 +1816,7 @@ def render_report_html(
     <div class="card" id="sec-competitors" data-group="overview">
       <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
-      {_rows_table(comp_headers, comp_rows)}
+      {_rows_table(comp_headers, comp_rows, page_size=10 if competitors_only else 0)}
     </div>
 
     {cards}
@@ -1915,6 +1972,10 @@ h2 .count{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px
 @media (min-width:640px){.kpi-multi{grid-column:span 2}}
 
 .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px}
+.pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px 12px;border-top:1px solid var(--border);background:#f8fafc}
+.pager button{border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 10px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.pager button:disabled{opacity:.4;cursor:default}
+.pager-status{font-size:12px;color:var(--muted);font-weight:600}
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 thead th{background:#f8fafc;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
@@ -2029,6 +2090,30 @@ _REPORT_JS = """
     bar.querySelectorAll('.sort-btn').forEach(function(b){b.classList.remove('is-active');});
     btn.classList.add('is-active');
     sortKpis(btn.getAttribute('data-sort')||'score-desc');
+  });
+})();
+(function(){
+  document.querySelectorAll('.paged-table').forEach(function(wrap){
+    var size=parseInt(wrap.getAttribute('data-page-size')||'10',10)||10;
+    var rows=[].slice.call(wrap.querySelectorAll('tbody tr'));
+    var status=wrap.querySelector('.pager-status');
+    var prev=wrap.querySelector('.pager-prev');
+    var next=wrap.querySelector('.pager-next');
+    if(!rows.length)return;
+    var page=0;
+    var pages=Math.max(1, Math.ceil(rows.length/size));
+    function render(){
+      rows.forEach(function(tr,i){
+        var on=i>=page*size && i<(page+1)*size;
+        tr.style.display=on?'':'none';
+      });
+      if(status) status.textContent='Top '+(page*size+1)+'–'+Math.min(rows.length,(page+1)*size)+' de '+rows.length;
+      if(prev) prev.disabled=page<=0;
+      if(next) next.disabled=page>=pages-1;
+    }
+    if(prev) prev.addEventListener('click',function(){ if(page>0){page--;render();}});
+    if(next) next.addEventListener('click',function(){ if(page<pages-1){page++;render();}});
+    render();
   });
 })();
 """

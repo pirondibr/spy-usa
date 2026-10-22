@@ -51,6 +51,8 @@ EmitFn = Callable[..., None]
 COMPETITORS_ONLY_STEPS = [
     {"id": "briefing_concorrentes", "label": "Briefing", "index": 1, "eta_live": 180},
     {"id": "competitors_discover", "label": "Find competitors", "index": 2, "eta_live": 360},
+    {"id": "brand_growth", "label": "Brand growth (Aug 26/25/24)", "index": 3, "eta_live": 40},
+    {"id": "similarweb_alto", "label": "SimilarWeb (Alto)", "index": 4, "eta_live": 60},
 ]
 
 STEP_DEFS = [
@@ -852,6 +854,8 @@ def _save_report(
     market: str = "us",
     compare_all: bool = False,
     competitors_only: bool = False,
+    include_brand_growth: bool = False,
+    include_similarweb_alto: bool = False,
 ) -> Path:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_dir = RUNS_DIR / run_id
@@ -871,6 +875,8 @@ def _save_report(
         "site_only": bool(site_only),
         "compare_all": bool(compare_all),
         "competitors_only": bool(competitors_only),
+        "include_brand_growth": bool(include_brand_growth),
+        "include_similarweb_alto": bool(include_similarweb_alto),
         "peer_urls": list(parsed.competitors or []),
         "include_google_ads": bool(include_google_ads),
         "include_linkedin": bool(include_linkedin),
@@ -1108,6 +1114,96 @@ def _run_compare_all_pipeline(
     return report
 
 
+def _comp_sort_key(c: dict) -> tuple:
+    if c.get("is_client"):
+        return (0, 0, "")
+    sim = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
+    rank = 1 if sim == "alto" else 2 if sim == "medio" else 3
+    return (1, rank, str(c.get("name") or c.get("domain") or "").lower())
+
+
+def _enrich_competitors_brand_sw(
+    report: dict,
+    *,
+    include_brand_growth: bool,
+    include_similarweb_alto: bool,
+    emit: Optional[EmitFn] = None,
+) -> dict:
+    """Attach DataForSEO Aug volumes and SimilarWeb visits onto competitor rows."""
+    rows = list(report.get("competitors") or [])
+    if not rows:
+        return report
+
+    def _log(line: str) -> None:
+        if emit:
+            emit("log", line=line)
+
+    sys.path.insert(0, str(FINAL_DIR))
+    sys.path.insert(0, str(FINAL_DIR / "vendor"))
+
+    if include_brand_growth:
+        try:
+            from brand_dataforseo import brand_reports_batch  # noqa: E402
+
+            entities = []
+            for c in rows:
+                entities.append({
+                    "name": c.get("name") or c.get("domain") or "",
+                    "company": c.get("name") or "",
+                    "domain": c.get("domain") or "",
+                    "url": c.get("url") or "",
+                    "title": c.get("title") or "",
+                    "is_client": bool(c.get("is_client")),
+                    "similaridade": c.get("similaridade") or "",
+                })
+            brand_rows = brand_reports_batch(entities)
+            by_dom = {(r.get("domain") or "").lower(): r for r in brand_rows}
+            for c in rows:
+                br = by_dom.get((c.get("domain") or "").lower()) or {}
+                c["brand_keyword"] = br.get("brand_keyword") or ""
+                c["brand_aug_2026"] = br.get("vol_2026_08")
+                c["brand_aug_2025"] = br.get("vol_2025_08")
+                c["brand_aug_2024"] = br.get("vol_2024_08")
+                c["brand_growth_26_24"] = br.get("growth_26_24_pct")
+            report["include_brand_growth"] = True
+            _log(f"[BRAND] DataForSEO agosto 2026/25/24 em {len(brand_rows)} empresas")
+        except Exception as e:
+            _log(f"[BRAND] Falhou: {e}")
+            report["include_brand_growth"] = True
+            report["brand_growth_error"] = str(e)
+
+    if include_similarweb_alto:
+        try:
+            from similarweb_traffic import traffic_reports_batch  # noqa: E402
+
+            targets = []
+            for c in rows:
+                sim = str(c.get("similaridade") or "").strip().lower().replace("é", "e")
+                if c.get("is_client") or sim == "alto":
+                    targets.append(c)
+            if targets:
+                sw_rows = traffic_reports_batch(targets)
+                by_dom = {(r.get("domain") or "").lower(): r for r in sw_rows}
+                for c in rows:
+                    sw = by_dom.get((c.get("domain") or "").lower()) or {}
+                    if not sw:
+                        continue
+                    c["similarweb_visits"] = sw.get("traffic") or sw.get("latest_visits")
+                    c["similarweb_fmt"] = sw.get("traffic_fmt") or ""
+                    c["similarweb_error"] = sw.get("error") or ""
+            report["include_similarweb_alto"] = True
+            _log(f"[SIMILARWEB] Alto+cliente: {len(targets)} domínio(s)")
+        except Exception as e:
+            _log(f"[SIMILARWEB] Falhou: {e}")
+            report["include_similarweb_alto"] = True
+            report["similarweb_error"] = str(e)
+
+    rows.sort(key=_comp_sort_key)
+    report["competitors"] = rows
+    report["competitors_raw"] = rows
+    return report
+
+
 def _competitors_only_report(
     slug: str,
     url: str,
@@ -1123,6 +1219,7 @@ def _competitors_only_report(
     )
     raw = list(early.get("competitors_raw") or early.get("competitors") or [])
     shown = raw or list(early.get("competitors") or [])
+    shown.sort(key=_comp_sort_key)
     stats = early.get("competitors_stats") or {}
     count = len([c for c in shown if not c.get("is_client")])
     alto = stats.get("alto") or stats.get("Alto") or 0
@@ -1154,6 +1251,8 @@ def run_competitors_only_pipeline(
     run_id: str = "",
     force: bool = False,
     market: str = "us",
+    include_brand_growth: bool = False,
+    include_similarweb_alto: bool = False,
 ) -> dict:
     """Briefing + discovery nacional (SEO + LLM). Sem métricas de canal."""
     required = (
@@ -1175,7 +1274,14 @@ def run_competitors_only_pipeline(
     slug = parsed.slug or slugify_client(url)
     client_name = parsed.company or slug
     script_env = {"SPY_SITE_ONLY": "0", "SPY_MARKET": market, "SPY_COMPARE_ALL": "0"}
-    steps = COMPETITORS_ONLY_STEPS
+    steps = [s for s in COMPETITORS_ONLY_STEPS if s["id"] in {
+        "briefing_concorrentes", "competitors_discover",
+    } or (s["id"] == "brand_growth" and include_brand_growth)
+      or (s["id"] == "similarweb_alto" and include_similarweb_alto)]
+    for i, s in enumerate(steps, 1):
+        s = dict(s)
+        s["index"] = i
+        steps[i - 1] = s
 
     recorder = RunRecorder()
     emit = _wrap_emit_logger(emit, recorder)
@@ -1201,6 +1307,8 @@ def run_competitors_only_pipeline(
             market=market,
             compare_all=False,
             competitors_only=True,
+            include_brand_growth=include_brand_growth,
+            include_similarweb_alto=include_similarweb_alto,
         )
 
     emit(
@@ -1210,6 +1318,8 @@ def run_competitors_only_pipeline(
         site_only=False,
         compare_all=False,
         competitors_only=True,
+        include_brand_growth=include_brand_growth,
+        include_similarweb_alto=include_similarweb_alto,
         total_steps=len(steps),
         eta_label="~3–8 min",
     )
@@ -1236,6 +1346,20 @@ def run_competitors_only_pipeline(
         _prog("briefing_concorrentes", "done", "Cached briefing")
         _prog("competitors_discover", "done", "Cached competitors")
         report = _competitors_only_report(slug, url, client_name, parsed.competitors)
+        if include_brand_growth:
+            _prog("brand_growth", "running", "DataForSEO marca ago/2026–2024…")
+        if include_similarweb_alto:
+            _prog("similarweb_alto", "running", "SimilarWeb só Alto…")
+        report = _enrich_competitors_brand_sw(
+            report,
+            include_brand_growth=include_brand_growth,
+            include_similarweb_alto=include_similarweb_alto,
+            emit=emit,
+        )
+        if include_brand_growth:
+            _prog("brand_growth", "done", "Brand growth ready")
+        if include_similarweb_alto:
+            _prog("similarweb_alto", "done", "SimilarWeb ready")
         if run_id:
             _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
         else:
@@ -1269,8 +1393,22 @@ def run_competitors_only_pipeline(
         env=script_env,
     )
     report = _competitors_only_report(slug, url, client_name, parsed.competitors)
-    emit("partial", section="briefing_concorrentes", data=report, client=client_name)
     _prog("competitors_discover", "done", f"{report.get('competitors_count', 0)} competitors")
+    if include_brand_growth:
+        _prog("brand_growth", "running", "DataForSEO marca ago/2026–2024…")
+    if include_similarweb_alto:
+        _prog("similarweb_alto", "running", "SimilarWeb só Alto…")
+    report = _enrich_competitors_brand_sw(
+        report,
+        include_brand_growth=include_brand_growth,
+        include_similarweb_alto=include_similarweb_alto,
+        emit=emit,
+    )
+    if include_brand_growth:
+        _prog("brand_growth", "done", "Brand growth ready")
+    if include_similarweb_alto:
+        _prog("similarweb_alto", "done", "SimilarWeb ready")
+    emit("partial", section="briefing_concorrentes", data=report, client=client_name)
 
     if run_id:
         _persist_report_with_log(run_id, report, parsed, recorder, **_save_kw())
@@ -1299,6 +1437,8 @@ def run_pipeline(
     market: str = "us",
     compare_all: bool = False,
     competitors_only: bool = False,
+    include_brand_growth: bool = False,
+    include_similarweb_alto: bool = False,
 ) -> dict:
     required = (
         "OPENROUTER_API_KEY",
@@ -1314,6 +1454,8 @@ def run_pipeline(
     if competitors_only:
         return run_competitors_only_pipeline(
             parsed, emit, set_step, run_id=run_id, force=force, market=market,
+            include_brand_growth=include_brand_growth,
+            include_similarweb_alto=include_similarweb_alto,
         )
 
     market = _normalize_market(market)
