@@ -2250,7 +2250,7 @@ def render_report_html(
             del_bar = (
                 '<label class="comp-filter pick-visible">'
                 '<span>Select</span>'
-                '<input type="checkbox" id="comp-pick-visible" title="Select visible rows">'
+                '<input type="checkbox" id="comp-pick-visible" title="Show checkboxes on company names">'
                 "</label>"
                 '<button type="button" class="comp-del" id="comp-del" disabled>Delete selected</button>'
             )
@@ -2597,7 +2597,8 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
 .sw-fill{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;height:38px}
 .sw-fill:disabled{opacity:.55;cursor:default}
 .sw-fill-status{font-size:12px;color:var(--muted);align-self:center}
-.row-pick{display:inline-flex;align-items:center;margin-right:8px;vertical-align:middle;cursor:pointer}
+.row-pick{display:none;align-items:center;margin-right:8px;vertical-align:middle;cursor:pointer}
+#sec-competitors.is-picking .row-pick{display:inline-flex}
 .row-pick input{margin:0;vertical-align:middle;accent-color:#0f172a}
 .pick-visible input{width:auto;min-width:0;height:18px;margin-top:8px;accent-color:#0f172a}
 .comp-del{border:0;background:#9f1239;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;height:38px}
@@ -2981,9 +2982,10 @@ _REPORT_JS = """
     }
     if(pickAll){
       pickAll.addEventListener('change',function(){
-        visRows().forEach(function(tr){
+        if(card) card.classList.toggle('is-picking', pickAll.checked);
+        rows().forEach(function(tr){
           var cb=tr.querySelector('input[data-pick]');
-          if(cb) cb.checked=pickAll.checked;
+          if(cb && !pickAll.checked) cb.checked=false;
         });
         syncDel();
       });
