@@ -92,6 +92,9 @@
     return r;
   };
   var ROWS = D.map(enrich);
+  var maxSw = ROWS.reduce(function (m, r) {
+    return r.sw != null && r.sw > m ? r.sw : m;
+  }, 0);
 
   var state = {
     sim: "all",
@@ -169,6 +172,26 @@
       '"><button type="button" class="brand-hit" title="Choose Brand series">' +
       inner +
       "</button></div></span>"
+    );
+  }
+
+  function swHtml(r) {
+    if (r.sw == null) {
+      return '<span class="sw"><span class="swn">—</span></span>';
+    }
+    var pctW = 0;
+    if (maxSw > 0) {
+      pctW = Math.max(4, Math.round((Math.log10(r.sw + 1) / Math.log10(maxSw + 1)) * 100));
+    }
+    var full = Number(r.sw).toLocaleString("en-US");
+    return (
+      '<span class="sw" title="' +
+      esc(full) +
+      ' visits"><span class="swbar"><span style="width:' +
+      pctW +
+      '%"></span></span><span class="swn">' +
+      fmt(r.sw) +
+      "</span></span>"
     );
   }
 
@@ -256,6 +279,7 @@
       '">' +
       pctTxt(r.g1) +
       "</span></span>" +
+      swHtml(r) +
       '<span class="started">' +
       esc(r.startedTxt || "—") +
       "</span>" +

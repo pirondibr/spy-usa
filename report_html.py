@@ -356,7 +356,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.22"
+REPORT_UI_VERSION = "0.4.23"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -521,6 +521,7 @@ def _competitors_v2_panel(
         <span title="Similarity">Sim.</span>
         <button type="button" class="hbtn" data-sort="brand26" title="Monthly brand searches, August of each year">Brand ’26 → ’24 <i></i></button>
         <button type="button" class="hbtn" data-sort="g2" title="Total: Aug 2026 vs Aug 2024 › Last year: Aug 2026 vs Aug 2025">Growth <i></i></button>
+        <button type="button" class="hbtn" data-sort="sw" title="SimilarWeb monthly visits">SimilarWeb <i></i></button>
         <button type="button" class="hbtn" data-sort="startedKey" title="First month with Semrush organic traffic">Started <i></i></button>
         <button type="button" class="hbtn" data-sort="title">Title <i></i></button>
         <span>Niche</span>
