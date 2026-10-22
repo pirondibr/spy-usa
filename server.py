@@ -18,6 +18,7 @@ from typing import Any, Optional
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from parse_input import ParsedInput, parse_company_list
+from competitor_edits import add_competitor, set_competitor_similarity
 from pipeline import RUNS_DIR, STEP_DEFS, clear_slug_cache, run_pipeline
 from report_html import load_saved_report, render_report_html
 
@@ -48,7 +49,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.3"
+APP_VERSION = "0.4.4"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -802,6 +803,32 @@ def run_report(run_id: str):
     if not path.exists():
         return "Report not found", 404
     return send_from_directory(path.parent, "report.html")
+
+
+@app.post("/api/runs/<run_id>/competitors/classify")
+def run_classify_competitor(run_id: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(set_competitor_similarity(
+            run_id,
+            str(body.get("domain") or ""),
+            str(body.get("similaridade") or body.get("similarity") or ""),
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/competitors/add")
+def run_add_competitor(run_id: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(add_competitor(
+            run_id,
+            str(body.get("url") or body.get("domain") or ""),
+            str(body.get("similaridade") or body.get("similarity") or ""),
+        ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.post("/api/clear/<slug>")

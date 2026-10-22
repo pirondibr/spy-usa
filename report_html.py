@@ -153,6 +153,7 @@ def _rows_table(
     compact_keys: Optional[set[str]] = None,
     sort_rows: Optional[list[list[Any]]] = None,
     interactive: bool = False,
+    row_attrs: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     num_cols: set[int] = set()
     for c, h in enumerate(headers):
@@ -211,7 +212,16 @@ def _rows_table(
             sort_attr = f' data-sort="{_esc(sv)}"' if sv not in (None, "") else ""
             tds.append(f"<td{_attr(i)}{sort_attr}>{cell}</td>")
         tds_html = "".join(tds)
-        body.append(f'<tr class="is-you">{tds_html}</tr>' if is_you else f"<tr>{tds_html}</tr>")
+        meta = (row_attrs[r_i] if row_attrs and r_i < len(row_attrs) else None) or {}
+        extras = []
+        if is_you:
+            extras.append('class="is-you"')
+        if meta.get("sim"):
+            extras.append(f'data-sim="{_esc(meta.get("sim"))}"')
+        if meta.get("domain"):
+            extras.append(f'data-domain="{_esc(meta.get("domain"))}"')
+        attr = (" " + " ".join(extras)) if extras else ""
+        body.append(f"<tr{attr}>{tds_html}</tr>")
     if not body:
         body.append(f'<tr><td class="empty" colspan="{len(headers)}">No data</td></tr>')
     wrap = "table-wrap paged-table" if page_size else "table-wrap"
@@ -250,6 +260,32 @@ def _top_list(items: list, label_fn, meta_fn, *, limit: int = 5) -> str:
         meta = meta_fn(t)
         lis.append(f'<li>{label}{f"<span class=meta>{_esc(meta)}</span>" if meta else ""}</li>')
     return f'<ol class="toplist">{"".join(lis)}</ol>' if lis else "—"
+
+
+def _sim_edit_cell(comp: dict[str, Any], *, editable: bool) -> str:
+    raw = str(comp.get("similaridade") or ("Cliente" if comp.get("is_client") else "—"))
+    if comp.get("is_client") or not editable:
+        return _esc(raw)
+    cur = raw.strip().lower().replace("é", "e")
+    if cur == "alto":
+        cur_val = "Alto"
+    elif cur == "medio":
+        cur_val = "Medio"
+    elif cur == "baixo":
+        cur_val = "Baixo"
+    else:
+        cur_val = ""
+    opts = [("Alto", "Alto"), ("Medio", "Médio"), ("Baixo", "Baixo")]
+    parts = [
+        f'<select class="sim-edit" data-domain="{_esc(comp.get("domain") or "")}" title="Change similarity">'
+    ]
+    if cur_val not in {"Alto", "Medio", "Baixo"}:
+        parts.append(f'<option value="{_esc(raw)}" selected>{_esc(raw)}</option>')
+    for val, label in opts:
+        sel = " selected" if val == cur_val else ""
+        parts.append(f'<option value="{val}"{sel}>{label}</option>')
+    parts.append("</select>")
+    return "".join(parts)
 
 
 def _link_cell(url: Any, label: str = "Open") -> str:
@@ -1744,9 +1780,12 @@ def render_report_html(
     if competitors_only and report.get("competitors_raw"):
         comps = report.get("competitors_raw") or comps
     fp_domains = _brand_fp_domains(comps, report)
+    run_id = str(meta.get("id") or "").strip()
+    sim_editable = bool(competitors_only and run_id)
 
     comp_rows = []
     sort_rows: list[list[Any]] = []
+    row_attrs: list[dict[str, Any]] = []
     for i, c in enumerate(comps, 1):
         raw_name = c.get("name") or c.get("domain") or "—"
         site = (c.get("url") or c.get("site_url") or "").strip()
@@ -1761,7 +1800,7 @@ def render_report_html(
             str(i),
             name,
             _esc(c.get("domain") or "—"),
-            _esc(c.get("similaridade") or ("Client" if c.get("is_client") else "—")),
+            _sim_edit_cell(c, editable=sim_editable),
         ]
         if competitors_only:
             row.append(_fonte_cell(c.get("fonte")))
@@ -1808,6 +1847,10 @@ def render_report_html(
             sort_row.append(_sort_num(c.get("similarweb_visits")))
         comp_rows.append(row)
         sort_rows.append(sort_row)
+        row_attrs.append({
+            "sim": str(c.get("similaridade") or "").strip(),
+            "domain": str(c.get("domain") or "").strip().lower(),
+        })
     show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
     show_sw = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
     comp_headers = ["#", "Company", "Domain", "Similarity"]
@@ -1925,6 +1968,20 @@ def render_report_html(
         f'<a href="/?rerun={_esc(meta.get("id"))}">Refazer</a>' if meta.get("id") else ""
     )
     cards = "".join(_card(k, body, SECTION_GROUPS.get(k, "overview")) for k, _, body in blocks)
+    add_form = ""
+    if sim_editable:
+        add_form = """
+      <form class="add-comp" id="add-competitor">
+        <input type="text" name="url" placeholder="https://competitor.com" required>
+        <select name="similaridade" title="Similarity">
+          <option value="">Auto</option>
+          <option value="Alto">Alto</option>
+          <option value="Medio">Médio</option>
+          <option value="Baixo">Baixo</option>
+        </select>
+        <button type="submit">Add website</button>
+        <span class="add-status"></span>
+      </form>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en-US">
@@ -1963,16 +2020,19 @@ def render_report_html(
       <p>{_md_lite(briefing.get('summary') or '')}</p>
     </div>
 
-    <div class="card" id="sec-competitors" data-group="overview" data-view="compact">
+    <div class="card" id="sec-competitors" data-group="overview" data-view="compact" data-run-id="{_esc(run_id)}">
       <div class="card-head">
         <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
         <div class="sort-bar" role="group" aria-label="Colunas dos concorrentes">
           <button type="button" class="sort-btn comp-view is-active" data-view="compact">Métricas</button>
           <button type="button" class="sort-btn comp-view" data-view="all">Todas</button>
+          <button type="button" class="sort-btn sim-filter" data-hide="medio" title="Hide Médio rows">Hide Medium</button>
+          <button type="button" class="sort-btn sim-filter" data-hide="baixo" title="Hide Baixo rows">Hide Low</button>
         </div>
       </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
-      <p class="muted table-hint">Clique no nome da coluna para ordenar (maior → menor). O × oculta a coluna.</p>
+      <p class="muted table-hint">Clique no nome da coluna para ordenar (maior → menor). O × oculta a coluna. Similarity can be changed on the row.</p>
+      {add_form}
       {_rows_table(
           comp_headers, comp_rows,
           page_size=10 if competitors_only else 0,
@@ -1980,6 +2040,7 @@ def render_report_html(
           compact_keys=compact_keys,
           sort_rows=sort_rows,
           interactive=True,
+          row_attrs=row_attrs,
       )}
     </div>
 
@@ -2178,6 +2239,15 @@ td.empty{color:var(--soft);text-align:center;padding:22px}
 .you{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
 .fp-mark{margin-left:2px;color:#b45309;font-weight:800;cursor:help;font-size:14px;line-height:1}
+.sim-edit{font:inherit;font-size:12px;font-weight:700;border:1px solid var(--border);border-radius:8px;padding:3px 6px;background:#fff;cursor:pointer;max-width:100%}
+.sim-edit:disabled{opacity:.5}
+.add-comp{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+.add-comp input[type=text]{flex:1;min-width:220px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit}
+.add-comp select{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit}
+.add-comp button{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
+.add-comp button:disabled{opacity:.55;cursor:default}
+.add-status{font-size:12px;color:var(--muted)}
+.sim-filter.is-active{background:#0f172a;border-color:#0f172a;color:#fff}
 a.ext{color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
 a.ext:hover{text-decoration:underline}
 td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px;white-space:normal}
@@ -2295,19 +2365,34 @@ _REPORT_JS = """
     var sortDir='desc';
     var card=wrap.closest('#sec-competitors');
     var tray=card?card.querySelector('.hidden-cols'):null;
+    var hideLow=false, hideMed=false;
 
     function rows(){return [].slice.call(tbody.querySelectorAll('tr'));}
+    function simOf(tr){
+      return String(tr.getAttribute('data-sim')||'').toLowerCase().replace('é','e').replace('á','a');
+    }
+    function visRows(){
+      return rows().filter(function(tr){
+        if(tr.classList.contains('is-you')) return true;
+        var s=simOf(tr);
+        if(hideLow && s==='baixo') return false;
+        if(hideMed && s==='medio') return false;
+        return true;
+      });
+    }
     function render(){
       var all=rows();
-      var pages=size?Math.max(1,Math.ceil(all.length/size)):1;
+      var vis=visRows();
+      var pages=size?Math.max(1,Math.ceil(vis.length/size)):1;
       if(page>pages-1)page=pages-1;
       if(page<0)page=0;
-      all.forEach(function(tr,i){
+      all.forEach(function(tr){ tr.style.display='none'; });
+      vis.forEach(function(tr,i){
         var on=!size||(i>=page*size && i<(page+1)*size);
         tr.style.display=on?'':'none';
       });
       if(status&&size){
-        status.textContent='Top '+(all.length?page*size+1:0)+'–'+Math.min(all.length,(page+1)*size)+' de '+all.length;
+        status.textContent='Top '+(vis.length?page*size+1:0)+'–'+Math.min(vis.length,(page+1)*size)+' de '+vis.length;
       }
       if(prev) prev.disabled=page<=0;
       if(next) next.disabled=page>=pages-1;
@@ -2390,9 +2475,21 @@ _REPORT_JS = """
     }
     if(prev) prev.addEventListener('click',function(){ if(page>0){page--;render();}});
     if(next) next.addEventListener('click',function(){
-      var pages=size?Math.max(1,Math.ceil(rows().length/size)):1;
+      var pages=size?Math.max(1,Math.ceil(visRows().length/size)):1;
       if(page<pages-1){page++;render();}
     });
+    if(card){
+      card.addEventListener('click',function(ev){
+        var btn=ev.target.closest('.sim-filter');
+        if(!btn) return;
+        var key=btn.getAttribute('data-hide');
+        btn.classList.toggle('is-active');
+        if(key==='baixo') hideLow=btn.classList.contains('is-active');
+        if(key==='medio') hideMed=btn.classList.contains('is-active');
+        page=0;
+        render();
+      });
+    }
     render();
   });
 })();
@@ -2404,6 +2501,46 @@ _REPORT_JS = """
     if(!btn)return;
     card.setAttribute('data-view', btn.getAttribute('data-view')||'compact');
     card.querySelectorAll('.comp-view').forEach(function(b){b.classList.toggle('is-active', b===btn);});
+  });
+})();
+(function(){
+  var card=document.getElementById('sec-competitors');
+  if(!card) return;
+  var runId=card.getAttribute('data-run-id')||'';
+  if(!runId) return;
+  function postJson(path, payload){
+    return fetch(path,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload||{})
+    }).then(function(r){ return r.json().then(function(d){ if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status)); return d; }); });
+  }
+  card.addEventListener('change',function(ev){
+    var sel=ev.target.closest('.sim-edit');
+    if(!sel) return;
+    sel.disabled=true;
+    postJson('/api/runs/'+runId+'/competitors/classify',{
+      domain:sel.getAttribute('data-domain')||'',
+      similaridade:sel.value
+    }).then(function(){ location.reload(); })
+      .catch(function(err){ alert(err.message||err); sel.disabled=false; });
+  });
+  var form=card.querySelector('#add-competitor');
+  if(!form) return;
+  form.addEventListener('submit',function(ev){
+    ev.preventDefault();
+    var url=(form.querySelector('[name=url]')||{}).value||'';
+    var sim=(form.querySelector('[name=similaridade]')||{}).value||'';
+    var btn=form.querySelector('button[type=submit]');
+    var st=form.querySelector('.add-status');
+    if(btn) btn.disabled=true;
+    if(st) st.textContent='Fetching brand + SimilarWeb…';
+    postJson('/api/runs/'+runId+'/competitors/add',{url:url,similaridade:sim})
+      .then(function(){ location.reload(); })
+      .catch(function(err){
+        if(st) st.textContent=err.message||String(err);
+        if(btn) btn.disabled=false;
+      });
   });
 })();
 """
