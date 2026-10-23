@@ -1218,7 +1218,7 @@ def _enrich_competitors_brand_sw(
 
 def _enrich_started(report: dict, *, emit: Optional[EmitFn] = None) -> dict:
     """Attach Semrush first-traffic month onto competitor rows."""
-    rows = list(report.get("competitors") or report.get("competitors_raw") or [])
+    rows = list(report.get("competitors_raw") or report.get("competitors") or [])
     if not rows:
         return report
 
