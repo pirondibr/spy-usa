@@ -15,6 +15,26 @@
     yt: "YouTube", yt_inf: "YouTube", tt: "TikTok", rd: "Reddit", seo: "SEO", google: "Google", meta: "Meta",
   };
   var MAC_SHORT = { paid: "Pago", org: "Orgânico", inf: "Influência" };
+  var UNIT_L = { seo: "visitas/mês", rd: "comentários", visits: "visitas/mês", brand: "buscas/mês" };
+  var QG = [
+    { k: "visits", g: "Popularidade", label: "Visitas" },
+    { k: "brand", g: "Popularidade", label: "Busca pela marca" },
+  ].concat(
+    GROUPS.flatMap(function (g) {
+      return g.subs.map(function (pair) {
+        return { k: pair[0], g: g.label, label: FULL[pair[0]] || pair[1] };
+      });
+    })
+  );
+  function qgVal(r, k) {
+    if (k === "visits") return r.visits;
+    if (k === "brand") return r.brand;
+    return r.d[k];
+  }
+  function ratioTxt(a, b) {
+    var r = a / b;
+    return r >= 10 ? Math.round(r) + "×" : r.toFixed(1).replace(".", ",") + "×";
+  }
   function isV4() {
     return document.documentElement.getAttribute("data-ui") === "v4";
   }
@@ -95,6 +115,9 @@
     var picker = root.querySelector(".picker");
     var weakEl = root.querySelector(".cmp-weak");
     var tlegend = root.querySelector(".tlegend");
+    var qgf = root.querySelector(".qg-f");
+    var qgb = root.querySelector(".qg-b");
+    var qgSel = "google";
 
     function syncVariant() {
       var v4 = isV4();
@@ -358,6 +381,49 @@
       }
     }
 
+    function renderQG() {
+      if (!qgf || !qgb) return;
+      var groups = [];
+      QG.forEach(function (c) {
+        if (groups.indexOf(c.g) < 0) groups.push(c.g);
+      });
+      qgf.innerHTML = groups.map(function (g) {
+        return '<div class="qg-gr"><span class="qg-gl">' + esc(g) + "</span>" + QG.filter(function (c) { return c.g === g; }).map(function (c) {
+          var any = ROWS.some(function (r) { return qgVal(r, c.k) != null; });
+          return '<button type="button" data-qg="' + esc(c.k) + '" aria-pressed="' + (c.k === qgSel) + '"' + (any ? "" : ' disabled title="Não coletado para nenhuma empresa"') + ">" + esc(c.label) + "</button>";
+        }).join("") + "</div>";
+      }).join("");
+      var c = QG.filter(function (x) { return x.k === qgSel; })[0] || QG[0];
+      var unit = UNIT_L[c.k] || UNIT[c.k] || "";
+      var have = ROWS.filter(function (r) { return qgVal(r, c.k) != null; }).map(function (r) {
+        return { r: r, v: Number(qgVal(r, c.k)) || 0 };
+      }).sort(function (a, b) { return b.v - a.v; });
+      var miss = ROWS.filter(function (r) { return qgVal(r, c.k) == null; });
+      var mx = have.length ? have[0].v : 0;
+      var pos = have.findIndex(function (x) { return x.r.me; });
+      var mine = pos >= 0 ? have[pos] : null;
+      var verdict = "";
+      if (!have.length) verdict = "Nenhuma empresa tem dado neste canal.";
+      else if (have[0].v === 0) verdict = '<b class="down">Ninguém do grupo tem presença</b> neste canal — espaço livre.';
+      else if (pos < 0) verdict = "Sua empresa não tem dado coletado neste canal.";
+      else if (mine.v === 0) verdict = '<b class="down">Você não tem presença</b> — ' + esc(have[0].r.name) + " lidera com " + fmt(have[0].v) + " " + unit + ".";
+      else if (pos === 0) verdict = have.length > 1 ? ('<b class="up">Você lidera</b> — ' + (have[1].v ? ratioTxt(mine.v, have[1].v) + " o 2º colocado (" + esc(have[1].r.name) + ")" : esc(have[1].r.name) + " não tem presença") + ".") : '<b class="up">Você lidera</b>.';
+      else verdict = "Você é <b>" + (pos + 1) + "º de " + have.length + "</b> — " + esc(have[0].r.name) + ' tem <b class="down">' + ratioTxt(have[0].v, mine.v) + "</b> o seu volume.";
+      qgb.innerHTML =
+        '<div class="qg-h"><b>' + esc(c.label) + "</b><span>" + esc(c.g) + " · " + esc(unit) + "</span></div>" +
+        '<ol class="qg-l">' + have.map(function (x, i) {
+          var w = x.r.w && x.r.w[c.k];
+          var width = mx ? Math.max((x.v / mx) * 100, x.v ? 1.5 : 0).toFixed(1) : "0";
+          return '<li class="' + (x.r.me ? "me" : "") + (i === 0 && x.v > 0 ? " lead" : "") + '"><span class="rk num">' + (i === 0 && x.v > 0 ? "★" : i + 1) + "</span>" +
+            '<button type="button" class="qg-n" data-pick="' + esc(x.r.name) + '" title="Ver perfil de ' + esc(x.r.name) + '"><span class="cdot" style="background:' + esc(x.r.color || "#9AA3AE") + '"></span>' + esc(x.r.name) + (x.r.me ? '<span class="you">você</span>' : "") + "</button>" +
+            '<span class="qg-t"><i style="width:' + width + "%;background:" + esc(x.r.color || "#9AA3AE") + '"></i></span>' +
+            '<span class="qg-v num' + (x.v === 0 ? " z" : "") + '">' + fmt(x.v) + "</span>" +
+            (w ? '<span class="hw" style="position:static" title="Verificar: ' + esc(w) + '">!</span>' : "<span></span>") + "</li>";
+        }).join("") + "</ol>" +
+        (miss.length ? '<div class="qg-miss">Não coletado: ' + miss.map(function (r) { return esc(r.name); }).join(", ") + "</div>" : "") +
+        '<div class="qg-v2">' + verdict + "</div>";
+    }
+
     function pick(name, scroll) {
       sel = name;
       renderCard();
@@ -393,6 +459,12 @@
         syncSpans();
         return;
       }
+      var qg = e.target.closest("[data-qg]");
+      if (qg && root.contains(qg) && !qg.disabled) {
+        qgSel = qg.getAttribute("data-qg");
+        renderQG();
+        return;
+      }
       var p = e.target.closest("[data-pick]");
       if (p && root.contains(p)) {
         pick(p.getAttribute("data-pick"), p.tagName === "TD");
@@ -415,6 +487,7 @@
     });
     renderCard();
     render();
+    renderQG();
   }
 
   document.querySelectorAll("[data-cmp]").forEach(initCmp);

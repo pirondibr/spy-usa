@@ -939,6 +939,7 @@ def build_analysis_compare(
     <div class="anav-in">
       {('<a href="#perfil">Perfil</a>' if cmp_html else "")}
       {('<a href="#concorrentes">Concorrentes</a>' if cmp_html else "")}
+      {('<a href="#ganhando">Quem ganha</a>' if cmp_html else "")}
       <a href="#resumo">Resumo</a>
       <a href="#busca">Busca &amp; tráfego</a>
       <a href="#paga">Mídia paga</a>

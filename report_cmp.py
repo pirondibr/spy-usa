@@ -32,6 +32,20 @@ FULL = {
     "meta": "Meta",
 }
 MAC_SHORT = {"paid": "Pago", "org": "Orgânico", "inf": "Influência"}
+UNIT_L = {
+    "seo": "visitas/mês",
+    "rd": "comentários",
+    "visits": "visitas/mês",
+    "brand": "buscas/mês",
+}
+QG_CHANS = (
+    ("visits", "Popularidade", "Visitas"),
+    ("brand", "Popularidade", "Busca pela marca"),
+) + tuple(
+    (mk, label, FULL.get(mk, lab))
+    for _k, label, _cls, subs in GROUPS
+    for mk, lab in subs
+)
 UNIT = {
     "google": "anúncios",
     "meta": "anúncios",
@@ -710,6 +724,136 @@ def _build_table_html_v4(rows: list[dict[str, Any]], ordered: list[dict[str, Any
     return h
 
 
+def _qg_value(row: dict[str, Any], key: str) -> Any:
+    if key == "visits":
+        return row.get("visits")
+    if key == "brand":
+        return row.get("brand")
+    return (row.get("d") or {}).get(key)
+
+
+def _ratio_txt(a: float, b: float) -> str:
+    if not b:
+        return ""
+    r = a / b
+    if r >= 10:
+        return f"{int(round(r))}×"
+    return f"{r:.1f}".replace(".", ",") + "×"
+
+
+def build_qg_html(payload: dict[str, Any], selected: str = "google") -> str:
+    from report_html import _esc
+
+    rows = list(payload.get("rows") or [])
+    if not rows:
+        return ""
+    keys = {k for k, _g, _l in QG_CHANS}
+    if selected not in keys:
+        selected = "google"
+    groups: list[str] = []
+    for _k, g, _l in QG_CHANS:
+        if g not in groups:
+            groups.append(g)
+    filters = []
+    for g in groups:
+        btns = []
+        for k, gg, lab in QG_CHANS:
+            if gg != g:
+                continue
+            any_v = any(_qg_value(r, k) is not None for r in rows)
+            pressed = "true" if k == selected else "false"
+            dis = "" if any_v else ' disabled title="Não coletado para nenhuma empresa"'
+            btns.append(
+                f'<button type="button" data-qg="{_esc(k)}" aria-pressed="{pressed}"{dis}>{_esc(lab)}</button>'
+            )
+        filters.append(f'<div class="qg-gr"><span class="qg-gl">{_esc(g)}</span>{"".join(btns)}</div>')
+    chan = next((c for c in QG_CHANS if c[0] == selected), QG_CHANS[0])
+    key, gname, label = chan
+    unit = UNIT_L.get(key) or UNIT.get(key, "")
+    have = []
+    miss = []
+    for r in rows:
+        v = _qg_value(r, key)
+        if v is None:
+            miss.append(r)
+        else:
+            try:
+                have.append((r, float(v)))
+            except (TypeError, ValueError):
+                miss.append(r)
+    have.sort(key=lambda x: x[1], reverse=True)
+    mx = have[0][1] if have else 0
+    pos = next((i for i, (r, _v) in enumerate(have) if r.get("me")), -1)
+    mine = have[pos] if pos >= 0 else None
+    if not have:
+        verdict = "Nenhuma empresa tem dado neste canal."
+    elif have[0][1] == 0:
+        verdict = '<b class="down">Ninguém do grupo tem presença</b> neste canal — espaço livre.'
+    elif pos < 0:
+        verdict = "Sua empresa não tem dado coletado neste canal."
+    elif mine and mine[1] == 0:
+        verdict = (
+            f'<b class="down">Você não tem presença</b> — {_esc(have[0][0].get("name"))} '
+            f"lidera com {_esc(_fmt_cmp(have[0][1]))} {_esc(unit)}."
+        )
+    elif pos == 0:
+        if len(have) > 1:
+            nxt = have[1]
+            if nxt[1]:
+                extra = f"{_ratio_txt(mine[1], nxt[1])} o 2º colocado ({_esc(nxt[0].get('name'))})"
+            else:
+                extra = f"{_esc(nxt[0].get('name'))} não tem presença"
+            verdict = f'<b class="up">Você lidera</b> — {extra}.'
+        else:
+            verdict = '<b class="up">Você lidera</b>.'
+    else:
+        verdict = (
+            f"Você é <b>{pos + 1}º de {len(have)}</b> — {_esc(have[0][0].get('name'))} "
+            f'tem <b class="down">{_ratio_txt(have[0][1], mine[1])}</b> o seu volume.'
+        )
+    items = []
+    for i, (r, v) in enumerate(have):
+        lead = " lead" if i == 0 and v > 0 else ""
+        me = " me" if r.get("me") else ""
+        rk = "★" if i == 0 and v > 0 else str(i + 1)
+        you = '<span class="you">você</span>' if r.get("me") else ""
+        width = 0.0
+        if mx:
+            width = max(v / mx * 100, 1.5 if v else 0)
+        w = (r.get("w") or {}).get(key)
+        warn = (
+            f'<span class="hw" style="position:static" title="Verificar: {_esc(w)}">!</span>'
+            if w
+            else "<span></span>"
+        )
+        items.append(
+            f'<li class="{me.strip()}{lead}"><span class="rk num">{rk}</span>'
+            f'<button type="button" class="qg-n" data-pick="{_esc(r.get("name"))}" title="Ver perfil de {_esc(r.get("name"))}">'
+            f'<span class="cdot" style="background:{_esc(r.get("color") or "#9AA3AE")}"></span>'
+            f'{_esc(r.get("name"))}{you}</button>'
+            f'<span class="qg-t"><i style="width:{width:.1f}%;background:{_esc(r.get("color") or "#9AA3AE")}"></i></span>'
+            f'<span class="qg-v num{" z" if v == 0 else ""}">{_esc(_fmt_cmp(v))}</span>{warn}</li>'
+        )
+    miss_html = (
+        f'<div class="qg-miss">Não coletado: {_esc(", ".join(str(r.get("name") or "") for r in miss))}</div>'
+        if miss
+        else ""
+    )
+    return f"""
+<section class="sec qg-sec" id="ganhando">
+  <div class="sec-h"><h2>Quem está ganhando</h2><span class="sec-note">Ranking do grupo, um canal por vez</span></div>
+  <div class="card qg">
+    <div class="qg-f" role="group" aria-label="Escolher canal">{"".join(filters)}</div>
+    <div class="qg-b">
+      <div class="qg-h"><b>{_esc(label)}</b><span>{_esc(gname)} · {_esc(unit)}</span></div>
+      <ol class="qg-l">{"".join(items)}</ol>
+      {miss_html}
+      <div class="qg-v2">{verdict}</div>
+    </div>
+  </div>
+</section>"""
+
+
 def build_picker_html(payload: dict[str, Any], selected: Optional[str] = None) -> str:
     from report_html import _esc
 
@@ -796,7 +940,8 @@ def build_cmp_html(
       <span class="foot-v4">Barrinhas: verde = Alto, amarelo = Médio, vermelho = Baixo, vazias = sem presença. O número embaixo é o valor real do canal.</span>
     </div>
   </div>
-</section>"""
+</section>
+{build_qg_html(payload)}"""
 
     perfil_id = "perfil" if root_id == "cmp" else f"perfil-{root_id}"
     return f"""

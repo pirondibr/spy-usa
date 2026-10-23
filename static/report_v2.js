@@ -53,7 +53,7 @@
       });
     });
   }, { rootMargin: "-35% 0px -60% 0px" });
-  ["perfil", "concorrentes", "resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
+  ["perfil", "concorrentes", "ganhando", "resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) io.observe(el);
   });
