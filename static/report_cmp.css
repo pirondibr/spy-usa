@@ -147,10 +147,23 @@
 :is(#cmp, #cmp-v1) a:hover{text-decoration:underline;text-underline-offset:3px}
 
 html[data-ui="v2"] #analysis-v2 .cmp-panel{display:none}
-html[data-ui="v3"] #analysis-v2 .cmp-panel{display:flex}
+html[data-ui="v3"] #analysis-v2 .cmp-panel{display:flex!important}
 html[data-ui="v3"] body.is-analysis #analysis-v1{display:none!important}
-html[data-ui="v3"] body.is-analysis #analysis-v2{display:block}
+html[data-ui="v3"] body.is-analysis #analysis-v2{display:block!important}
 html[data-ui="v3"] body.is-analysis{background:var(--bg,#F4F5F7)}
+html[data-ui="v3"] #analysis-v2.is-compare main.av2{max-width:1360px}
+#analysis-v2 #cmp table{
+  border-collapse:separate!important;border-spacing:0;width:100%;font-size:13.5px
+}
+#analysis-v2 #cmp th,#analysis-v2 #cmp td{
+  padding:0;border-bottom:1px solid var(--line);white-space:nowrap;text-align:center;font-weight:600
+}
+#analysis-v2 #cmp thead th{
+  background:#F8F9FA;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:#4B5563
+}
+#analysis-v2 #cmp td.co,#analysis-v2 #cmp th.co{text-align:left}
+#analysis-v2 #cmp td.kpi,#analysis-v2 #cmp th.r,#analysis-v2 #cmp td.r{text-align:right}
+#analysis-v2 #cmp td.cell,#analysis-v2 #cmp td.macv{text-align:center}
 html[data-ui="v2"] #analysis-v2.is-compare .anav a[href="#perfil"],
 html[data-ui="v2"] #analysis-v2.is-compare .anav a[href="#concorrentes"],
 html[data-ui="v1"] #analysis-v2.is-compare .anav a[href="#perfil"],

@@ -392,6 +392,152 @@ def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False) -> 
     </div>"""
 
 
+def _meter_html(lvl: Any) -> str:
+    if lvl is None:
+        return '<span class="na">n/c</span>'
+    try:
+        n = int(lvl)
+    except (TypeError, ValueError):
+        return '<span class="na">n/c</span>'
+    cls = "z" if n == 0 else f"on{n}"
+    lab = LBL[n] if 0 <= n < len(LBL) else ""
+    return f'<span class="m {cls}" role="img" aria-label="{lab}"><i></i><i></i><i></i></span>'
+
+
+def _sb(key: str, label: str, title: str = "") -> str:
+    from report_html import _esc
+
+    return (
+        f'<button type="button" class="sb" data-sort="{_esc(key)}" title="{_esc(title)}">'
+        f"{label}<span class=\"ar\"></span></button>"
+    )
+
+
+def build_table_html(payload: dict[str, Any]) -> str:
+    from report_html import _esc
+
+    rows = list(payload.get("rows") or [])
+    if not rows:
+        return ""
+    for r in rows:
+        r = r
+        scores = r.get("s") or {}
+        for gk, _lab, _cls, subs in GROUPS:
+            r[f"m_{gk}"] = _avg_group({"s": scores}, subs)
+
+    me = [r for r in rows if r.get("me")]
+    rest = [r for r in rows if not r.get("me")]
+    ordered = me + rest
+    best_v = max((float(r.get("visits") or 0) for r in rows), default=0)
+    best_b = max((float(r.get("brand") or 0) for r in rows), default=0)
+    sel = next((r.get("name") for r in me), ordered[0].get("name") if ordered else "")
+
+    h = (
+        '<thead><tr class="grp"><th class="co" rowspan="2" style="padding:10px 14px;vertical-align:bottom">Empresa</th>'
+        '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">'
+        + _sb("visits", "Visitas", "Visitas/mês e variação no período")
+        + "</th>"
+        '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">'
+        + _sb("brand", "Marca", "Buscas/mês e variação em 1 ano")
+        + "</th>"
+    )
+    for _gk, label, cls, subs in GROUPS:
+        h += f'<th class="gc mac {cls}" colspan="{len(subs) + 1}" data-span="{len(subs) + 1}">{_esc(label)}</th>'
+    h += '</tr><tr class="colrow">'
+    for gk, _label, cls, subs in GROUPS:
+        h += f'<th class="gc mac c {cls}">{_sb("m_" + gk, "Geral", "Média dos canais")}</th>'
+        for mk, lab in subs:
+            h += f'<th class="gc c subc {cls}">{_sb(mk, lab)}</th>'
+    h += "</tr></thead><tbody>"
+
+    for i, r in enumerate(ordered):
+        name = str(r.get("name") or "—")
+        tag = '<span class="you">você</span>' if r.get("me") else ""
+        tr_cls = ("me" if r.get("me") else "") + (" sel" if name == sel else "")
+        vg = r.get("vg") or 0
+        bg = r.get("bg") or 0
+        try:
+            vg_f = float(vg)
+        except (TypeError, ValueError):
+            vg_f = 0.0
+        try:
+            bg_f = float(bg)
+        except (TypeError, ValueError):
+            bg_f = 0.0
+        kd = lambda v: (
+            f'<span class="kd {"up" if v > 0.5 else ("dn" if v < -0.5 else "fl")}">{_esc(_pct_cmp(v))}</span>'
+        )
+        visits = r.get("visits") or 0
+        brand = r.get("brand") or 0
+        h += (
+            f'<tr class="{tr_cls.strip()}"><td class="co" data-pick="{_esc(name)}" title="Ver perfil de {_esc(name)}">'
+            f'<div class="cn"><span class="rk num">{"" if r.get("me") else i}</span>'
+            f'<span class="cdot" style="background:{_esc(r.get("color") or "#9AA3AE")}"></span>'
+            f'<span class="nm">{_esc(name)}</span>{tag}</div>'
+            f'<div class="dom">{_esc(r.get("dom") or "")}</div></td>'
+        )
+        star_v = '<span class="best" title="Maior da coluna"></span>' if visits == best_v and visits else ""
+        star_b = '<span class="best" title="Maior da coluna"></span>' if brand == best_b and brand else ""
+        h += f'<td class="kpi num"><div class="kv">{star_v}{_esc(_fmt_cmp(visits))}</div>{kd(vg_f)}</td>'
+        h += f'<td class="kpi num"><div class="kv">{star_b}{_esc(_fmt_cmp(brand))}</div>{kd(bg_f)}</td>'
+        scores = r.get("s") or {}
+        data = r.get("d") or {}
+        warns = r.get("w") or {}
+        for gk, _lab, cls, subs in GROUPS:
+            mv = r.get(f"m_{gk}")
+            ml = "—" if mv is None else LBL[mv]
+            h += (
+                f'<td class="macv c {cls}{" isz" if mv == 0 else ""}">{_meter_html(mv)}'
+                f'<span class="ml{" z" if mv == 0 else ""}">{_esc(ml)}</span></td>'
+            )
+            for mk, lab in subs:
+                v = scores.get(mk)
+                w = warns.get(mk)
+                dv = data.get(mk)
+                if v is None:
+                    tip = f"{name} · {lab}: não coletado"
+                else:
+                    try:
+                        lvl = int(v)
+                    except (TypeError, ValueError):
+                        lvl = 0
+                    tip_n = f"{int(dv):,} {UNIT.get(mk, '')} · " if isinstance(dv, (int, float)) else ""
+                    tip = f"{name} · {lab}: {tip_n}{LBL[lvl] if 0 <= lvl < len(LBL) else ''}"
+                if w:
+                    tip += f" — {w}"
+                body = _meter_html(v)
+                warn = f'<span class="warn" aria-label="Verificar: {_esc(w)}">!</span>' if w else ""
+                h += (
+                    f'<td class="cell subc {cls}{" isz" if v == 0 else ""}{" isna" if v is None else ""}" '
+                    f'title="{_esc(tip)}">{body}{warn}</td>'
+                )
+        h += "</tr>"
+
+    def _mean(vals: list[Any]) -> Optional[int]:
+        nums = []
+        for v in vals:
+            if v is None:
+                continue
+            try:
+                nums.append(float(v))
+            except (TypeError, ValueError):
+                continue
+        if not nums:
+            return None
+        return int(round(sum(nums) / len(nums)))
+
+    h += '</tbody><tfoot><tr><td class="co">Média do grupo</td>'
+    mean_vis = _mean([r.get("visits") for r in rows])
+    mean_br = _mean([r.get("brand") for r in rows])
+    h += f'<td class="kpi num">{_esc(_fmt_cmp(mean_vis))}</td><td class="kpi num">{_esc(_fmt_cmp(mean_br))}</td>'
+    for gk, _lab, cls, subs in GROUPS:
+        h += f'<td class="macv c {cls}">{_meter_html(_mean([r.get(f"m_{gk}") for r in rows]))}</td>'
+        for mk, _lab2 in subs:
+            h += f'<td class="cell subc {cls}">{_meter_html(_mean([(r.get("s") or {}).get(mk) for r in rows]))}</td>'
+    h += "</tr></tfoot>"
+    return h
+
+
 def build_picker_html(payload: dict[str, Any], selected: Optional[str] = None) -> str:
     from report_html import _esc
 
@@ -464,7 +610,7 @@ def build_cmp_html(
     </div>
   </div>
   <div class="card">
-    <div class="tw"><table class="cmp-t"></table></div>
+    <div class="tw"><table class="cmp-t">{build_table_html(payload)}</table></div>
     <div class="foot">
       <span>Clique no nome de uma coluna para ordenar. A sua empresa fica sempre no topo.</span>
       <span>Visitas: {_esc(payload.get("foot_visits") or "SimilarWeb")}. Marca: {_esc(payload.get("foot_brand") or "DataForSEO")}.</span>

@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.30"
+REPORT_UI_VERSION = "0.4.31"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2564,7 +2564,7 @@ def render_report_html(
 <link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
 <script>
-(function(){{try{{var has=document.documentElement.getAttribute('data-has-v3')==='1';var v;if(has){{v=localStorage.getItem('spy-report-compare-ui');v=(v==='v1'||v==='v2'||v==='v3')?v:'v3';}}else{{v=localStorage.getItem('spy-report-ui');v=v==='v1'?'v1':'v2';}}document.documentElement.setAttribute('data-ui',v);}}catch(e){{document.documentElement.setAttribute('data-ui',document.documentElement.getAttribute('data-has-v3')==='1'?'v3':'v2');}}}})();
+(function(){{try{{var has=document.documentElement.getAttribute('data-has-v3')==='1';var v=has?'v3':(localStorage.getItem('spy-report-ui')==='v1'?'v1':'v2');document.documentElement.setAttribute('data-ui',v);}}catch(e){{document.documentElement.setAttribute('data-ui',document.documentElement.getAttribute('data-has-v3')==='1'?'v3':'v2');}}}})();
 </script>
 </head>
 <body{body_cls}>

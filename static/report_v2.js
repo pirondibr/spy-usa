@@ -8,12 +8,8 @@
   });
   function currentUi() {
     try {
-      var v = localStorage.getItem(KEY);
-      if (hasV3) {
-        if (v === "v1" || v === "v2" || v === "v3") return v;
-        return "v3";
-      }
-      return v === "v1" ? "v1" : "v2";
+      if (hasV3) return "v3";
+      return localStorage.getItem("spy-report-ui") === "v1" ? "v1" : "v2";
     } catch (e) {
       return hasV3 ? "v3" : "v2";
     }
