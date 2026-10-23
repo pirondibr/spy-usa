@@ -153,6 +153,18 @@ def _handle_from_channel_url(url: str) -> str:
     return (m.group(1) if m else "").lower()
 
 
+def official_hint_from_url(url: str) -> Optional[dict]:
+    raw = (url or "").strip()
+    if not raw or "/watch" in raw or "/shorts/" in raw:
+        return None
+    handle = _handle_from_channel_url(raw)
+    if handle:
+        return {"name": f"@{handle}", "url": f"https://www.youtube.com/@{handle}"}
+    if "youtube.com/" in raw.lower():
+        return {"name": "", "url": raw.split("?")[0]}
+    return None
+
+
 def is_official_channel(
     channel_name: str,
     channel_url: str,
@@ -160,31 +172,21 @@ def is_official_channel(
     domain: str = "",
     official_hint: Optional[dict] = None,
 ) -> bool:
-    tokens = _brand_tokens(company, domain)
-    if official_hint:
-        on = str(official_hint.get("name") or "").strip().lower()
-        oh = str(official_hint.get("url") or "").strip().lower()
-        hint_handle = _handle_from_channel_url(oh)
-        if on:
-            tokens.append(on)
-            tokens.append(re.sub(r"[^a-z0-9]+", "", on))
-        if hint_handle:
-            tokens.append(hint_handle)
-        cn = (channel_name or "").strip().lower()
-        ch = (channel_url or "").strip().lower()
-        ch_handle = _handle_from_channel_url(ch)
-        if on and cn and (cn == on or on in cn or cn in on):
-            return True
-        if hint_handle and ch_handle and hint_handle == ch_handle:
-            return True
-        if oh and ch and (ch.rstrip("/") == oh.rstrip("/") or hint_handle and hint_handle in ch):
-            return True
-    blob = f"{channel_name} {channel_url}".lower()
-    compact = re.sub(r"[^a-z0-9]+", "", blob)
-    for tok in tokens:
-        t = (tok or "").replace(" ", "")
-        if t and len(t) >= 4 and t in compact:
-            return True
+    """Only trust an explicit official hint (website or LLM). No name-substring guess."""
+    if not official_hint:
+        return False
+    on = str(official_hint.get("name") or "").strip().lower().lstrip("@")
+    oh = str(official_hint.get("url") or "").strip().lower()
+    hint_handle = _handle_from_channel_url(oh) or (on if on.startswith("@") else on)
+    cn = (channel_name or "").strip().lower().lstrip("@")
+    ch = (channel_url or "").strip().lower()
+    ch_handle = _handle_from_channel_url(ch)
+    if hint_handle and ch_handle and hint_handle == ch_handle:
+        return True
+    if oh and ch and ch.rstrip("/") == oh.rstrip("/"):
+        return True
+    if on and cn and cn == on:
+        return True
     return False
 
 
@@ -427,14 +429,13 @@ def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, 
         }
 
     videos = _parse_videos_from_yt_data(data)
-    official = _guess_official_channel(videos, query)
     return {
         "ok": bool(videos),
         "error": None if videos else "No videos parsed from YouTube search page",
         "elapsed_sec": elapsed,
         "credits": credits,
         "videos": videos,
-        "official_channel": official,
+        "official_channel": None,
         "search_url": search_url,
     }
 
@@ -462,66 +463,12 @@ def _as_int(v: Any) -> Optional[int]:
     return int(num)
 
 
-def classify_about_product(
-    videos: list[dict],
-    *,
-    company: str,
-    product_hint: str = "",
-    domain: str = "",
-) -> list[dict]:
-    """Mark videos about the product/brand.
-
-    Rule: brand/token in title or description (incl. hashtags) → yes.
-    LLM only for ambiguous leftover rows; clear brand hits are never flipped to no.
-    """
-    if not videos:
-        return videos
-    tokens = _brand_tokens(company, domain or product_hint)
-
-    def _apply_brand_override(v: dict) -> bool:
-        blob = f"{v.get('title', '')} {v.get('snippet', '')}"
-        if _brand_in_text(blob, tokens):
-            v["about_product"] = True
-            v["about_reason"] = "brand_in_title_or_description"
-            return True
-        return False
-
-    # Pass 1: deterministic brand hit (covers HeyClicky / #heyclicky / Reviewing X)
-    pending: list[int] = []
-    for i, v in enumerate(videos):
-        if _apply_brand_override(v):
-            continue
-        pending.append(i)
-        v["about_product"] = False
-        v["about_reason"] = "no_brand_token_yet"
-
-    if not pending:
-        return videos
-
+def _call_openrouter_json(prompt: str, *, max_tokens: int = 1800) -> dict:
     key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if not key:
-        for i in pending:
-            videos[i]["about_reason"] = "heuristic_no_brand"
-        return videos
-
-    lines = []
-    for i in pending:
-        v = videos[i]
-        lines.append(
-            f"[{i}] title={v.get('title')!r} description={v.get('snippet')!r}"
-        )
-    prompt = (
-        f"Company/product brand: {company!r}. Domain/hint: {product_hint or domain!r}.\n"
-        "For each YouTube search result, is the video about this product/brand "
-        "(review, demo, tutorial, walkthrough, or clear product mention)?\n"
-        "YES when the brand/product name appears in the title or description "
-        "(including hashtags like #brand), or the video is clearly a review/demo of it.\n"
-        "NO only when the result is unrelated / different product with a coincidental word.\n"
-        "When unsure but the brand string appears, answer YES.\n"
-        "Return ONLY JSON: {\"items\":[{\"i\":0,\"about\":true/false,\"reason\":\"short\"},...]}\n\n"
-        + "\n".join(lines)
-    )
-    try:
+        raise RuntimeError("OPENROUTER_API_KEY ausente")
+    last_err: Optional[Exception] = None
+    for attempt in range(5):
         r = requests.post(
             OPENROUTER_URL,
             headers={
@@ -531,41 +478,114 @@ def classify_about_product(
             json={
                 "model": OPENROUTER_MODEL,
                 "temperature": 0.1,
-                "max_tokens": 1200,
+                "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=90,
         )
+        if r.status_code == 429 or r.status_code >= 500:
+            try:
+                wait = float(r.headers.get("Retry-After") or "")
+            except (TypeError, ValueError):
+                wait = (2 ** attempt) + 0.3
+            wait = max(1.0, min(wait, 45.0))
+            print(f"[YT-LLM] {r.status_code} — retry {attempt + 1}/5 in {wait:.1f}s", flush=True)
+            time.sleep(wait)
+            last_err = RuntimeError(f"OpenRouter HTTP {r.status_code}")
+            continue
         r.raise_for_status()
         content = (
             r.json().get("choices", [{}])[0].get("message", {}).get("content") or ""
         )
         m = re.search(r"\{[\s\S]*\}", content)
-        parsed = json.loads(m.group(0)) if m else {}
+        if not m:
+            raise RuntimeError("OpenRouter returned no JSON")
+        return json.loads(m.group(0))
+    if last_err:
+        raise last_err
+    raise RuntimeError("OpenRouter call failed")
+
+
+def classify_about_product(
+    videos: list[dict],
+    *,
+    company: str,
+    product_hint: str = "",
+    domain: str = "",
+) -> tuple[list[dict], Optional[dict]]:
+    """LLM-confirm every title. Same-name celebrities/music/other products are false."""
+    official_from_llm: Optional[dict] = None
+    if not videos:
+        return videos, None
+    for v in videos:
+        v["about_product"] = False
+        v["about_reason"] = "pending_llm"
+
+    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        for v in videos:
+            v["about_reason"] = "no_openrouter_key"
+        return videos, None
+
+    lines = []
+    for i, v in enumerate(videos):
+        lines.append(
+            f"[{i}] title={v.get('title')!r} channel={v.get('channel_name')!r} "
+            f"channel_url={v.get('channel_url')!r} description={v.get('snippet')!r}"
+        )
+    site = (domain or product_hint or "").strip()
+    prompt = (
+        f"Brand/company: {company!r}. Official website: {site!r}.\n"
+        "This is a company/product at that website — NOT a celebrity, musician, movie, "
+        "or some other product that merely shares the name.\n"
+        "For each YouTube search result, set about=true ONLY if the video is about THIS "
+        "company/product (review, tutorial, ad, demo, comparison, news of the software/service).\n"
+        "Set about=false for music, artists, people, other companies, or anything unclear — "
+        "even if the brand string appears in the title.\n"
+        "Also set official_i to the index of the video whose CHANNEL is the brand's official "
+        "YouTube (the company itself), or -1 if none is clearly official.\n"
+        "Return ONLY JSON: "
+        '{"items":[{"i":0,"about":true,"reason":"short"}],"official_i":-1}\n\n'
+        + "\n".join(lines)
+    )
+    try:
+        parsed = _call_openrouter_json(prompt)
         by_i = {
             int(it["i"]): it
             for it in (parsed.get("items") or [])
             if isinstance(it, dict) and "i" in it
         }
-        for i in pending:
-            v = videos[i]
-            # Re-check brand in case LLM path races — never downgrade brand hits
-            if _apply_brand_override(v):
-                continue
+        for i, v in enumerate(videos):
             it = by_i.get(i)
             if not it:
                 v["about_product"] = False
-                v["about_reason"] = "llm_missing→no"
+                v["about_reason"] = "llm_missing"
                 continue
             v["about_product"] = bool(it.get("about"))
-            v["about_reason"] = str(it.get("reason") or "llm")[:120]
+            v["about_reason"] = str(it.get("reason") or "llm")[:160]
+        try:
+            official_i = int(parsed.get("official_i", -1))
+        except (TypeError, ValueError):
+            official_i = -1
+        if 0 <= official_i < len(videos):
+            pick = videos[official_i]
+            official_from_llm = {
+                "name": str(pick.get("channel_name") or ""),
+                "url": str(pick.get("channel_url") or ""),
+            }
+            if not official_from_llm["url"] and not official_from_llm["name"]:
+                official_from_llm = None
+        print(
+            f"[YT-LLM] {company}: about={sum(1 for v in videos if v.get('about_product'))}/"
+            f"{len(videos)} official={official_from_llm}",
+            flush=True,
+        )
     except Exception as e:
-        for i in pending:
-            v = videos[i]
-            if not _apply_brand_override(v):
-                v["about_product"] = False
-                v["about_reason"] = f"llm_error→no:{e}"[:120]
-    return videos
+        print(f"[YT-LLM] {company} failed: {e}", flush=True)
+        for v in videos:
+            v["about_product"] = False
+            v["about_reason"] = f"llm_error:{e}"[:160]
+    return videos, official_from_llm
 
 
 def summarize_videos(
@@ -596,18 +616,7 @@ def summarize_videos(
         enriched.append(item)
 
     about = [v for v in enriched if v.get("about_product")]
-    # Fallback: if classifier wiped everything but page has brand hits, use those
-    if not about:
-        tokens = _brand_tokens(company, domain)
-        about = [
-            v for v in enriched
-            if _brand_in_text(f"{v.get('title', '')} {v.get('snippet', '')}", tokens)
-        ]
-        for v in about:
-            v["about_product"] = True
-            if not (v.get("about_reason") or "").startswith("brand_"):
-                v["about_reason"] = "fallback_brand_in_title_or_description"
-    pool = about  # only product-related for metrics
+    pool = about  # only LLM-confirmed videos appear in the report
     official_views = sum((v.get("views") or 0) for v in pool if v.get("is_official"))
     unofficial_views = sum((v.get("views") or 0) for v in pool if not v.get("is_official"))
     buckets = {"30d": 0, "6m": 0, "1y_plus": 0, "unknown": 0}
@@ -663,6 +672,7 @@ def analyze_company(
     product_hint: str = "",
     market: str = "us",
     query: str | None = None,
+    official_hint: Optional[dict] = None,
 ) -> dict[str, Any]:
     """Full YouTube Influencers pass for one company (first search page)."""
     t_all = time.time()
@@ -682,17 +692,18 @@ def analyze_company(
     usage["fetch_elapsed_sec"] = fetched.get("elapsed_sec")
 
     videos = list(fetched.get("videos") or [])
-    videos = classify_about_product(
+    videos, llm_official = classify_about_product(
         videos,
         company=company,
         product_hint=product_hint or domain,
         domain=domain,
     )
+    hint = official_hint or llm_official
     summary = summarize_videos(
         videos,
         company=company,
         domain=domain,
-        official_hint=fetched.get("official_channel"),
+        official_hint=hint,
     )
 
     return {

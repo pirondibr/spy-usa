@@ -18,7 +18,7 @@ if str(FINAL_DIR) not in sys.path:
     sys.path.insert(0, str(FINAL_DIR))
 
 from workspace_paths import OUT_METRICAS as METRICAS_DIR  # noqa: E402
-from youtube_influencers import analyze_company  # noqa: E402
+from youtube_influencers import analyze_company, official_hint_from_url  # noqa: E402
 
 
 def _domain(url: str) -> str:
@@ -51,12 +51,14 @@ def _load_entities(slug: str) -> list[dict]:
                     i_dom = col("dominio", "domain")
                     i_url = col("url")
                     i_sim = col("similaridade")
+                    i_yt = col("youtube url")
                     for row in rows[1:]:
                         if not row:
                             continue
                         dom = str(row[i_dom] or "").strip() if i_dom is not None else ""
                         url = str(row[i_url] or "").strip() if i_url is not None else ""
                         sim = str(row[i_sim] or "").strip() if i_sim is not None else ""
+                        yt = str(row[i_yt] or "").strip() if i_yt is not None else ""
                         if not dom and url:
                             dom = _domain(url)
                         if not dom:
@@ -69,6 +71,7 @@ def _load_entities(slug: str) -> list[dict]:
                             "name": name,
                             "domain": dom,
                             "url": url or f"https://{dom}/",
+                            "youtube_url": yt,
                             "is_client": is_client,
                             "similaridade": sim or ("Cliente" if is_client else "—"),
                         })
@@ -143,6 +146,7 @@ def main() -> None:
                 product_hint=domain or name,
                 market=market,
                 query=q,
+                official_hint=official_hint_from_url(str(ent.get("youtube_url") or "")),
             )
         except Exception as e:
             print(f"[YT-INF] ERROR {name}: {e}", flush=True)
@@ -200,6 +204,7 @@ def main() -> None:
         "slug": slug,
         "market": market.upper(),
         "source": "youtube_native_scrapingbee",
+        "llm_title_filter": True,
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": 0.0,

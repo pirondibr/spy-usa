@@ -326,7 +326,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
             f"30d {_fmt_views(client.get('views_30d'))} / "
             f"6m {_fmt_views(client.get('views_6m'))} / "
             f"1y+ {_fmt_views(client.get('views_1y_plus'))} "
-            f"(product-relevant only; ScrapingBee credits={usage.get('scrapingbee_credits', '—')})."
+            f"(LLM-confirmed titles only; ScrapingBee credits={usage.get('scrapingbee_credits', '—')})."
         ),
         "analysis_title": "YouTube Influencers",
         "pro_hook": "Na versão Pro mapeamos creators, scripts e oportunidades de menção no YouTube.",
@@ -553,6 +553,19 @@ def find_metricas_xlsx(slug: str) -> Optional[Path]:
     if not files:
         files = sorted(folder.glob("metricas-concorrentes-*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
     return files[0] if files else None
+
+
+def _yt_json_needs_llm_filter(slug: str) -> bool:
+    path = METRICAS_DIR / slug / f"youtube-influencers-{slug}.json"
+    if not path.exists():
+        return True
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return not bool(data.get("llm_title_filter"))
+    except Exception:
+        return True
 
 
 def _xlsx_needs_meta_ig_method(xlsx: Optional[Path]) -> bool:
@@ -1060,6 +1073,25 @@ def _run_compare_all_pipeline(
                     )
                 except Exception as e:
                     emit("log", line=f"[ALL] WARN Meta refresh {c_slug}: {e}")
+            if include_youtube_influencers and _yt_json_needs_llm_filter(c_slug):
+                emit(
+                    "log",
+                    line=f"[ALL] ({i + 1}/{len(companies)}) Refresh YouTube titles (LLM) {c_name} ({c_slug})",
+                )
+                _emit_progress(
+                    emit, set_step, "youtube_influencers", "running",
+                    f"All: YouTube LLM {c_name} ({i + 1}/{len(companies)})",
+                )
+                try:
+                    _run_script(
+                        [sys.executable, str(SCRIPT_YT_INFLUENCERS), c_slug],
+                        FINAL_DIR,
+                        lambda line: emit("log", line=line),
+                        timeout_sec=240,
+                        env={"SPY_SITE_ONLY": "1", "SPY_MARKET": market, "SPY_COMPARE_ALL": "1"},
+                    )
+                except Exception as e:
+                    emit("log", line=f"[ALL] WARN YouTube refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
 
@@ -1641,6 +1673,19 @@ def run_pipeline(
             except Exception as e:
                 emit("log", line=f"[META] Refresh failed: {e}")
             existing = find_metricas_xlsx(slug) or existing
+        if include_youtube_influencers and _yt_json_needs_llm_filter(slug):
+            emit("log", line=f"[CACHE] Refreshing YouTube titles via LLM for {slug}")
+            _emit_progress(emit, set_step, "youtube_influencers", "running", "YouTube titles (LLM)…")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_YT_INFLUENCERS), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=240,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[YT-INF] Refresh failed: {e}")
         emit("log", line=f"[CACHE] Using existing metrics: {existing.name}")
         report = build_report_from_xlsx(
             existing,
