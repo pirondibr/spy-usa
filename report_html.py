@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.38"
+REPORT_UI_VERSION = "0.4.39"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2297,7 +2297,25 @@ def render_report_html(
     if competitors_only and report.get("competitors_raw"):
         comps = report.get("competitors_raw") or comps
     elif compare_all:
-        comps = report.get("competitors_raw") or _summary_companies(report) or comps
+        merged_comps: list[dict[str, Any]] = []
+        seen_slugs: set[str] = set()
+
+        def _add_comp(row: Any) -> None:
+            if not isinstance(row, dict):
+                return
+            slug = _slug_key(row)
+            if not slug or slug in seen_slugs:
+                return
+            seen_slugs.add(slug)
+            merged_comps.append(row)
+
+        for row in _summary_companies(report):
+            _add_comp(row)
+        for row in report.get("competitors_raw") or []:
+            _add_comp(row)
+        for row in comps:
+            _add_comp(row)
+        comps = merged_comps
     comps = [
         _enrich_competitor_from_channels(c, report)
         for c in comps
