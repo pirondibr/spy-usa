@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.37"
+REPORT_UI_VERSION = "0.4.38"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1352,6 +1352,87 @@ def _row_for_company(section: dict[str, Any], company: dict[str, Any]) -> Option
     return None
 
 
+def _slug_key(row: dict[str, Any]) -> str:
+    host = re.sub(r"^www\.", "", str(row.get("domain") or "").strip().lower())
+    if not host:
+        host = str(row.get("name") or "").strip().lower()
+    label = host.split(".")[0] if "." in host else host
+    return re.sub(r"[^a-z0-9]+", "", label)
+
+
+def _row_for_company_loose(section: dict[str, Any], company: dict[str, Any]) -> Optional[dict[str, Any]]:
+    row = _row_for_company(section, company)
+    if row:
+        return row
+    name = re.sub(r"\s+", " ", str(company.get("name") or "").strip().lower())
+    slug = _slug_key(company)
+    for r in section.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        rname = re.sub(r"\s+", " ", str(r.get("name") or "").strip().lower())
+        if name and rname and name == rname:
+            return r
+        if slug and _slug_key(r) == slug:
+            return r
+    return None
+
+
+def _first_num(*vals: Any) -> Optional[float]:
+    for v in vals:
+        if v in (None, ""):
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _enrich_competitor_from_channels(c: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    """Fill Brand / SimilarWeb / title on compare-all rows from channel tables."""
+    out = dict(c)
+    sw = report.get("similarweb") if isinstance(report.get("similarweb"), dict) else {}
+    sw_row = _row_for_company_loose(sw, out) if sw else None
+    if sw_row:
+        if out.get("similarweb_visits") in (None, ""):
+            n = _first_num(sw_row.get("traffic"), sw_row.get("visits"), sw_row.get("value"))
+            if n is not None:
+                out["similarweb_visits"] = n
+        title = str(sw_row.get("title") or sw_row.get("site_title") or "").strip()
+        if title and (not out.get("title") or out.get("title") in ("—", "-")):
+            out["title"] = title
+    dfs = report.get("brand_dataforseo") if isinstance(report.get("brand_dataforseo"), dict) else {}
+    dfs_row = _row_for_company_loose(dfs, out) if dfs else None
+    if dfs_row:
+        if out.get("brand_aug_2026") in (None, ""):
+            out["brand_aug_2026"] = _first_num(dfs_row.get("traffic"), dfs_row.get("latest_volume"))
+        if out.get("brand_aug_2025") in (None, ""):
+            out["brand_aug_2025"] = _first_num(dfs_row.get("volume_1y"))
+        if out.get("brand_aug_2024") in (None, ""):
+            out["brand_aug_2024"] = _first_num(dfs_row.get("volume_2y"))
+        if not out.get("brand_keyword"):
+            out["brand_keyword"] = str(dfs_row.get("keyword") or dfs_row.get("client_keyword") or "").strip()
+    brand = report.get("brand") if isinstance(report.get("brand"), dict) else {}
+    brand_row = _row_for_company_loose(brand, out) if brand else None
+    if brand_row:
+        if out.get("sm_marca_aug_2026") in (None, ""):
+            out["sm_marca_aug_2026"] = _first_num(brand_row.get("traffic"), brand_row.get("latest_volume"))
+        if out.get("sm_marca_aug_2025") in (None, ""):
+            out["sm_marca_aug_2025"] = _first_num(brand_row.get("volume_1y"))
+        if out.get("sm_marca_aug_2024") in (None, ""):
+            out["sm_marca_aug_2024"] = _first_num(brand_row.get("volume_2y"))
+    seo = report.get("seo") if isinstance(report.get("seo"), dict) else {}
+    seo_row = _row_for_company_loose(seo, out) if seo else None
+    if seo_row:
+        if not out.get("started"):
+            out["started"] = seo_row.get("started") or seo_row.get("first_month") or seo_row.get("started_ym")
+        if not out.get("started_fmt"):
+            out["started_fmt"] = seo_row.get("started_fmt") or seo_row.get("first_month_fmt") or ""
+        if (not out.get("nicho") or out.get("nicho") in ("—", "-")) and seo_row.get("nicho"):
+            out["nicho"] = seo_row.get("nicho")
+    return out
+
+
 def _summary_scoreboard(
     report: dict[str, Any],
     *,
@@ -2212,13 +2293,25 @@ def render_report_html(
     comps = report.get("competitors") or []
     note = report.get("competitors_note") or ""
     competitors_only = bool(report.get("competitors_only") or meta.get("competitors_only"))
+    compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
     if competitors_only and report.get("competitors_raw"):
         comps = report.get("competitors_raw") or comps
+    elif compare_all:
+        comps = report.get("competitors_raw") or _summary_companies(report) or comps
+    comps = [
+        _enrich_competitor_from_channels(c, report)
+        for c in comps
+        if isinstance(c, dict)
+    ]
     fp_domains = _brand_fp_domains(comps, report)
     run_id = str(meta.get("id") or "").strip()
     sim_editable = bool(competitors_only and run_id)
 
-    show_brand = bool(report.get("include_brand_growth") or meta.get("include_brand_growth"))
+    show_brand = bool(
+        report.get("include_brand_growth")
+        or meta.get("include_brand_growth")
+        or any(c.get("brand_aug_2026") not in (None, "") for c in comps)
+    )
     sw_missing = sum(
         1
         for c in comps
@@ -2346,7 +2439,6 @@ def render_report_html(
     }
 
     market = _report_market(report, meta)
-    compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
     summary = _summary_channels(report, run_meta=meta)
     # Mesma ordem do resumo (agrupado): Paid → Search & traffic → Social
     blocks: list[tuple[str, str, str]] = [
