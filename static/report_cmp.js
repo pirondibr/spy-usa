@@ -65,9 +65,14 @@
     if (lvl == null) return '<span class="na">n/c</span>';
     return '<span class="m ' + (lvl === 0 ? "z" : "on" + lvl) + '" role="img" aria-label="' + LBL[lvl] + '"><i></i><i></i><i></i></span>';
   }
-  function avg(r, g) {
+  function best(r, g) {
     var v = g.subs.map(function (s) { return r.s[s[0]]; }).filter(function (x) { return x != null; });
-    return v.length ? Math.round(v.reduce(function (a, b) { return a + b; }, 0) / v.length) : null;
+    return v.length ? Math.max.apply(null, v) : null;
+  }
+  function lvlCls(v) {
+    if (v == null) return " isna";
+    if (v === 0) return " isz isl0";
+    return " isl" + v;
   }
   function bars(vals, labels) {
     if (!vals || !vals.length) return '<p class="sec-note">Sem série histórica.</p>';
@@ -100,7 +105,7 @@
       r.d = r.d || {};
       r.w = r.w || {};
       r.series = r.series || { v: [], b: [] };
-      GROUPS.forEach(function (g) { r["m_" + g.k] = avg(r, g); });
+      GROUPS.forEach(function (g) { r["m_" + g.k] = best(r, g); });
     });
     var profileOnly = root.hasAttribute("data-profile-only");
     var visitLabels = payload.visit_labels || [];
@@ -113,7 +118,7 @@
     var tableEl = root.querySelector(".cmp-t");
     var pcard = root.querySelector(".pcard");
     var picker = root.querySelector(".picker");
-    var weakEl = root.querySelector(".cmp-weak");
+    var hl = "";
     var tlegend = root.querySelector(".tlegend");
     var qgf = root.querySelector(".qg-f");
     var qgb = root.querySelector(".qg-b");
@@ -172,7 +177,7 @@
       });
       h += '</tr><tr class="colrow">';
       GROUPS.forEach(function (g, gi) {
-        h += '<th class="hsc ' + g.cls + (gi === 0 ? " c0" : "") + '">' + sb("m_" + g.k, MAC_SHORT[g.k], "Média dos canais de " + g.label) + "</th>";
+        h += '<th class="hsc ' + g.cls + (gi === 0 ? " c0" : "") + '">' + sb("m_" + g.k, MAC_SHORT[g.k], "Melhor canal de " + g.label) + "</th>";
       });
       GROUPS.forEach(function (g) {
         g.subs.forEach(function (pair, si) {
@@ -191,8 +196,7 @@
         h += '<td class="kpi num"><div class="kv">' + (r.brand === best.brand && r.brand ? '<span class="best" title="Maior da coluna"></span>' : "") + fmt(r.brand) + "</div>" + kd(r.bg) + "</td>";
         GROUPS.forEach(function (g, gi) {
           var mv = r["m_" + g.k];
-          var gv = mv === 0 ? 1 : mv;
-          h += '<td class="hcell sumc ' + g.cls + (gi === 0 ? " c0" : "") + (mv === 0 ? " isz" : "") + '" title="' + esc(r.name + " · " + g.label + ": " + (gv == null ? "sem dado" : LBL[gv])) + '"><span class="cw">' + m3(gv, true) + '<span class="lt L' + gv + '">' + (gv == null ? "—" : LBL[gv]) + "</span></span></td>";
+          h += '<td class="hcell sumc ' + g.cls + (gi === 0 ? " c0" : "") + lvlCls(mv) + '" title="' + esc(r.name + " · " + g.label + ": " + (mv == null ? "sem dado" : LBL[mv])) + '"><span class="cw">' + m3(mv, true) + '<span class="lt L' + mv + '">' + (mv == null ? "—" : LBL[mv]) + "</span></span></td>";
         });
         GROUPS.forEach(function (g) {
           g.subs.forEach(function (pair, si) {
@@ -203,7 +207,7 @@
             var dv = r.d[k];
             var tip = r.name + " · " + l + ": " + (v == null ? "não coletado" : (dv != null ? Number(dv).toLocaleString("pt-BR") + " " + UNIT[k] + " · " : "") + LBL[v]) + (w ? " — verificar: " + w : "");
             var txt = v == null ? "" : fmt(dv);
-            h += '<td class="hcell subc ' + g.cls + (si === 0 ? " c0" : "") + (v === 0 ? " isz" : "") + (v == null ? " isna" : "") + '" title="' + esc(tip) + '"><span class="cw">' + m3(v) + (v == null ? "" : '<span class="vn num' + (v === 0 ? " z" : "") + '">' + txt + "</span>") + "</span>" + (w ? '<span class="hw" aria-label="Verificar: ' + esc(w) + '">!</span>' : "") + "</td>";
+            h += '<td class="hcell subc ' + g.cls + (si === 0 ? " c0" : "") + lvlCls(v) + '" title="' + esc(tip) + '"><span class="cw">' + m3(v) + (v == null ? "" : '<span class="vn num' + (v === 0 ? " z" : "") + '">' + txt + "</span>") + "</span>" + (w ? '<span class="hw" aria-label="Verificar: ' + esc(w) + '">!</span>' : "") + "</td>";
           });
         });
         h += "</tr>";
@@ -248,7 +252,7 @@
       });
       h += '</tr><tr class="colrow">';
       GROUPS.forEach(function (g) {
-        h += '<th class="gc mac c ' + g.cls + '">' + sb("m_" + g.k, "Geral", "Média dos canais") + "</th>";
+        h += '<th class="gc mac c ' + g.cls + '">' + sb("m_" + g.k, "Geral", "Melhor canal da categoria") + "</th>";
         g.subs.forEach(function (pair) {
           h += '<th class="gc c subc ' + g.cls + '">' + sb(pair[0], pair[1]) + (mode === "data" ? '<span class="un">' + UNIT[pair[0]] + "</span>" : "") + "</th>";
         });
@@ -271,7 +275,7 @@
         h += '<td class="kpi num"><div class="kv">' + (r.brand === best.brand && r.brand ? '<span class="best" title="Maior da coluna"></span>' : "") + fmt(r.brand) + "</div>" + kd(r.bg) + "</td>";
         GROUPS.forEach(function (g) {
           var mv = r["m_" + g.k];
-          h += '<td class="macv c ' + g.cls + (mv === 0 ? " isz" : "") + '">' + meter(mv) + '<span class="ml' + (mv === 0 ? " z" : "") + '">' + (mv == null ? "—" : LBL[mv]) + "</span></td>";
+          h += '<td class="macv c ' + g.cls + lvlCls(mv) + '">' + meter(mv) + '<span class="ml' + (mv === 0 ? " z" : "") + '">' + (mv == null ? "—" : LBL[mv]) + "</span></td>";
           g.subs.forEach(function (pair) {
             var k = pair[0];
             var l = pair[1];
@@ -285,7 +289,7 @@
                   ? '<span class="na">n/c</span>'
                   : '<span class="dv l' + v + ' num">' + (dv && dv === colMax[k] ? '<span class="best" title="Maior da coluna"></span>' : "") + fmt(dv) + "</span>"
                 : meter(v);
-            h += '<td class="cell subc ' + g.cls + (v === 0 ? " isz" : "") + (v == null ? " isna" : "") + '" title="' + esc(tip) + '">' + body + (w ? '<span class="warn" aria-label="Verificar: ' + esc(w) + '">!</span>' : "") + "</td>";
+            h += '<td class="cell subc ' + g.cls + lvlCls(v) + '" title="' + esc(tip) + '">' + body + (w ? '<span class="warn" aria-label="Verificar: ' + esc(w) + '">!</span>' : "") + "</td>";
           });
         });
         h += "</tr>";
@@ -326,8 +330,7 @@
       var tag = r.me ? '<span class="you">você</span>' : r.ex ? '<span class="ex">exemplo</span>' : "";
       var v4 = isV4();
       var macro = function (g) {
-        var lv0 = r["m_" + g.k];
-        var lv = v4 && lv0 === 0 ? 1 : lv0;
+        var lv = r["m_" + g.k];
         var segs = [0, 1, 2].map(function (i) {
           return "<i" + (lv != null && i < lv ? ' class="on"' : "") + "></i>";
         }).join("");
@@ -450,6 +453,16 @@
         render();
         return;
       }
+      var hlBtn = e.target.closest("[data-hl]");
+      if (hlBtn && root.contains(hlBtn)) {
+        hl = hlBtn.getAttribute("data-hl") || "";
+        root.classList.remove("weak", "hl-alto", "hl-medio", "hl-baixo");
+        if (hl) root.classList.add("hl-" + hl);
+        root.querySelectorAll("[data-hl]").forEach(function (b) {
+          b.setAttribute("aria-pressed", (b.getAttribute("data-hl") || "") === hl ? "true" : "false");
+        });
+        return;
+      }
       var v = e.target.closest("[data-view]");
       if (v && root.contains(v)) {
         root.querySelectorAll("[data-view]").forEach(function (b) {
@@ -476,11 +489,6 @@
         pick(ROWS[(i + Number(st.getAttribute("data-step")) + ROWS.length) % ROWS.length].name);
       }
     });
-    if (weakEl) {
-      weakEl.addEventListener("change", function (e) {
-        root.classList.toggle("weak", e.target.checked);
-      });
-    }
     window.addEventListener("spy-ui", function () {
       renderCard();
       render();

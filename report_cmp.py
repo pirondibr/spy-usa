@@ -290,12 +290,32 @@ def _pct_cmp(p: Any) -> str:
     return f"{sign}{abs(v):.{digits}f}%".replace(".", ",")
 
 
-def _avg_group(row: dict[str, Any], subs: tuple[tuple[str, str], ...]) -> Optional[int]:
+def _group_level(row: dict[str, Any], subs: tuple[tuple[str, str], ...]) -> Optional[int]:
+    """Category score = strongest collected channel (at least one Alto → Alto)."""
     vals = [row.get("s", {}).get(k) for k, _ in subs]
-    vals = [int(v) for v in vals if v is not None]
-    if not vals:
+    nums: list[int] = []
+    for v in vals:
+        if v is None:
+            continue
+        try:
+            nums.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    if not nums:
         return None
-    return int(round(sum(vals) / len(vals)))
+    return max(nums)
+
+
+def _lvl_cell_cls(v: Any) -> str:
+    if v is None:
+        return " isna"
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return " isna"
+    if n == 0:
+        return " isz isl0"
+    return f" isl{n}"
 
 
 def _bars_html(vals: list[Any], labels: list[str]) -> str:
@@ -375,8 +395,7 @@ def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False, var
     is_v4 = variant != "v3"
     macros = []
     for _k, label, cls, subs in GROUPS:
-        lv0 = _avg_group(row, subs)
-        lv = 1 if lv0 == 0 else lv0
+        lv = _group_level(row, subs)
         segs = "".join('<i class="on"></i>' if lv is not None and i < lv else "<i></i>" for i in range(3))
         tags = []
         for mk, lab in subs:
@@ -489,7 +508,7 @@ def _prep_rows(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict
     for r in rows:
         scores = r.get("s") or {}
         for gk, _lab, _cls, subs in GROUPS:
-            r[f"m_{gk}"] = _avg_group({"s": scores}, subs)
+            r[f"m_{gk}"] = _group_level({"s": scores}, subs)
     me = [r for r in rows if r.get("me")]
     rest = [r for r in rows if not r.get("me")]
     ordered = me + rest
@@ -522,7 +541,7 @@ def build_table_html(payload: dict[str, Any], *, variant: str = "v4") -> str:
         h += f'<th class="gc mac {cls}" colspan="{len(subs) + 1}" data-span="{len(subs) + 1}">{_esc(label)}</th>'
     h += '</tr><tr class="colrow">'
     for gk, _label, cls, subs in GROUPS:
-        h += f'<th class="gc mac c {cls}">{_sb("m_" + gk, "Geral", "Média dos canais")}</th>'
+        h += f'<th class="gc mac c {cls}">{_sb("m_" + gk, "Geral", "Melhor canal da categoria")}</th>'
         for mk, lab in subs:
             h += f'<th class="gc c subc {cls}">{_sb(mk, lab)}</th>'
     h += "</tr></thead><tbody>"
@@ -564,7 +583,7 @@ def build_table_html(payload: dict[str, Any], *, variant: str = "v4") -> str:
             mv = r.get(f"m_{gk}")
             ml = "—" if mv is None else LBL[mv]
             h += (
-                f'<td class="macv c {cls}{" isz" if mv == 0 else ""}">{_meter_html(mv)}'
+                f'<td class="macv c {cls}{_lvl_cell_cls(mv)}">{_meter_html(mv)}'
                 f'<span class="ml{" z" if mv == 0 else ""}">{_esc(ml)}</span></td>'
             )
             for mk, lab in subs:
@@ -585,7 +604,7 @@ def build_table_html(payload: dict[str, Any], *, variant: str = "v4") -> str:
                 body = _meter_html(v)
                 warn = f'<span class="warn" aria-label="Verificar: {_esc(w)}">!</span>' if w else ""
                 h += (
-                    f'<td class="cell subc {cls}{" isz" if v == 0 else ""}{" isna" if v is None else ""}" '
+                    f'<td class="cell subc {cls}{_lvl_cell_cls(v)}" '
                     f'title="{_esc(tip)}">{body}{warn}</td>'
                 )
         h += "</tr>"
@@ -639,7 +658,7 @@ def _build_table_html_v4(rows: list[dict[str, Any]], ordered: list[dict[str, Any
         short = MAC_SHORT.get(gk, "Geral")
         h += (
             f'<th class="hsc {cls}{" c0" if gi == 0 else ""}">'
-            f'{_sb("m_" + gk, short, "Média dos canais")}</th>'
+            f'{_sb("m_" + gk, short, "Melhor canal da categoria")}</th>'
         )
     for _gk, _label, cls, subs in GROUPS:
         for si, (mk, lab) in enumerate(subs):
@@ -684,12 +703,11 @@ def _build_table_html_v4(rows: list[dict[str, Any]], ordered: list[dict[str, Any
         warns = r.get("w") or {}
         for gi, (gk, label, cls, _subs) in enumerate(GROUPS):
             mv = r.get(f"m_{gk}")
-            gv = 1 if mv == 0 else mv
-            lab = "—" if gv is None else LBL[gv]
+            lab = "—" if mv is None else LBL[mv]
             h += (
-                f'<td class="hcell sumc {cls}{" c0" if gi == 0 else ""}{" isz" if mv == 0 else ""}" '
+                f'<td class="hcell sumc {cls}{" c0" if gi == 0 else ""}{_lvl_cell_cls(mv)}" '
                 f'title="{_esc(name)} · {_esc(label)}: {_esc(lab)}">'
-                f'<span class="cw">{_m3_html(gv, big=True)}<span class="lt L{gv if gv is not None else ""}">{_esc(lab)}</span></span></td>'
+                f'<span class="cw">{_m3_html(mv, big=True)}<span class="lt L{mv if mv is not None else ""}">{_esc(lab)}</span></span></td>'
             )
         for _gk, _label, cls, subs in GROUPS:
             for si, (mk, lab) in enumerate(subs):
@@ -716,7 +734,7 @@ def _build_table_html_v4(rows: list[dict[str, Any]], ordered: list[dict[str, Any
                     else f'<span class="vn num{" z" if v == 0 else ""}">{_esc(txt)}</span>'
                 )
                 h += (
-                    f'<td class="hcell subc {cls}{" c0" if si == 0 else ""}{" isz" if v == 0 else ""}{" isna" if v is None else ""}" '
+                    f'<td class="hcell subc {cls}{" c0" if si == 0 else ""}{_lvl_cell_cls(v)}" '
                     f'title="{_esc(tip)}"><span class="cw">{_m3_html(v)}{vn}</span>{warn}</td>'
                 )
         h += "</tr>"
@@ -916,7 +934,15 @@ def build_cmp_html(
         <button type="button" data-mode="lvl" aria-pressed="true">Notas</button>
         <button type="button" data-mode="data" aria-pressed="false">Dados</button>
       </div>
-      <label class="chk"><input type="checkbox" class="cmp-weak">Destacar fraquezas</label>
+      <div class="hl-wrap">
+        <span class="hl-lab">Destacar</span>
+        <div class="seg hl-seg" role="group" aria-label="Destacar">
+          <button type="button" data-hl="" aria-pressed="true">Nada</button>
+          <button type="button" data-hl="alto" aria-pressed="false">Alto</button>
+          <button type="button" data-hl="medio" aria-pressed="false">Médio</button>
+          <button type="button" data-hl="baixo" aria-pressed="false">Baixo</button>
+        </div>
+      </div>
     </div>
     <div class="legend legend-v3">
       <span class="g-org"><span class="m on3" aria-hidden="true"><i></i><i></i><i></i></span>Alto</span>
