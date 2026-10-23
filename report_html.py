@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.36"
+REPORT_UI_VERSION = "0.4.37"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2553,7 +2553,7 @@ def render_report_html(
             )
 
     return f"""<!DOCTYPE html>
-<html lang="en-US"{' data-has-v3="1"' if with_competitors else ''}>
+<html lang="en-US" data-ui="v4"{' data-has-v3="1"' if with_competitors else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2564,21 +2564,12 @@ def render_report_html(
 <style>{_REPORT_CSS}</style>
 <link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
-<script>
-(function(){{try{{var has=document.documentElement.getAttribute('data-has-v3')==='1';var key=has?'spy-report-compare-ui-v4':'spy-report-ui-v4';var ok=has?{{v1:1,v2:1,v3:1,v4:1}}:{{v1:1,v2:1,v4:1}};var v=localStorage.getItem(key);document.documentElement.setAttribute('data-ui',ok[v]?v:'v4');}}catch(e){{document.documentElement.setAttribute('data-ui','v4');}}}})();
-</script>
 </head>
 <body{body_cls}>
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand"><span class="logo">S</span>Spy USA<span class="crumb">/ {_esc(client)}</span></div>
     <div class="actions">
-      <div class="ui-switch" role="group" aria-label="Report version">
-        <button type="button" class="ui-ver" data-ui="v1" aria-pressed="false">v1</button>
-        <button type="button" class="ui-ver" data-ui="v2" aria-pressed="false">v2</button>
-        <button type="button" class="ui-ver" data-ui="v3"{'' if with_competitors else ' hidden'} aria-pressed="false">v3</button>
-        <button type="button" class="ui-ver is-active" data-ui="v4" aria-pressed="true">v4</button>
-      </div>
       <a href="/">New analysis</a>
       {rerun}
       <button type="button" class="primary" onclick="window.print()">Print / PDF</button>
@@ -2639,7 +2630,7 @@ def render_report_html(
 </div>
 {analysis_v2}
 <script>
-(function(){{try{{var ui=document.documentElement.getAttribute('data-ui');var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');var home=document.getElementById('sec-competitors-home');if(card&&slot&&ui==='v4')slot.appendChild(card);else if(card&&home&&card.parentElement!==home)home.appendChild(card);}}catch(e){{}}}})();
+(function(){{try{{document.documentElement.setAttribute('data-ui','v4');var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot)slot.appendChild(card);}}catch(e){{}}}})();
 </script>
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>

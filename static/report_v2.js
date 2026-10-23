@@ -1,55 +1,11 @@
 (function () {
-  var hasCompare =
-    document.documentElement.getAttribute("data-has-v3") === "1" ||
-    !!document.querySelector("[data-cmp]:not([data-profile-only])");
-  var KEY = hasCompare ? "spy-report-compare-ui-v4" : "spy-report-ui-v4";
-  var ALLOWED = hasCompare ? { v1: 1, v2: 1, v3: 1, v4: 1 } : { v1: 1, v2: 1, v4: 1 };
-  document.querySelectorAll('.ui-ver[data-ui="v3"]').forEach(function (b) {
-    b.hidden = !hasCompare;
-  });
-  document.querySelectorAll('.ui-ver[data-ui="v4"]').forEach(function (b) {
-    b.hidden = false;
-  });
-  function currentUi() {
-    try {
-      var stored = localStorage.getItem(KEY);
-      if (stored && ALLOWED[stored]) return stored;
-    } catch (e) {}
-    return "v4";
-  }
-  function placeCompTable(v) {
-    var card = document.getElementById("sec-competitors");
-    var slot = document.getElementById("lista");
-    var home = document.getElementById("sec-competitors-home");
-    if (!card) return;
-    if (v === "v4" && slot) {
-      if (card.parentElement !== slot) slot.appendChild(card);
-    } else if (home && card.parentElement !== home) {
-      home.appendChild(card);
-    }
-  }
-  function applyUi(v) {
-    if (!ALLOWED[v]) v = "v4";
-    document.documentElement.setAttribute("data-ui", v);
-    try {
-      localStorage.setItem(KEY, v);
-    } catch (e) {}
-    document.querySelectorAll(".ui-ver").forEach(function (b) {
-      var on = b.getAttribute("data-ui") === v;
-      b.classList.toggle("is-active", on);
-      b.setAttribute("aria-pressed", on ? "true" : "false");
-    });
-    placeCompTable(v);
-    try {
-      window.dispatchEvent(new CustomEvent("spy-ui", { detail: v }));
-    } catch (e) {}
-  }
-  applyUi(currentUi());
-  document.addEventListener("click", function (ev) {
-    var b = ev.target.closest(".ui-ver");
-    if (!b) return;
-    applyUi(b.getAttribute("data-ui"));
-  });
+  document.documentElement.setAttribute("data-ui", "v4");
+  var card = document.getElementById("sec-competitors");
+  var slot = document.getElementById("lista");
+  if (card && slot && card.parentElement !== slot) slot.appendChild(card);
+  try {
+    window.dispatchEvent(new CustomEvent("spy-ui", { detail: "v4" }));
+  } catch (e) {}
 })();
 
 (function () {

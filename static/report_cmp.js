@@ -36,7 +36,7 @@
     return r >= 10 ? Math.round(r) + "×" : r.toFixed(1).replace(".", ",") + "×";
   }
   function isV4() {
-    return document.documentElement.getAttribute("data-ui") === "v4";
+    return true;
   }
   function m3(v, big) {
     if (v == null) return '<span class="na">n/c</span>';
