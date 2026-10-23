@@ -57,7 +57,7 @@
     if (!dataEl) return;
     var payload;
     try {
-      payload = JSON.parse(dataEl.textContent || "{}");
+      payload = JSON.parse(dataEl.value || dataEl.textContent || "{}");
     } catch (e) {
       return;
     }

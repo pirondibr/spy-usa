@@ -11,6 +11,27 @@ from report_analysis_compare import COLORS, MAX_COMPANIES
 
 SCORE_LVL = {"high": 3, "medium": 2, "low": 1, "0": 0}
 
+GROUPS = (
+    ("paid", "Mídia paga", "g-paid", (("google", "Google"), ("meta", "Meta"), ("li_ads", "LinkedIn"))),
+    ("org", "Orgânico", "g-org", (("seo", "SEO"), ("x", "X"), ("ig", "Insta"), ("li", "LinkedIn"), ("yt", "YouTube"), ("tt", "TikTok"), ("rd", "Reddit"))),
+    ("inf", "Influenciadores", "g-inf", (("yt_inf", "YouTube"), ("ig_inf", "Insta"))),
+)
+LBL = ("Sem presença", "Baixo", "Médio", "Alto")
+UNIT = {
+    "google": "anúncios",
+    "meta": "anúncios",
+    "li_ads": "anúncios",
+    "seo": "visitas",
+    "x": "seguidores",
+    "ig": "seguidores",
+    "li": "seguidores",
+    "yt": "inscritos",
+    "tt": "seguidores",
+    "rd": "coment.",
+    "yt_inf": "views",
+    "ig_inf": "curtidas",
+}
+
 # mock key → report channel key
 CHAN = {
     "google": "google_ads",
@@ -214,6 +235,183 @@ def build_cmp_payload(
     }
 
 
+def _fmt_cmp(n: Any) -> str:
+    if n is None or n == "":
+        return "—"
+    try:
+        v = float(n)
+    except (TypeError, ValueError):
+        return "—"
+    if abs(v) >= 1e6:
+        s = f"{v / 1e6:.2f}" if abs(v) < 1e7 else f"{v / 1e6:.1f}"
+        return s.rstrip("0").rstrip(".") + "M"
+    if abs(v) >= 1e3:
+        s = f"{v / 1e3:.1f}" if abs(v) < 1e5 else f"{v / 1e3:.0f}"
+        return s.rstrip("0").rstrip(".") + "k"
+    return str(int(round(v)))
+
+
+def _pct_cmp(p: Any) -> str:
+    try:
+        v = float(p)
+    except (TypeError, ValueError):
+        return "—"
+    sign = "+" if v > 0 else ("−" if v < 0 else "")
+    digits = 0 if abs(v) >= 100 else 1
+    return f"{sign}{abs(v):.{digits}f}%".replace(".", ",")
+
+
+def _avg_group(row: dict[str, Any], subs: tuple[tuple[str, str], ...]) -> Optional[int]:
+    vals = [row.get("s", {}).get(k) for k, _ in subs]
+    vals = [int(v) for v in vals if v is not None]
+    if not vals:
+        return None
+    return int(round(sum(vals) / len(vals)))
+
+
+def _bars_html(vals: list[Any], labels: list[str]) -> str:
+    from report_html import _esc
+
+    nums = []
+    for v in vals:
+        try:
+            nums.append(float(v))
+        except (TypeError, ValueError):
+            nums.append(0.0)
+    if not nums:
+        return '<p class="sec-note">Sem série histórica.</p>'
+    mx = max(nums + [1.0])
+    bars = "".join(
+        f'<span><b class="num">{_esc(_fmt_cmp(v))}</b>'
+        f'<i style="height:{max(v / mx * 100, 0.5):.1f}%"></i></span>'
+        for v in nums
+    )
+    labs = "".join(f"<span>{_esc(l)}</span>" for l in labels[: len(nums)])
+    return f'<div class="pf2-bars">{bars}</div><div class="pf2-bl">{labs}</div>'
+
+
+def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False) -> str:
+    from report_html import _esc
+
+    rows = payload.get("rows") or []
+    if not rows:
+        return ""
+    row = next((r for r in rows if r.get("me")), rows[0])
+    me = next((r for r in rows if r.get("me")), None)
+    scores = row.get("s") or {}
+    data = row.get("d") or {}
+    warns = row.get("w") or {}
+    series = row.get("series") or {}
+    v_series = list(series.get("v") or [])
+    b_series = list(series.get("b") or [])
+    tag = '<span class="you">você</span>' if row.get("me") else ""
+    host = str(row.get("dom") or "")
+    href = host if "://" in host else (f"https://{host}" if host else "")
+    dm = (
+        f'<a class="dm" href="{_esc(href)}/" target="_blank" rel="noopener">{_esc(host)} ↗</a>'
+        if href
+        else (f'<span class="dm">{_esc(host)}</span>' if host else "")
+    )
+    nav = (
+        ""
+        if profile_only or len(rows) < 2
+        else (
+            '<div class="nav2">'
+            '<button type="button" data-step="-1" aria-label="Empresa anterior">‹</button>'
+            '<button type="button" data-step="1" aria-label="Próxima empresa">›</button>'
+            "</div>"
+        )
+    )
+    macros = []
+    for _k, label, cls, subs in GROUPS:
+        lv = _avg_group(row, subs)
+        segs = "".join('<i class="on"></i>' if lv is not None and i < lv else "<i></i>" for i in range(3))
+        tags = []
+        for mk, lab in subs:
+            v = scores.get(mk)
+            w = warns.get(mk)
+            dv = data.get(mk)
+            if v is None:
+                title = f"{lab}: não coletado"
+                tags.append(f'<span class="pt na" title="{_esc(title)}">{_esc(lab)}<span class="pt-s">n/c</span></span>')
+                continue
+            try:
+                lvl = int(v)
+            except (TypeError, ValueError):
+                lvl = 0
+            tip_n = f"{int(dv):,} {UNIT.get(mk, '')} · " if isinstance(dv, (int, float)) else ""
+            title = f"{lab}: {tip_n}{LBL[lvl] if 0 <= lvl < len(LBL) else ''}{(' — verificar: ' + str(w)) if w else ''}"
+            dots = "".join('<i class="on"></i>' if i < lvl else "<i></i>" for i in range(3))
+            warn = '<span class="warn" style="margin-left:0">!</span>' if w else ""
+            zcls = " z" if lvl == 0 else ""
+            tags.append(
+                f'<span class="pt{zcls}" title="{_esc(title)}">{_esc(lab)}'
+                f'<span class="pt-m" aria-label="{_esc(LBL[lvl] if 0 <= lvl < len(LBL) else "")}">{dots}</span>{warn}</span>'
+            )
+        lv_lab = "—" if lv is None else LBL[lv]
+        zlab = " z" if lv == 0 else ""
+        macros.append(
+            f'<div class="pm {cls}"><div class="pm-h"><b>{_esc(label)}</b>'
+            f'<span class="pm-l{zlab}">{_esc(lv_lab)}</span>'
+            f'<span class="pm-m" role="img" aria-label="{_esc(lv_lab)}">{segs}</span></div>'
+            f'<div class="pm-t">{"".join(tags)}</div></div>'
+        )
+    vg = row.get("vg") or 0
+    bg = row.get("bg") or 0
+    try:
+        vg_f = float(vg)
+    except (TypeError, ValueError):
+        vg_f = 0.0
+    try:
+        bg_f = float(bg)
+    except (TypeError, ValueError):
+        bg_f = 0.0
+    dcls = lambda p: "" if p >= 0 else ' style="background:#FDF0EF;color:var(--down)"'
+    v_last = v_series[-1] if v_series else row.get("visits")
+    b_last = b_series[-1] if b_series else row.get("brand")
+    ref_v = (
+        f'<div class="ref">você: <b class="num">{_esc(_fmt_cmp(me.get("visits")))}</b></div>'
+        if me and not row.get("me")
+        else ""
+    )
+    ref_b = (
+        f'<div class="ref">você: <b class="num">{_esc(_fmt_cmp(me.get("brand")))}</b></div>'
+        if me and not row.get("me")
+        else ""
+    )
+    return f"""
+    <div class="ch2"><span class="cdot" style="background:{_esc(row.get("color") or "#9AA3AE")};width:11px;height:11px"></span><b>{_esc(row.get("name") or "—")}</b>{tag}{dm}{nav}</div>
+    <div class="pf2">
+      <div class="pf2-col"><div class="pf-lab">Força por categoria</div>{"".join(macros)}</div>
+      <div class="pf2-col pf2-chart"><div class="pf-lab">Visitas · SimilarWeb</div>
+        <div class="pf2-top"><span class="pf2-v num">{_esc(_fmt_cmp(v_last))}<small>/mês</small></span><span class="pf2-d num"{dcls(vg_f)}>{_esc(_pct_cmp(vg_f))} no período</span></div>
+        {ref_v}{_bars_html(v_series, list(payload.get("visit_labels") or []))}</div>
+      <div class="pf2-col pf2-chart"><div class="pf-lab">Busca pela marca · DataForSEO</div>
+        <div class="pf2-top"><span class="pf2-v num">{_esc(_fmt_cmp(b_last))}<small>/mês</small></span><span class="pf2-d num"{dcls(bg_f)}>{_esc(_pct_cmp(bg_f))} em 1 ano</span></div>
+        {ref_b}{_bars_html(b_series, list(payload.get("brand_labels") or []))}</div>
+    </div>"""
+
+
+def build_picker_html(payload: dict[str, Any], selected: Optional[str] = None) -> str:
+    from report_html import _esc
+
+    rows = payload.get("rows") or []
+    if len(rows) < 2:
+        return ""
+    sel = selected or next((r.get("name") for r in rows if r.get("me")), rows[0].get("name"))
+    bits = []
+    for r in rows:
+        name = str(r.get("name") or "")
+        pressed = "true" if name == sel else "false"
+        you = " · você" if r.get("me") else ""
+        bits.append(
+            f'<button type="button" class="pk" data-pick="{_esc(name)}" aria-pressed="{pressed}">'
+            f'<span class="cdot" style="background:{_esc(r.get("color") or "#9AA3AE")}"></span>'
+            f"{_esc(name)}{you}</button>"
+        )
+    return "".join(bits)
+
+
 def build_cmp_html(
     payload: dict[str, Any],
     *,
@@ -225,14 +423,20 @@ def build_cmp_html(
     rows = payload.get("rows") or []
     if not rows:
         return ""
-    raw = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
+    raw = json.dumps(payload, ensure_ascii=False)
     only = " data-profile-only" if profile_only else ""
     picker_note = (
         ""
         if profile_only or len(rows) < 2
         else '<span class="sec-note">Escolha a empresa aqui ou clicando no nome dela na tabela</span>'
     )
-    picker = "" if profile_only or len(rows) < 2 else '<div class="picker" role="group" aria-label="Empresa do card"></div>'
+    picker_btns = "" if profile_only else build_picker_html(payload)
+    picker = (
+        f'<div class="picker" role="group" aria-label="Empresa do card">{picker_btns}</div>'
+        if picker_btns
+        else ""
+    )
+    pcard = build_pcard_html(payload, profile_only=profile_only)
     table = ""
     if not profile_only:
         table = f"""
@@ -272,11 +476,11 @@ def build_cmp_html(
     perfil_id = "perfil" if root_id == "cmp" else f"perfil-{root_id}"
     return f"""
 <div id="{_esc(root_id)}" class="cmp{' cmp-panel' if not profile_only else ''}" data-cmp{only}>
-<script type="application/json" class="cmp-data">{raw}</script>
+<textarea class="cmp-data" hidden>{_esc(raw)}</textarea>
 <section class="sec" id="{_esc(perfil_id)}">
   <div class="sec-h"><h2>Perfil da empresa</h2>{picker_note}</div>
   {picker}
-  <div class="card pcard"></div>
+  <div class="card pcard">{pcard}</div>
 </section>
 {table}
 </div>"""

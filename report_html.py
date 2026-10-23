@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.29"
+REPORT_UI_VERSION = "0.4.30"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2552,7 +2552,7 @@ def render_report_html(
             )
 
     return f"""<!DOCTYPE html>
-<html lang="en-US">
+<html lang="en-US"{' data-has-v3="1"' if with_competitors else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2564,7 +2564,7 @@ def render_report_html(
 <link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
 <script>
-(function(){{try{{var v=localStorage.getItem('spy-report-ui');document.documentElement.setAttribute('data-ui',(v==='v1'||v==='v3')?v:'v2');}}catch(e){{document.documentElement.setAttribute('data-ui','v2');}}}})();
+(function(){{try{{var has=document.documentElement.getAttribute('data-has-v3')==='1';var v;if(has){{v=localStorage.getItem('spy-report-compare-ui');v=(v==='v1'||v==='v2'||v==='v3')?v:'v3';}}else{{v=localStorage.getItem('spy-report-ui');v=v==='v1'?'v1':'v2';}}document.documentElement.setAttribute('data-ui',v);}}catch(e){{document.documentElement.setAttribute('data-ui',document.documentElement.getAttribute('data-has-v3')==='1'?'v3':'v2');}}}})();
 </script>
 </head>
 <body{body_cls}>
@@ -2574,8 +2574,8 @@ def render_report_html(
     <div class="actions">
       <div class="ui-switch" role="group" aria-label="Report version">
         <button type="button" class="ui-ver" data-ui="v1" aria-pressed="false">v1</button>
-        <button type="button" class="ui-ver is-active" data-ui="v2" aria-pressed="true">v2</button>
-        <button type="button" class="ui-ver" data-ui="v3" hidden aria-pressed="false">v3</button>
+        <button type="button" class="ui-ver{' is-active' if not with_competitors else ''}" data-ui="v2" aria-pressed="{'false' if with_competitors else 'true'}">v2</button>
+        <button type="button" class="ui-ver{' is-active' if with_competitors else ''}" data-ui="v3"{'' if with_competitors else ' hidden'} aria-pressed="{'true' if with_competitors else 'false'}">v3</button>
       </div>
       <a href="/">New analysis</a>
       {rerun}

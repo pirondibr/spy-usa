@@ -1,23 +1,31 @@
 (function () {
-  var KEY = "spy-report-ui";
-  var hasV3 = !!document.querySelector("[data-cmp]:not([data-profile-only])");
+  var hasV3 =
+    document.documentElement.getAttribute("data-has-v3") === "1" ||
+    !!document.querySelector("[data-cmp]:not([data-profile-only])");
+  var KEY = hasV3 ? "spy-report-compare-ui" : "spy-report-ui";
   document.querySelectorAll('.ui-ver[data-ui="v3"]').forEach(function (b) {
     b.hidden = !hasV3;
   });
   function currentUi() {
     try {
       var v = localStorage.getItem(KEY);
-      if (v === "v1") return "v1";
-      if (v === "v3" && hasV3) return "v3";
-      if (v === "v2") return "v2";
-      return hasV3 ? "v3" : "v2";
+      if (hasV3) {
+        if (v === "v1" || v === "v2" || v === "v3") return v;
+        return "v3";
+      }
+      return v === "v1" ? "v1" : "v2";
     } catch (e) {
       return hasV3 ? "v3" : "v2";
     }
   }
   function applyUi(v) {
-    if (v === "v3" && !hasV3) v = "v2";
-    if (v !== "v1" && v !== "v3") v = "v2";
+    if (hasV3) {
+      if (v !== "v1" && v !== "v2" && v !== "v3") v = "v3";
+    } else if (v === "v3") {
+      v = "v2";
+    } else if (v !== "v1") {
+      v = "v2";
+    }
     document.documentElement.setAttribute("data-ui", v);
     try {
       localStorage.setItem(KEY, v);
