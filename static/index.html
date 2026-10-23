@@ -89,6 +89,13 @@
       border: 1px solid var(--line);
     }
     button.sm { padding: 6px 10px; font-size: 12px; }
+    button.danger {
+      background: transparent;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+    button.danger:hover { background: #fef2f2; }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .opts { display: grid; gap: 8px; }
     .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 500; }
     .check .hint { color: #94a3b8; font-weight: 400; }
@@ -339,7 +346,7 @@
 
     <section class="history" id="history">
       <h2>Runs anteriores</h2>
-      <p class="history-sub">Clique na empresa para abrir o relatório, ou refaça a análise.</p>
+      <p class="history-sub">Clique na empresa para abrir o relatório, refaça ou apague.</p>
       <div class="tabs history-tabs" role="tablist" aria-label="Tipo de run">
         <button type="button" class="tab on" id="histAnalyze">Análise <span class="num" id="histAnalyzeN"></span></button>
         <button type="button" class="tab" id="histCompetitors">Concorrentes <span class="num" id="histCompetitorsN"></span></button>
@@ -458,13 +465,15 @@
           : "";
         const companyCell = `<div class="company-cell">${companyLink}${compsTag}</div>`;
         const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
+        const delBtn = `<button type="button" class="ghost sm danger" data-del="${escapeHtml(run.id)}" data-name="${escapeHtml(company)}">Apagar</button>`;
+        const errHint = run.error ? ` title="${escapeHtml(run.error)}"` : "";
         return `<tr>
           <td>${companyCell}</td>
           <td class="muted-row">${escapeHtml(run.url || "—")}</td>
-          <td><span class="badge ${escapeHtml(st)}">${escapeHtml(st)}</span></td>
+          <td><span class="badge ${escapeHtml(st)}"${errHint}>${escapeHtml(st)}</span></td>
           <td class="muted-row">${escapeHtml(modeLabel(run))}</td>
           <td class="muted-row">${escapeHtml(fmtWhen(run.created_at))}</td>
-          <td>${redoBtn}</td>
+          <td><div class="row-actions">${redoBtn}${delBtn}</div></td>
         </tr>`;
       }).join("");
       box.innerHTML = `<div class="table-wrap"><table>
@@ -475,6 +484,9 @@
       </table></div>`;
       box.querySelectorAll("[data-rerun]").forEach((btn) => {
         btn.addEventListener("click", () => rerun(btn.getAttribute("data-rerun")));
+      });
+      box.querySelectorAll("[data-del]").forEach((btn) => {
+        btn.addEventListener("click", () => deleteRun(btn.getAttribute("data-del"), btn.getAttribute("data-name")));
       });
     }
 
@@ -658,6 +670,21 @@
       } catch (err) {
         $("err").textContent = err.message || String(err);
         setBusy(false);
+      }
+    }
+
+    async function deleteRun(runId, name) {
+      if (!runId) return;
+      const label = name || runId;
+      if (!window.confirm(`Apagar o relatório de ${label}?\nIsso remove os arquivos desta run.`)) return;
+      try {
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Falha ao apagar");
+        allRuns = allRuns.filter((r) => r.id !== runId);
+        renderHistory();
+      } catch (err) {
+        window.alert(err.message || String(err));
       }
     }
 

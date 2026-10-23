@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import sys
 import threading
 import time
@@ -57,7 +59,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.49"
+APP_VERSION = "0.4.50"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -154,7 +156,66 @@ def _read_run_meta(run_id: str) -> Optional[dict[str, Any]]:
     return None
 
 
+_RUN_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,64}$")
+
+
+def _persist_run_meta(run_id: str, meta: dict[str, Any]) -> None:
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _sweep_stale_runs() -> None:
+    """Jobs killed by a deploy stay 'running' on disk. Mark them once the worker is gone."""
+    if not RUNS_DIR.exists():
+        return
+    live = set(jobs.keys())
+    for d in RUNS_DIR.iterdir():
+        if not d.is_dir() or d.name in live:
+            continue
+        meta = _read_run_meta(d.name)
+        if not meta:
+            continue
+        status = str(meta.get("status") or "").lower()
+        if status not in ("running", "pending"):
+            continue
+        html = d / "report.html"
+        if html.exists():
+            meta["status"] = "done"
+            meta["html_url"] = meta.get("html_url") or f"/runs/{d.name}/report.html"
+            meta["error"] = ""
+        else:
+            meta["status"] = "error"
+            meta["error"] = meta.get("error") or "Interrupted (server restart)"
+        meta["updated_at"] = _now_iso()
+        try:
+            _persist_run_meta(d.name, meta)
+        except Exception:
+            pass
+
+
+def delete_run(run_id: str) -> dict[str, Any]:
+    rid = str(run_id or "").strip()
+    if not _RUN_ID_RE.match(rid):
+        raise ValueError("Invalid run id")
+    live = jobs.get(rid)
+    if live and live.status in ("running", "pending"):
+        raise ValueError("Run still in progress")
+    run_dir = (RUNS_DIR / rid).resolve()
+    root = RUNS_DIR.resolve()
+    if run_dir.parent != root:
+        raise ValueError("Invalid run id")
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    jobs.pop(rid, None)
+    return {"ok": True, "id": rid}
+
+
 def list_runs(limit: int = 40) -> list[dict[str, Any]]:
+    _sweep_stale_runs()
     by_id: dict[str, dict[str, Any]] = {}
 
     if RUNS_DIR.exists():
@@ -453,6 +514,15 @@ def hello():
 def api_runs():
     limit = min(100, max(1, int(request.args.get("limit") or 40)))
     return jsonify({"runs": list_runs(limit=limit)})
+
+
+@app.delete("/api/runs/<run_id>")
+def api_delete_run(run_id: str):
+    try:
+        return jsonify(delete_run(run_id))
+    except ValueError as e:
+        code = 409 if "progress" in str(e).lower() else 400
+        return jsonify({"error": str(e)}), code
 
 
 @app.get("/api/runs/<run_id>")
