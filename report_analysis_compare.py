@@ -170,6 +170,23 @@ def build_analysis_compare(
         cls = "flag block" if block else "flag"
         return f'<span class="{cls}">{_esc(text)}</span>'
 
+    def tabs(tid: str, panels: list[str], *, selected: int = 0) -> str:
+        buttons = []
+        bodies = []
+        pick = selected if 0 <= selected < len(panels) else 0
+        for i, ((company, color), body) in enumerate(zip(palette, panels)):
+            sel = "true" if i == pick else "false"
+            hid = "" if i == pick else " hidden"
+            buttons.append(
+                f'<button type="button" class="tb" role="tab" aria-selected="{sel}" data-tabs="{tid}" data-i="{i}">'
+                f'<span class="cdot" style="background:{_esc(color)}"></span>{_esc(company.get("name") or "")}</button>'
+            )
+            bodies.append(f'<div class="tp" data-tabs="{tid}" data-i="{i}"{hid}>{body}</div>')
+        return (
+            f'<div class="tabwrap"><div class="tabs2" role="tablist">{"".join(buttons)}</div>'
+            f"{''.join(bodies)}</div>"
+        )
+
     def ctile(key: str, href: str, name: str, tmeta: str) -> str:
         skipped = not has_channel(key)
         sec = section(key)
@@ -289,7 +306,6 @@ def build_analysis_compare(
                     month_keys.append(d)
                     label_by[d] = str(m.get("label") or d[:7])
         month_keys = month_keys[-3:] if len(month_keys) > 3 else month_keys
-        max_month = 1.0
         month_vals: dict[str, dict[str, float]] = {d: {} for d in month_keys}
         month_fmt: dict[str, dict[str, str]] = {d: {} for d in month_keys}
         for company, color in palette:
@@ -310,66 +326,58 @@ def build_analysis_compare(
                 n = coerce(m.get("visits")) or 0
                 month_vals[d][company.get("_key") or ""] = n
                 month_fmt[d][company.get("_key") or ""] = str(m.get("visits_fmt") or _compact_num(n))
-                max_month = max(max_month, n)
 
-        gcols = []
-        for d in month_keys:
-            bars = []
-            for company, color in palette:
-                key = company.get("_key") or ""
-                n = month_vals.get(d, {}).get(key, 0)
-                h = max(4, round(n / max_month * 100)) if n else 4
+        sw_panels = []
+        for company, color in palette:
+            key = company.get("_key") or ""
+            row = _row_for_company(sw, company) or {}
+            vals = [month_vals.get(d, {}).get(key, 0) or 0 for d in month_keys]
+            mx = max(vals) if vals else 0
+            gcols_one = []
+            for d, n in zip(month_keys, vals):
+                h = max(4, round(n / mx * 100)) if n and mx else 4
                 lab = month_fmt.get(d, {}).get(key) or "—"
-                bars.append(
+                gcols_one.append(
+                    f'<div class="gcol"><div class="gbars">'
                     f'<span class="gb" title="{_esc(company.get("name") or "")} · {_esc(lab)}">'
                     f'<b class="num">{_esc(lab)}</b><i style="height:{h}%;background:{_esc(color)}"></i></span>'
+                    f'</div><span class="gl">{_esc(label_by.get(d, d))}</span></div>'
                 )
-            gcols.append(
-                f'<div class="gcol"><div class="gbars">{"".join(bars)}</div>'
-                f'<span class="gl">{_esc(label_by.get(d, d))}</span></div>'
-            )
-
-        deltas = []
-        if len(month_keys) >= 2:
-            first, last = month_keys[0], month_keys[-1]
-            for company, color in palette:
-                key = company.get("_key") or ""
-                a, b = month_vals.get(first, {}).get(key), month_vals.get(last, {}).get(key)
-                if a and b:
-                    p = (b / a - 1) * 100
-                    cls = "up" if p > 0 else "down"
-                    deltas.append(f'{cn(company, color)} <b class="num {cls}">{p:+.1f}%</b>')
-        delta_html = ""
-        if deltas:
-            delta_html = (
-                f'<p class="deltas">{_esc(label_by.get(month_keys[0], ""))} → '
-                f'{_esc(label_by.get(month_keys[-1], ""))}: {" · ".join(deltas)}</p>'
-            )
-
-        country_cols = []
-        for company, color in palette:
-            row = _row_for_company(sw, company) or {}
+            delta_one = ""
+            if len(month_keys) >= 2 and vals and vals[0]:
+                p = (vals[-1] / vals[0] - 1) * 100
+                cls = "up" if p > 0 else "down"
+                delta_one = (
+                    f'<p class="deltas">{_esc(label_by.get(month_keys[0], ""))} → '
+                    f'{_esc(label_by.get(month_keys[-1], ""))}: '
+                    f'<b class="num {cls}">{p:+.1f}%</b></p>'
+                )
             countries = list(row.get("countries") or [])[:5]
-            nums = []
+            cnums = []
             for ctry in countries:
                 n = coerce(ctry.get("share"))
                 if n is None:
                     n = coerce(str(ctry.get("share_fmt") or "").replace("%", ""))
-                nums.append(n or 0)
-            mx = max(nums) if nums else 1
-            lis = []
-            for ctry, n in zip(countries, nums):
-                w = 0 if mx <= 0 else round(n / mx * 100)
+                cnums.append(n or 0)
+            cmx = max(cnums) if cnums else 1
+            clis = []
+            for ctry, n in zip(countries, cnums):
+                w = 0 if cmx <= 0 else round(n / cmx * 100)
                 label = ctry.get("name") or ctry.get("code") or "—"
                 fmt = ctry.get("share_fmt") or (f"{n:.1f}%" if n else "—")
-                lis.append(
+                clis.append(
                     f'<li><span class="l">{_esc(label)}</span>'
                     f'<span class="t"><i style="width:{w}%;background:{_esc(color)}"></i></span>'
                     f'<span class="v num">{_esc(fmt)}</span></li>'
                 )
-            country_cols.append(
-                f'<div><div class="sub-h" style="padding:0 0 10px">{cn(company, color)}</div>'
-                f'<ul class="hb">{"".join(lis) or "<li class=na><span class=l>—</span></li>"}</ul></div>'
+            sw_panels.append(
+                f'<div class="pad-g"><div class="g2" style="gap:32px">'
+                f'<div><div class="sub-h" style="padding:0 0 12px">Visitas mensais</div>'
+                f'<div class="gchart">{"".join(gcols_one) if gcols_one else "<p class=sec-note>Sem série mensal.</p>"}</div>'
+                f"{delta_one}</div>"
+                f'<div><div class="sub-h" style="padding:0 0 12px">Principais países</div>'
+                f'<ul class="hb">{"".join(clis) or "<li class=na><span class=l>—</span></li>"}</ul></div>'
+                f"</div></div>"
             )
 
         source_order: list[str] = []
@@ -445,17 +453,7 @@ def build_analysis_compare(
         <thead><tr><th>Empresa</th><th class="r">Visitas / mês</th><th class="r">Rejeição</th><th class="r">Páginas / visita</th><th class="r">Tempo no site</th><th class="r">Google Analytics</th></tr></thead>
         <tbody>{''.join(ov_rows)}</tbody>
       </table></div>
-      <div class="g2 pad-g">
-        <div>
-          <div class="sub-h" style="padding:0 0 12px">Visitas mensais</div>
-          <div class="gchart">{''.join(gcols) if gcols else '<p class="sec-note">Sem série mensal.</p>'}</div>
-          {delta_html}
-        </div>
-        <div>
-          <div class="sub-h" style="padding:0 0 12px">Principais países</div>
-          <div class="g2" style="gap:20px">{''.join(country_cols)}</div>
-        </div>
-      </div>
+      {tabs("sw", sw_panels)}
       <div class="pad-g" style="border-top:1px solid var(--line)">
         <div class="sub-h" style="padding:0 0 12px">Origem das visitas</div>
         {''.join(stacks)}
@@ -672,34 +670,38 @@ def build_analysis_compare(
     def item_li(title: str, href: str, meta_s: str, val: str, official: bool = False) -> str:
         own = '<span class="own">Oficial</span>' if official else ""
         title_html = (
-            f'<a class="it" href="{_esc(href)}" target="_blank" rel="noopener">{own}{_esc(title)}</a>'
+            f'<a class="it" href="{_esc(href)}" target="_blank" rel="noopener">{own}{_esc(title)} ↗</a>'
             if href else f'<span class="it">{own}{_esc(title)}</span>'
         )
         return f'<li>{title_html}<span class="im">{_esc(meta_s)}</span><span class="iv">{_esc(val)}</span></li>'
-
-    def tabs(tid: str, panels: list[str]) -> str:
-        buttons = []
-        bodies = []
-        for i, ((company, color), body) in enumerate(zip(palette, panels)):
-            sel = "true" if i == 0 else "false"
-            hid = "" if i == 0 else " hidden"
-            buttons.append(
-                f'<button type="button" class="tb" role="tab" aria-selected="{sel}" data-tabs="{tid}" data-i="{i}">'
-                f'<span class="cdot" style="background:{_esc(color)}"></span>{_esc(company.get("name") or "")}</button>'
-            )
-            bodies.append(f'<div class="tp" data-tabs="{tid}" data-i="{i}"{hid}>{body}</div>')
-        return (
-            f'<div class="tabwrap"><div class="tabs2" role="tablist">{"".join(buttons)}</div>'
-            f"{''.join(bodies)}</div>"
-        )
 
     yt = section("youtube_influencers")
     yt_card = ""
     if has_channel("youtube_influencers"):
         yt_rows = []
         yt_panels = []
+        yt_has: list[bool] = []
         for company, color in palette:
             row = _row_for_company(yt, company) or {}
+            top_off = list(row.get("top5_official") or [])
+            top_unoff = list(row.get("top5_unofficial") or [])
+            if not top_off and not top_unoff:
+                for t in row.get("top5") or []:
+                    (top_off if t.get("is_official") else top_unoff).append(t)
+            found = [t for t in (top_off + top_unoff) if t.get("url")]
+            search = str(row.get("search_url") or row.get("url") or "").strip()
+            link_bits = []
+            for t in found[:3]:
+                full = str(t.get("title") or "vídeo")
+                short = full if len(full) <= 42 else full[:39].rstrip() + "…"
+                link_bits.append(
+                    f'<a class="yl" href="{_esc(t.get("url"))}" target="_blank" rel="noopener" title="{_esc(full)}">{_esc(short)}</a>'
+                )
+            if search:
+                link_bits.append(
+                    f'<a class="yl" href="{_esc(search)}" target="_blank" rel="noopener">Busca ↗</a>'
+                )
+            links_html = "<div class=\"yls\">" + "".join(link_bits) + "</div>" if link_bits else "—"
             yt_rows.append(
                 f"<tr><td>{cn(company, color)}</td>"
                 f'<td class="r big">{_esc(row.get("traffic_fmt") or "—")}</td>'
@@ -708,13 +710,9 @@ def build_analysis_compare(
                 f'<td class="r muted" style="font-weight:500">{_esc(str(row.get("about_count") or "—"))}</td>'
                 f'<td class="r muted" style="font-weight:500">{_esc(row.get("views_30d_fmt") or "0")}</td>'
                 f'<td class="r muted" style="font-weight:500">{_esc(row.get("views_6m_fmt") or "0")}</td>'
-                f'<td class="r muted" style="font-weight:500">{_esc(row.get("views_1y_plus_fmt") or "0")}</td></tr>'
+                f'<td class="r muted" style="font-weight:500">{_esc(row.get("views_1y_plus_fmt") or "0")}</td>'
+                f"<td>{links_html}</td></tr>"
             )
-            top_off = list(row.get("top5_official") or [])
-            top_unoff = list(row.get("top5_unofficial") or [])
-            if not top_off and not top_unoff:
-                for t in row.get("top5") or []:
-                    (top_off if t.get("is_official") else top_unoff).append(t)
             off_lis = [
                 item_li(
                     str(t.get("title") or "vídeo"),
@@ -734,9 +732,14 @@ def build_analysis_compare(
                 )
                 for t in top_unoff[:5]
             ]
+            yt_has.append(bool(off_lis or un_lis))
             note = row.get("note") or ""
+            search_html = (
+                f'<p class="infs"><a href="{_esc(search)}" target="_blank" rel="noopener">Ver busca no YouTube ↗</a></p>'
+                if search else ""
+            )
             yt_panels.append(
-                f'{flag(str(note), True) if note else ""}'
+                f'{flag(str(note), True) if note else ""}{search_html}'
                 f'<div class="g2" style="gap:0">'
                 f'<div><p class="sub-h">Canal oficial</p>'
                 f'{("<ul class=items>" + "".join(off_lis) + "</ul>") if off_lis else "<p class=empty>Nada encontrado.</p>"}</div>'
@@ -744,14 +747,15 @@ def build_analysis_compare(
                 f'{("<ul class=items>" + "".join(un_lis) + "</ul>") if un_lis else "<p class=empty>Nada encontrado.</p>"}</div>'
                 f"</div>"
             )
+        yt_pick = next((i for i, ok in enumerate(yt_has) if ok), 0)
         yt_card = f"""
     <div class="card" id="youtube">
       <div class="card-head"><h3>YouTube — vídeos sobre a marca</h3><span class="src">1ª página da busca pelo nome</span></div>
       <div class="tw" style="margin-top:12px"><table>
-        <thead><tr><th>Empresa</th><th class="r">Views</th><th class="r">Canal oficial</th><th class="r">Outros canais</th><th class="r">Vídeos</th><th class="r">Últimos 30d</th><th class="r">Até 6m</th><th class="r">1 ano+</th></tr></thead>
+        <thead><tr><th>Empresa</th><th class="r">Views</th><th class="r">Canal oficial</th><th class="r">Outros canais</th><th class="r">Vídeos</th><th class="r">Últimos 30d</th><th class="r">Até 6m</th><th class="r">1 ano+</th><th>Links</th></tr></thead>
         <tbody>{''.join(yt_rows)}</tbody>
       </table></div>
-      {tabs("yt", yt_panels)}
+      {tabs("yt", yt_panels, selected=yt_pick)}
     </div>"""
 
     ig = section("instagram_influencers")

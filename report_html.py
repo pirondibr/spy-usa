@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.48"
+REPORT_UI_VERSION = "0.4.49"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1995,7 +1995,7 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
             _esc(str(r.get("about_count") or 0)),
             _top_links_cell(top_off),
             _top_links_cell(top_unoff),
-            _link_cell(r.get("url"), "YouTube"),
+            _link_cell(r.get("search_url") or r.get("url"), "YouTube"),
         ])
     usage = section.get("usage_total") or {}
     hero = _esc(section.get("total_traffic_fmt") or "—")
