@@ -256,10 +256,29 @@ def call_openrouter(prompt: str, max_tokens: int = 1500, temperature: float = 0.
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    r = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=90)
-    r.raise_for_status()
-    data = r.json()
-    return data["choices"][0]["message"]["content"]
+    last_err = None
+    for attempt in range(5):
+        r = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=90)
+        if r.status_code == 429 or r.status_code >= 500:
+            retry_after = r.headers.get("Retry-After") or ""
+            try:
+                wait = float(retry_after)
+            except (TypeError, ValueError):
+                wait = (2 ** attempt) + random.random()
+            wait = max(1.0, min(wait, 45.0))
+            last_err = requests.HTTPError(
+                f"{r.status_code} Client Error: {r.reason} for url: {r.url}",
+                response=r,
+            )
+            print(f"[LLM] {r.status_code} — retry {attempt + 1}/5 in {wait:.1f}s", flush=True)
+            time.sleep(wait)
+            continue
+        r.raise_for_status()
+        data = r.json()
+        return data["choices"][0]["message"]["content"]
+    if last_err:
+        raise last_err
+    raise RuntimeError("OpenRouter call failed")
 
 
 def extract_json(text: str) -> dict:

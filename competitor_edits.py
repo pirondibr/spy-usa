@@ -554,6 +554,94 @@ def _apply_similarweb_row(row: dict[str, Any], sw: dict[str, Any]) -> None:
     row["similarweb_checked"] = True
 
 
+def _sim_missing(row: dict[str, Any]) -> bool:
+    if row.get("is_client"):
+        return False
+    sim = str(row.get("similaridade") or "").strip()
+    return sim in ("", "—", "-", "n/d", "nd")
+
+
+def reclassify_missing(run_id: str, *, limit: int = 5) -> dict[str, Any]:
+    """Re-run LLM similarity on rows that failed (rate limit / empty)."""
+    report = _load(run_id)
+    rows = _rows_of(report)
+    pending = [c for c in rows if _sim_missing(c)]
+    try:
+        cap = int(limit)
+    except (TypeError, ValueError):
+        cap = 5
+    cap = max(1, min(cap, 10))
+    batch = pending[:cap]
+    if not batch:
+        return {
+            "ok": True,
+            "checked": 0,
+            "remaining": 0,
+            "domains": [],
+            "html_url": f"/runs/{run_id}/report.html",
+        }
+
+    briefing = report.get("briefing") or {}
+    client_url = str(briefing.get("url") or "").strip()
+    if not client_url:
+        client = next((c for c in rows if c.get("is_client")), None) or {}
+        client_url = str(client.get("url") or "").strip()
+        if not client_url and client.get("domain"):
+            client_url = f"https://{client.get('domain')}/"
+    if not client_url:
+        raise ValueError("Client URL is required to classify similarity")
+
+    _vendor_path()
+    from seo_pipeline import analyze_similarity, title_is_missing  # noqa: E402
+
+    import time
+
+    checked: list[dict[str, str]] = []
+    for i, row in enumerate(batch):
+        if i:
+            time.sleep(1.2)
+        home = str(row.get("url") or "").strip() or f"https://{row.get('domain')}/"
+        try:
+            analyzed = analyze_similarity(home, client_url, briefing, row.get("title") or "") or {}
+        except Exception as e:
+            analyzed = {
+                "nicho": "—",
+                "similaridade": "—",
+                "perfil": "—",
+                "motivo": f"Erro LLM: {e}",
+            }
+        sim = normalize_similarity(analyzed.get("similaridade") or "") or str(analyzed.get("similaridade") or "").strip()
+        row["similaridade"] = sim or "—"
+        if analyzed.get("perfil") not in (None, "", "—"):
+            row["perfil"] = analyzed.get("perfil")
+        if analyzed.get("nicho") not in (None, "", "—"):
+            row["nicho"] = analyzed.get("nicho")
+        if analyzed.get("motivo"):
+            row["motivo"] = analyzed.get("motivo")
+        scraped = analyzed.get("title") or ""
+        if scraped and not title_is_missing(scraped) and (
+            not str(row.get("title") or "").strip() or title_is_missing(row.get("title") or "")
+        ):
+            row["title"] = scraped
+        if sim == "Alto":
+            _enrich_one(row, report, want_sw=True)
+        checked.append({
+            "domain": _domain_of(row.get("domain") or "") or home,
+            "similaridade": row.get("similaridade") or "—",
+        })
+
+    _refresh_rows(report, rows)
+    persist_report(run_id, report)
+    remaining = sum(1 for c in rows if _sim_missing(c))
+    return {
+        "ok": True,
+        "checked": len(checked),
+        "remaining": remaining,
+        "domains": checked,
+        "html_url": f"/runs/{run_id}/report.html",
+    }
+
+
 def fetch_missing_similarweb(run_id: str, *, limit: int = 6) -> dict[str, Any]:
     """Fill the next chunk of competitor rows that never got SimilarWeb."""
     report = _load(run_id)

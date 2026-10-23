@@ -426,6 +426,35 @@ def analyze_all_competitors(competitors: list, client_url: str, briefing: dict,
                 f"[4]   ({done}/{len(competitors)}) "
                 f"{r.get('similaridade','—')}/{r.get('perfil','—')}  {c['domain']}{extra}"
             )
+    pending = [
+        r for r in results
+        if str(r.get("similaridade") or "").strip() in ("", "—", "-", "n/d")
+    ]
+    if pending:
+        print(f"[4] Retry {len(pending)} unclassified (rate-limit/errors), 1 at a time ...")
+        for i, c in enumerate(pending, 1):
+            time.sleep(1.2)
+            try:
+                r = analyze_similarity(
+                    c.get("domain") or c.get("url") or "",
+                    client_url,
+                    briefing,
+                    c.get("title") or "",
+                )
+            except Exception as e:
+                r = {"nicho": "—", "similaridade": "—", "perfil": "—", "motivo": f"Erro: {e}"}
+            for k, v in r.items():
+                if k == "title":
+                    continue
+                if v not in (None, "", "—") or k == "motivo":
+                    c[k] = v
+            scraped = r.get("title") or ""
+            if scraped and not title_is_missing(scraped):
+                c["title"] = scraped
+            print(
+                f"[4]   retry ({i}/{len(pending)}) "
+                f"{r.get('similaridade','—')}/{r.get('perfil','—')}  {c.get('domain')}"
+            )
     fill_missing_titles(results)
     # ordena: Alto primeiro, depois numero de aparicoes
     sim_rank = {"Alto": 3, "Medio": 2, "Baixo": 1, "—": 0}

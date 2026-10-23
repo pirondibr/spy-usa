@@ -57,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.46"
+APP_VERSION = "0.4.47"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -946,6 +946,17 @@ def run_classify_competitor(run_id: str):
             str(body.get("domain") or ""),
             str(body.get("similaridade") or body.get("similarity") or ""),
         ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/competitors/reclassify")
+def run_reclassify_missing(run_id: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        from competitor_edits import reclassify_missing
+
+        return jsonify(reclassify_missing(run_id, limit=body.get("limit") or 5))
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
