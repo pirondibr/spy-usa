@@ -874,14 +874,142 @@ def _parse_meta_dual(val: Any) -> tuple[int | None, int | None]:
         return None, None
 
 
-def lookup_meta_ads(comp: dict) -> dict:
-    """Meta Ads: official=Ctrl+F name hits; unofficial=keyword total results."""
+_IG_EXCLUDED = {
+    "p", "reel", "reels", "stories", "explore", "accounts", "rsrc.php",
+    "static", "developer", "about", "privacy", "terms", "legal", "directory",
+}
+
+
+def _ig_handle_from_url(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    host = (parsed.netloc or "").lower()
+    if "instagram.com" in host:
+        parts = [p for p in parsed.path.split("/") if p]
+        handle = (parts[0] if parts else "").strip("@")
+    else:
+        handle = raw.lstrip("@").split("/")[0]
+    handle = handle.split("?")[0].strip()
+    return handle.lower()
+
+
+def _ig_handle_usable(handle: str) -> bool:
+    h = (handle or "").strip().lstrip("@").lower()
+    if not h or h.isdigit() or h in _IG_EXCLUDED:
+        return False
+    return bool(re.fullmatch(r"[a-z0-9._]{2,30}", h))
+
+
+def _instagram_from_html(html: str) -> str:
+    if not html:
+        return ""
+    soup = BeautifulSoup(html, "html.parser")
+    hrefs: list[str] = []
+    for a in soup.find_all("a", href=True):
+        hrefs.append(a.get("href", "") or "")
+    for tag in soup.find_all(["link", "meta"]):
+        for attr in ("href", "content"):
+            val = tag.get(attr) or ""
+            if "instagram.com" in val.lower():
+                hrefs.append(val)
+    for href in hrefs:
+        if "instagram.com" not in href.lower():
+            continue
+        url = normalize_instagram_url(href)
+        if _ig_handle_usable(_ig_handle_from_url(url)):
+            return url
+    for match in re.findall(r"instagram\.com/([A-Za-z0-9._]+)", html, flags=re.I):
+        if _ig_handle_usable(match):
+            return f"https://www.instagram.com/{match}/"
+    return ""
+
+
+def _instagram_from_website(url: str) -> str:
+    if not url:
+        return ""
+    html = fetch_url_text(root_url(url), allow_proxy=True)
+    return _instagram_from_html(html)
+
+
+def _resolve_company_instagram(comp: dict) -> tuple[str, str]:
+    """Website first, then cached handle, then Google. Returns (url, source)."""
+    base_url = comp.get("url") or comp.get("domain") or ""
+    name = company_query_for_competitor(comp) or extract_website_name(base_url)
+    found = _instagram_from_website(base_url)
+    if found:
+        print(f"[META/IG] website -> {found}", flush=True)
+        return found, "website"
+    cached = str(comp.get("instagram_url") or "").strip()
+    if _ig_handle_usable(_ig_handle_from_url(cached)):
+        url = normalize_instagram_url(cached)
+        print(f"[META/IG] cache -> {url}", flush=True)
+        return url, "cache"
+    searched = search_instagram_profile(name, base_url) if (name or base_url) else ""
+    if (
+        searched
+        and _ig_handle_usable(_ig_handle_from_url(searched))
+        and instagram_matches_brand(searched, name, base_url)
+    ):
+        print(f"[META/IG] google -> {searched}", flush=True)
+        return searched, "google"
+    print("[META/IG] not found", flush=True)
+    return "", ""
+
+
+def _meta_page_library_url(page_id: str) -> str:
+    return (
+        "https://www.facebook.com/ads/library/"
+        "?active_status=active&ad_type=all&country=ALL"
+        "&is_targeted_country=false&media_type=all"
+        f"&search_type=page&view_all_page_id={page_id}"
+    )
+
+
+def _meta_page_for_instagram(handle: str, extra_queries: list[str]) -> tuple[dict | None, int]:
+    """Typeahead for the IG handle; keep only pages whose ig_username matches."""
+    handle_n = normalize_token(handle)
+    if not handle_n:
+        return None, 0
+    queries: list[str] = []
+    seen_q: set[str] = set()
+    for q in (handle, f"@{handle}", handle.replace("_", " "), handle.replace(".", ""), *extra_queries):
+        t = re.sub(r"\s+", " ", (q or "").strip())
+        key = t.lower()
+        if not t or key in seen_q:
+            continue
+        seen_q.add(key)
+        queries.append(t)
+    credits = 0
+    best: dict | None = None
+    best_score = -1e9
+    seen_ids: set[str] = set()
+    for q in queries[:6]:
+        pages, used = _meta_typeahead_pages(q)
+        credits += used
+        for page in pages:
+            ig = str(page.get("ig_username") or "").strip().lower().lstrip("@")
+            if normalize_token(ig) != handle_n:
+                continue
+            pid = str(page.get("page_id") or "")
+            if not pid or pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+            score = _score_meta_page(page, brand=handle, domain="")
+            if score > best_score:
+                best, best_score = page, score
+        if best:
+            break
+    return best, credits
+
+
+def _lookup_meta_keyword_fallback(comp: dict) -> dict:
+    """Current keyword Ctrl+F method — only when Instagram was not found."""
     brand = extract_website_name(comp.get("url") or comp.get("domain", ""))
     base_url = comp.get("url") or comp.get("domain", "")
     domain = normalize_domain(base_url or comp.get("domain", ""))
     company_query = company_query_for_competitor(comp)
-
-    # Primary search term = company name; fallbacks = brand / domain token
     search_terms = _meta_brand_query_variants(brand, domain=domain, company_query=company_query)
     if not search_terms:
         search_terms = [brand or domain or ""]
@@ -889,19 +1017,15 @@ def lookup_meta_ads(comp: dict) -> dict:
     needles = _meta_name_needles(brand, company_query=company_query, domain=domain)
     if query and query not in needles:
         needles = [query] + needles
-
     credits = 0
     ctrl_f: int | None = None
     total: int | None = None
     library_url = _meta_keyword_library_url(query)
-
-    # Cheap unofficial total via GraphQL count
     try:
         total, used_t = _meta_keyword_total_via_graphql(query)
         credits += used_t
     except Exception as e:
         print(f"[META/SB] keyword total falhou ({query}): {e}", flush=True)
-
     try:
         ctrl_f, page_total, used, library_url = _meta_keyword_name_count_via_scrapingbee(
             query, needles
@@ -911,19 +1035,79 @@ def lookup_meta_ads(comp: dict) -> dict:
             total = page_total
     except Exception as e:
         print(f"[META/SB] keyword count falhou ({query}): {e}", flush=True)
-
     dual = _fmt_meta_dual(ctrl_f, total)
-    print(f"[META/SB] '{query}' -> {dual} (official=ctrl+f)", flush=True)
+    print(f"[META/SB] keyword '{query}' -> {dual} (unverified fallback)", flush=True)
     return {
-        "meta_ads": ctrl_f,  # official metric for scoring/ranking
-        "meta_ads_total": total,  # unofficial library result count
+        "meta_ads": ctrl_f,
+        "meta_ads_total": total,
         "meta_ads_fmt": dual,
         "meta_url": library_url,
         "page_id": "",
         "page_name": query,
+        "instagram_url": "",
+        "ig_handle": "",
+        "confirmed": False,
         "method": "keyword_name_count",
         "spb_credits": credits,
     }
+
+
+def lookup_meta_ads(comp: dict) -> dict:
+    """Resolve Instagram, verify it on Ad Library, else fall back to keyword search."""
+    ig_url, ig_source = _resolve_company_instagram(comp)
+    handle = _ig_handle_from_url(ig_url)
+    credits = 0
+    if handle and _ig_handle_usable(handle):
+        extra = _meta_brand_query_variants(
+            extract_website_name(comp.get("url") or comp.get("domain", "")),
+            domain=normalize_domain(comp.get("url") or comp.get("domain", "")),
+            company_query=company_query_for_competitor(comp),
+        )
+        page, used = _meta_page_for_instagram(handle, extra)
+        credits += used
+        if page and page.get("page_id"):
+            page_id = str(page["page_id"])
+            count, used_c = _meta_ads_count_via_scrapingbee(page_id)
+            credits += used_c
+            ads = 0 if count is None else int(count)
+            print(
+                f"[META/SB] IG @{handle} ({ig_source}) verified page={page.get('name')} "
+                f"id={page_id} ads={ads}",
+                flush=True,
+            )
+            return {
+                "meta_ads": ads,
+                "meta_ads_total": ads,
+                "meta_ads_fmt": str(ads),
+                "meta_url": _meta_page_library_url(page_id),
+                "page_id": page_id,
+                "page_name": str(page.get("name") or handle),
+                "instagram_url": f"https://www.instagram.com/{handle}/",
+                "ig_handle": handle,
+                "confirmed": True,
+                "method": f"instagram_{ig_source}",
+                "spb_credits": credits,
+            }
+        print(
+            f"[META/SB] IG @{handle} ({ig_source}) not verified on Ad Library — skip keyword",
+            flush=True,
+        )
+        return {
+            "meta_ads": 0,
+            "meta_ads_total": 0,
+            "meta_ads_fmt": "0",
+            "meta_url": _meta_keyword_library_url(handle),
+            "page_id": "",
+            "page_name": handle,
+            "instagram_url": f"https://www.instagram.com/{handle}/",
+            "ig_handle": handle,
+            "confirmed": False,
+            "method": f"instagram_{ig_source}_unverified",
+            "spb_credits": credits,
+        }
+    result = _lookup_meta_keyword_fallback(comp)
+    result["spb_credits"] = int(result.get("spb_credits") or 0) + credits
+    return result
 
 
 def load_meta_map(competitors: list[dict]) -> dict[str, dict]:
@@ -947,6 +1131,8 @@ def load_meta_map(competitors: list[dict]) -> dict[str, dict]:
         print(
             f"[META/SB] ({i}/{n}) {dom} -> {dual or '—'}  "
             f"q={result.get('page_name') or '—'}  "
+            f"ig=@{result.get('ig_handle') or '—'}  "
+            f"confirmed={bool(result.get('confirmed'))}  "
             f"credits={result.get('spb_credits', 0)}  ({time.time() - t0:.1f}s)",
             flush=True,
         )
@@ -1428,11 +1614,15 @@ def build_metric_rows(
             "meta_ads_fmt": meta.get("meta_ads_fmt")
             or _fmt_meta_dual(meta.get("meta_ads"), meta.get("meta_ads_total")),
             "meta_ads_url": meta.get("meta_url", ""),
+            "meta_confirmed": bool(meta.get("confirmed")),
+            "meta_ig": meta.get("ig_handle") or "",
+            "meta_page_id": meta.get("page_id") or "",
+            "meta_method": meta.get("method") or "",
             "google_ads": google.get("google_ads"),
             "google_ads_url": google.get("google_ads_url", ""),
             "linkedin_ads": linkedin.get("linkedin_ads"),
             "linkedin_ads_url": linkedin.get("linkedin_search_url", ""),
-            "instagram_url": socials["instagram"],
+            "instagram_url": socials["instagram"] or meta.get("instagram_url") or "",
             "youtube_url": socials["youtube"],
             "tiktok_url": socials["tiktok"],
             "instagram_followers": instagram_followers,
@@ -1477,6 +1667,10 @@ def load_existing_channel_map(xlsx_path: Path) -> dict[str, dict]:
             "meta_ads_total": meta_total,
             "meta_ads_fmt": _fmt_meta_dual(meta_ctrl, meta_total) if (meta_ctrl is not None or meta_total is not None) else "",
             "meta_url": col("Meta Ads URL") or "",
+            "confirmed": str(col("Meta Confirmado") or "").strip().lower() in ("sim", "yes", "true", "1"),
+            "ig_handle": col("Meta IG") or "",
+            "page_id": col("Meta Page ID") or "",
+            "method": col("Meta Method") or "",
             "linkedin_ads": col("Linkedin Ads", "LinkedIn Ads"),
             "linkedin_search_url": col("Linkedin Ads URL", "LinkedIn Ads URL") or "",
             "instagram_url": col("Instagram URL") or "",
@@ -1510,6 +1704,10 @@ def _merge_preserved_channels(
                 prev.get("meta_ads"), prev.get("meta_ads_total")
             )
             row["meta_ads_url"] = prev.get("meta_url") or row.get("meta_ads_url") or ""
+            row["meta_confirmed"] = bool(prev.get("confirmed"))
+            row["meta_ig"] = prev.get("ig_handle") or row.get("meta_ig") or ""
+            row["meta_page_id"] = prev.get("page_id") or row.get("meta_page_id") or ""
+            row["meta_method"] = prev.get("method") or row.get("meta_method") or ""
         if keep_google and row.get("google_ads") is None:
             row["google_ads"] = prev.get("google_ads")
             row["google_ads_url"] = prev.get("google_ads_url") or row.get("google_ads_url") or ""
@@ -1611,7 +1809,8 @@ def write_metrics_xlsx(
     headers_m = [
         "#", "Dominio", "Similaridade", "Perfil", "Fonte",
         "SEO Atual", "Marca Atual", "Meta Ads", "Google Ads", "Linkedin Ads",
-        "Meta Ads URL", "Google Ads URL", "Linkedin Ads URL",
+        "Meta Ads URL", "Meta Confirmado", "Meta IG", "Meta Page ID", "Meta Method",
+        "Google Ads URL", "Linkedin Ads URL",
         "Instagram Seguidores", "Youtube Seguidores", "Tiktok Seguidores",
         "Instagram URL", "Youtube URL", "Tiktok URL", "URL",
     ]
@@ -1627,14 +1826,19 @@ def write_metrics_xlsx(
             row["seo_atual"], row["marca_atual"],
             (row.get("meta_ads_fmt") or _fmt_meta_dual(row.get("meta_ads"), row.get("meta_ads_total")) or row.get("meta_ads")),
             row["google_ads"], row["linkedin_ads"],
-            row["meta_ads_url"], row["google_ads_url"], row["linkedin_ads_url"],
+            row["meta_ads_url"],
+            "sim" if row.get("meta_confirmed") else "nao",
+            row.get("meta_ig") or "",
+            row.get("meta_page_id") or "",
+            row.get("meta_method") or "",
+            row["google_ads_url"], row["linkedin_ads_url"],
             row["instagram_followers"], row["youtube_followers"], row["tiktok_followers"],
             row["instagram_url"], row["youtube_url"], row["tiktok_url"], row["url"],
         ])
         last = ws_m.max_row
         ws_m.cell(row=last, column=3).fill = FILL_SIM.get(row["similaridade"], PatternFill(fill_type=None))
         ws_m.cell(row=last, column=4).fill = FILL_PERFIL.get(row["perfil"], PatternFill(fill_type=None))
-        for metric_col, url_col in ((8, 11), (9, 12), (10, 13), (14, 17), (15, 18), (16, 19)):
+        for metric_col, url_col in ((8, 11), (9, 16), (10, 17), (18, 21), (19, 22), (20, 23)):
             metric_cell = ws_m.cell(row=last, column=metric_col)
             url_value = ws_m.cell(row=last, column=url_col).value
             if url_value not in (None, "", "—") and metric_cell.value not in (None, "", "—"):
@@ -1644,10 +1848,11 @@ def write_metrics_xlsx(
             cell.border = BORDER
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    widths = [4, 26, 13, 13, 14, 12, 12, 14, 10, 11, 34, 34, 34, 18, 18, 18, 34, 34, 34, 42]
+    widths = [4, 26, 13, 13, 14, 12, 12, 14, 10, 11, 34, 12, 18, 16, 20, 34, 34, 18, 18, 18, 34, 34, 34, 42]
     for i, w in enumerate(widths, 1):
-        ws_m.column_dimensions[chr(64 + i)].width = w
-    for col in ("K", "L", "M", "Q", "R", "S", "T"):
+        letter = chr(64 + i) if i <= 26 else "A" + chr(64 + i - 26)
+        ws_m.column_dimensions[letter].width = w
+    for col in ("K", "N", "O", "P", "Q", "U", "V", "W", "X"):
         ws_m.column_dimensions[col].hidden = True
 
     write_rows_sheet(wb, "Trafego SEO Marca", traffic_rows)
@@ -1701,6 +1906,10 @@ def main() -> None:
 
     out_path = OUTPUT_DIR / client_slug / f"metricas-concorrentes-{client_slug}.xlsx"
     existing_maps = load_existing_channel_map(out_path) if out_path.exists() else {}
+    for ent in metric_entities:
+        prev = existing_maps.get(ent.get("domain") or "", {})
+        if prev.get("instagram_url") and not ent.get("instagram_url"):
+            ent["instagram_url"] = prev.get("instagram_url")
 
     meta_map: dict[str, dict] = {}
     google_ads_map: dict[str, dict] = {}

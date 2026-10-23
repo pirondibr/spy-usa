@@ -555,6 +555,25 @@ def find_metricas_xlsx(slug: str) -> Optional[Path]:
     return files[0] if files else None
 
 
+def _xlsx_needs_meta_ig_method(xlsx: Optional[Path]) -> bool:
+    """Old metricas sheets lack Meta Method — refresh Meta via Instagram verify."""
+    if not xlsx or not xlsx.exists():
+        return False
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(xlsx, read_only=True, data_only=True)
+        if "Metricas Canais" not in wb.sheetnames:
+            wb.close()
+            return True
+        ws = wb["Metricas Canais"]
+        headers = [str(c.value or "").strip().lower() for c in next(ws.iter_rows(max_row=1))]
+        wb.close()
+        return "meta method" not in headers
+    except Exception:
+        return True
+
+
 def find_briefing_xlsx(slug: str) -> Optional[Path]:
     folder = BRIEFING_DIR / slug
     if not folder.exists():
@@ -1021,6 +1040,26 @@ def _run_compare_all_pipeline(
             )
             fetched += 1
         else:
+            xlsx = find_metricas_xlsx(c_slug)
+            if _xlsx_needs_meta_ig_method(xlsx):
+                emit(
+                    "log",
+                    line=f"[ALL] ({i + 1}/{len(companies)}) Refresh Meta (Instagram verify) {c_name} ({c_slug})",
+                )
+                _emit_progress(
+                    emit, set_step, "meta", "running",
+                    f"All: Meta Instagram {c_name} ({i + 1}/{len(companies)})",
+                )
+                try:
+                    _run_script(
+                        [sys.executable, str(SCRIPT_META), c_slug],
+                        FINAL_DIR,
+                        lambda line: emit("log", line=line),
+                        timeout_sec=420,
+                        env={"SPY_SITE_ONLY": "1", "SPY_MARKET": market, "SPY_COMPARE_ALL": "1"},
+                    )
+                except Exception as e:
+                    emit("log", line=f"[ALL] WARN Meta refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
 
@@ -1588,6 +1627,20 @@ def run_pipeline(
 
     existing = find_metricas_xlsx(slug)
     if existing and existing.exists() and not force:
+        if _xlsx_needs_meta_ig_method(existing):
+            emit("log", line=f"[CACHE] Refreshing Meta via Instagram for {slug}")
+            _emit_progress(emit, set_step, "meta", "running", "Meta Ads via Instagram…")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_META), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=420,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[META] Refresh failed: {e}")
+            existing = find_metricas_xlsx(slug) or existing
         emit("log", line=f"[CACHE] Using existing metrics: {existing.name}")
         report = build_report_from_xlsx(
             existing,

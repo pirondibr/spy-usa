@@ -968,6 +968,10 @@ def build_report_from_xlsx(
                 "meta_ads": meta_ctrl,
                 "meta_ads_total": meta_total,
                 "meta_ads_url": str(_get(row, idx, "meta ads url") or ""),
+                "meta_confirmed": str(_get(row, idx, "meta confirmado") or "").strip().lower() in ("sim", "yes", "true", "1"),
+                "meta_ig": str(_get(row, idx, "meta ig") or "").strip(),
+                "meta_page_id": str(_get(row, idx, "meta page id") or "").strip(),
+                "meta_method": str(_get(row, idx, "meta method") or "").strip(),
                 "linkedin_ads": _safe_int(_get(row, idx, "linkedin ads", "linkedin ads")),
                 "linkedin_ads_url": str(_get(row, idx, "linkedin ads url", "linkedin ads url") or ""),
                 "instagram_followers": _safe_int(_get(
@@ -1445,6 +1449,9 @@ def build_report_from_xlsx(
                 e.get("name") or "",
                 e.get("meta_ads_url") or "",
             ),
+            "confirmed": bool(e.get("meta_confirmed")),
+            "ig_handle": e.get("meta_ig") or "",
+            "meta_method": e.get("meta_method") or "",
         })
     meta_client_rank = next((i + 1 for i, r in enumerate(meta_table) if r.get("is_client")), None)
     meta_leader = next((r["name"] for r in meta_table if (r.get("ads") or 0) > 0), None) or (
@@ -1458,9 +1465,10 @@ def build_report_from_xlsx(
         "client_rank": meta_client_rank,
         "rows": meta_table,
         "insight": (
-            "Meta: número oficial = ocorrências do nome (Ctrl+F) na busca keyword; "
-            "número após a barra = total de resultados da Ad Library (não oficial). "
-            "Spend estimado usa só o oficial (~%s%s/ad)."
+            "Meta: primeiro Instagram do site (senão Google «marca + instagram»). "
+            "Se o perfil bater na Ad Library, o número é o de anúncios da página e ganha badge Confirmado. "
+            "Só sem Instagram cai no keyword (Ctrl+F / total). "
+            "Spend estimado usa o número oficial (~%s%s/ad)."
             % (_currency_prefix(), _meta_ads_cost())
         ),
         "analysis_title": "Analise Cliente vs concorrentes (Meta Ads)",

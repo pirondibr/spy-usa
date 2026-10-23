@@ -69,6 +69,7 @@ def build_analysis_compare(
         _channel_metric_value,
         _channel_score,
         _compact_num,
+        _confirmed_badge,
         _dfs_growth_pct,
         _esc,
         _fmt_vol,
@@ -223,7 +224,7 @@ def build_analysis_compare(
             crs.append(
                 f'<div class="cr{extra}">{cn(company, color)}'
                 f'<span class="bt"><i style="width:{w:.1f}%;background:{_esc(color)}"></i></span>'
-                f'<span class="cv num">{_esc(val)}</span>{sd(score, row_skip)}</div>'
+                f'<span class="cv num">{_esc(val)}{(_confirmed_badge(row) if key == "meta" else "")}</span>{sd(score, row_skip)}</div>'
             )
             note = (row or {}).get("note") or (row or {}).get("flag")
             if note:
@@ -556,7 +557,7 @@ def build_analysis_compare(
                 g = '<span class="x num"></span>'
             lis.append(
                 f'<li>{cn(company, color)}<span class="t"><i style="width:{w:.1f}%;background:{_esc(color)}"></i></span>'
-                f'<span class="v num">{_esc(val)}</span>{g}{link}</li>'
+                f'<span class="v num">{_esc(val)}{(_confirmed_badge(row) if key == "meta" else "")}</span>{g}{link}</li>'
             )
         cls = "cb paid" if spend else ("cb skiplist" if skipped else "cb")
         return f'<ul class="{cls}">{"".join(lis)}</ul>'

@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.51"
+REPORT_UI_VERSION = "0.4.52"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -948,6 +948,16 @@ def _score_badge(score: str) -> str:
     return f'<span class="score score-{_esc(score)}" title="Channel score">{_esc(label)}</span>'
 
 
+def _confirmed_badge(row: Optional[dict[str, Any]]) -> str:
+    if not row or not (row.get("confirmed") or row.get("meta_confirmed")):
+        return ""
+    handle = str(row.get("ig_handle") or row.get("meta_ig") or "").strip().lstrip("@")
+    title = "Instagram confirmado na Ad Library"
+    if handle:
+        title += f" (@{handle})"
+    return f' <span class="ok-badge" title="{_esc(title)}">Confirmado</span>'
+
+
 def _summary_channel_url(
     key: str,
     section: dict[str, Any],
@@ -1174,6 +1184,7 @@ def _collect_summary_kpis(
                 )
                 link = _link_cell(url, "↗")
                 row_score = _channel_score(key, _channel_metric_value(key, section, r))
+                conf = _confirmed_badge(r) if key == "meta" else ""
                 if score_by_company and score_centered:
                     # name | score (center) | value
                     lines.append(
@@ -1181,19 +1192,19 @@ def _collect_summary_kpis(
                         f'<span class="kpi-name">{_esc(name)}{you}</span>'
                         f'<span class="kpi-score-mid">{_score_badge(row_score)}</span>'
                         f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
-                        f'{(" " + link) if link != "—" else ""}</span></li>'
+                        f'{conf}{(" " + link) if link != "—" else ""}</span></li>'
                     )
                 elif score_by_company:
                     lines.append(
                         f'<li><span class="kpi-name">{_esc(name)}{you} {_score_badge(row_score)}</span>'
                         f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
-                        f'{(" " + link) if link != "—" else ""}</span></li>'
+                        f'{conf}{(" " + link) if link != "—" else ""}</span></li>'
                     )
                 else:
                     lines.append(
                         f'<li><span class="kpi-name">{_esc(name)}{you}</span>'
                         f'<span class="kpi-mini">{_esc(value)}{(" " + _esc(u)) if u else ""}'
-                        f'{(" " + link) if link != "—" else ""}</span></li>'
+                        f'{conf}{(" " + link) if link != "—" else ""}</span></li>'
                     )
             label_html = f'<a class="kpi-label" href="{anchor}">{_esc(label)}</a>'
             if score_centered and not score_by_company:
@@ -1705,7 +1716,7 @@ def _section_rank(
             table_rows.append([
                 str(i),
                 name,
-                _esc(r.get("ads_fmt") or r.get("value_fmt") or "0"),
+                (_esc(r.get("ads_fmt") or r.get("value_fmt") or "0") + _confirmed_badge(r)),
                 _esc(r.get("investimento_fmt") or "—"),
                 _esc(r.get("pct_fmt") or "—"),
                 _esc(r.get("similaridade") or "—"),
@@ -3076,6 +3087,7 @@ th.sortable:hover .col-hide,.col-hide:focus{opacity:1}
   font-weight:600;color:var(--muted);cursor:pointer}
 .hidden-chip:hover{border-color:#0f766e;color:var(--accent)}
 td.empty{color:var(--soft);text-align:center;padding:22px}
+.ok-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#D1FAE5;color:#047857;font-size:10px;font-weight:700;letter-spacing:.02em;vertical-align:middle}
 .you{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
 .fp-mark{margin-left:2px;color:#b45309;font-weight:800;cursor:help;font-size:14px;line-height:1}
