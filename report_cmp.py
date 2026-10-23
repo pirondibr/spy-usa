@@ -17,6 +17,21 @@ GROUPS = (
     ("inf", "Influenciadores", "g-inf", (("yt_inf", "YouTube"), ("ig_inf", "Insta"))),
 )
 LBL = ("Sem presença", "Baixo", "Médio", "Alto")
+FULL = {
+    "x": "X",
+    "ig": "Instagram",
+    "ig_inf": "Instagram",
+    "li": "LinkedIn",
+    "li_ads": "LinkedIn",
+    "yt": "YouTube",
+    "yt_inf": "YouTube",
+    "tt": "TikTok",
+    "rd": "Reddit",
+    "seo": "SEO",
+    "google": "Google",
+    "meta": "Meta",
+}
+MAC_SHORT = {"paid": "Pago", "org": "Orgânico", "inf": "Influência"}
 UNIT = {
     "google": "anúncios",
     "meta": "anúncios",
@@ -290,7 +305,28 @@ def _bars_html(vals: list[Any], labels: list[str]) -> str:
     return f'<div class="pf2-bars">{bars}</div><div class="pf2-bl">{labs}</div>'
 
 
-def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False) -> str:
+def _m3_html(lvl: Any, *, big: bool = False) -> str:
+    if lvl is None:
+        return '<span class="na">n/c</span>'
+    try:
+        n = int(lvl)
+    except (TypeError, ValueError):
+        return '<span class="na">n/c</span>'
+    lab = LBL[n] if 0 <= n < len(LBL) else ""
+    cls = "z" if n == 0 else f"l{n}"
+    bigc = "big " if big else ""
+    return f'<span class="m3 {bigc}{cls}" role="img" aria-label="{lab}"><i></i><i></i><i></i></span>'
+
+
+def _legend_v4_html() -> str:
+    return (
+        '<span>Escala:</span>'
+        + "".join(f"<span>{_m3_html(l)}{LBL[l]}</span>" for l in (3, 2, 1, 0))
+        + '<span><span class="na">n/c</span>Não coletado</span>'
+    )
+
+
+def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False, variant: str = "v4") -> str:
     from report_html import _esc
 
     rows = payload.get("rows") or []
@@ -322,36 +358,55 @@ def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False) -> 
             "</div>"
         )
     )
+    is_v4 = variant != "v3"
     macros = []
     for _k, label, cls, subs in GROUPS:
-        lv = _avg_group(row, subs)
+        lv0 = _avg_group(row, subs)
+        lv = 1 if lv0 == 0 else lv0
         segs = "".join('<i class="on"></i>' if lv is not None and i < lv else "<i></i>" for i in range(3))
         tags = []
         for mk, lab in subs:
             v = scores.get(mk)
             w = warns.get(mk)
             dv = data.get(mk)
+            full = FULL.get(mk, lab)
             if v is None:
-                title = f"{lab}: não coletado"
-                tags.append(f'<span class="pt na" title="{_esc(title)}">{_esc(lab)}<span class="pt-s">n/c</span></span>')
+                title = f"{full}: não coletado"
+                if is_v4:
+                    tags.append(
+                        f'<span class="pt3 pna" title="{_esc(title)}">{_esc(full)}<span class="pt-s">n/c</span></span>'
+                    )
+                else:
+                    tags.append(
+                        f'<span class="pt na" title="{_esc(title)}">{_esc(lab)}<span class="pt-s">n/c</span></span>'
+                    )
                 continue
             try:
                 lvl = int(v)
             except (TypeError, ValueError):
                 lvl = 0
             tip_n = f"{int(dv):,} {UNIT.get(mk, '')} · " if isinstance(dv, (int, float)) else ""
-            title = f"{lab}: {tip_n}{LBL[lvl] if 0 <= lvl < len(LBL) else ''}{(' — verificar: ' + str(w)) if w else ''}"
-            dots = "".join('<i class="on"></i>' if i < lvl else "<i></i>" for i in range(3))
-            warn = '<span class="warn" style="margin-left:0">!</span>' if w else ""
-            zcls = " z" if lvl == 0 else ""
-            tags.append(
-                f'<span class="pt{zcls}" title="{_esc(title)}">{_esc(lab)}'
-                f'<span class="pt-m" aria-label="{_esc(LBL[lvl] if 0 <= lvl < len(LBL) else "")}">{dots}</span>{warn}</span>'
-            )
+            title = f"{full}: {tip_n}{LBL[lvl] if 0 <= lvl < len(LBL) else ''}{(' — verificar: ' + str(w)) if w else ''}"
+            warn = '<span class="warn" style="margin:0">!</span>' if w else ""
+            if is_v4:
+                zcls = " z" if lvl == 0 else ""
+                tags.append(
+                    f'<span class="pt3 lv{lvl}{zcls}" title="{_esc(title)}">{_esc(full)}'
+                    f'<b class="num">{_esc(_fmt_cmp(dv))}</b>{_m3_html(lvl)}{warn}</span>'
+                )
+            else:
+                dots = "".join('<i class="on"></i>' if i < lvl else "<i></i>" for i in range(3))
+                zcls = " z" if lvl == 0 else ""
+                tags.append(
+                    f'<span class="pt{zcls}" title="{_esc(title)}">{_esc(lab)}'
+                    f'<span class="pt-m" aria-label="{_esc(LBL[lvl] if 0 <= lvl < len(LBL) else "")}">{dots}</span>'
+                    f'{warn}</span>'
+                )
         lv_lab = "—" if lv is None else LBL[lv]
         zlab = " z" if lv == 0 else ""
+        lvl_cls = f" lvl{lv}" if is_v4 and lv is not None else ""
         macros.append(
-            f'<div class="pm {cls}"><div class="pm-h"><b>{_esc(label)}</b>'
+            f'<div class="pm {cls}{lvl_cls}"><div class="pm-h"><b>{_esc(label)}</b>'
             f'<span class="pm-l{zlab}">{_esc(lv_lab)}</span>'
             f'<span class="pm-m" role="img" aria-label="{_esc(lv_lab)}">{segs}</span></div>'
             f'<div class="pm-t">{"".join(tags)}</div></div>'
@@ -379,8 +434,10 @@ def build_pcard_html(payload: dict[str, Any], *, profile_only: bool = False) -> 
         if me and not row.get("me")
         else ""
     )
+    legend = f'<div class="pf-legend">{_legend_v4_html()}</div>' if is_v4 else ""
     return f"""
     <div class="ch2"><span class="cdot" style="background:{_esc(row.get("color") or "#9AA3AE")};width:11px;height:11px"></span><b>{_esc(row.get("name") or "—")}</b>{tag}{dm}{nav}</div>
+    {legend}
     <div class="pf2">
       <div class="pf2-col"><div class="pf-lab">Força por categoria</div>{"".join(macros)}</div>
       <div class="pf2-col pf2-chart"><div class="pf-lab">Visitas · SimilarWeb</div>
@@ -413,24 +470,30 @@ def _sb(key: str, label: str, title: str = "") -> str:
     )
 
 
-def build_table_html(payload: dict[str, Any]) -> str:
-    from report_html import _esc
-
+def _prep_rows(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
     rows = list(payload.get("rows") or [])
-    if not rows:
-        return ""
     for r in rows:
-        r = r
         scores = r.get("s") or {}
         for gk, _lab, _cls, subs in GROUPS:
             r[f"m_{gk}"] = _avg_group({"s": scores}, subs)
-
     me = [r for r in rows if r.get("me")]
     rest = [r for r in rows if not r.get("me")]
     ordered = me + rest
+    sel = next((r.get("name") for r in me), ordered[0].get("name") if ordered else "")
+    return rows, ordered, str(sel or "")
+
+
+def build_table_html(payload: dict[str, Any], *, variant: str = "v4") -> str:
+    from report_html import _esc
+
+    rows, ordered, sel = _prep_rows(payload)
+    if not rows:
+        return ""
+    if variant != "v3":
+        return _build_table_html_v4(rows, ordered, sel)
+
     best_v = max((float(r.get("visits") or 0) for r in rows), default=0)
     best_b = max((float(r.get("brand") or 0) for r in rows), default=0)
-    sel = next((r.get("name") for r in me), ordered[0].get("name") if ordered else "")
 
     h = (
         '<thead><tr class="grp"><th class="co" rowspan="2" style="padding:10px 14px;vertical-align:bottom">Empresa</th>'
@@ -538,6 +601,114 @@ def build_table_html(payload: dict[str, Any]) -> str:
     return h
 
 
+def _build_table_html_v4(rows: list[dict[str, Any]], ordered: list[dict[str, Any]], sel: str) -> str:
+    from report_html import _esc
+
+    best_v = max((float(r.get("visits") or 0) for r in rows), default=0)
+    best_b = max((float(r.get("brand") or 0) for r in rows), default=0)
+
+    h = (
+        '<thead><tr class="grp"><th class="co" rowspan="2" style="padding:10px 14px;vertical-align:bottom">Empresa</th>'
+        '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">'
+        + _sb("visits", "Visitas", "Visitas/mês e variação no período")
+        + "</th>"
+        '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">'
+        + _sb("brand", "Marca", "Buscas/mês e variação em 1 ano")
+        + "</th>"
+        f'<th class="hg hsum" colspan="{len(GROUPS)}">Resumo geral</th>'
+    )
+    for _gk, label, cls, subs in GROUPS:
+        h += f'<th class="hg subc {cls}" colspan="{len(subs)}">{_esc(label)}</th>'
+    h += '</tr><tr class="colrow">'
+    for gi, (gk, _label, cls, _subs) in enumerate(GROUPS):
+        short = MAC_SHORT.get(gk, "Geral")
+        h += (
+            f'<th class="hsc {cls}{" c0" if gi == 0 else ""}">'
+            f'{_sb("m_" + gk, short, "Média dos canais")}</th>'
+        )
+    for _gk, _label, cls, subs in GROUPS:
+        for si, (mk, lab) in enumerate(subs):
+            h += (
+                f'<th class="hcs subc {cls}{" c0" if si == 0 else ""}">'
+                f'{_sb(mk, lab)}<span class="un">{_esc(UNIT.get(mk, ""))}</span></th>'
+            )
+    h += "</tr></thead><tbody>"
+
+    for i, r in enumerate(ordered):
+        name = str(r.get("name") or "—")
+        tag = '<span class="you">você</span>' if r.get("me") else ""
+        tr_cls = ("me" if r.get("me") else "") + (" sel" if name == sel else "")
+        vg = r.get("vg") or 0
+        bg = r.get("bg") or 0
+        try:
+            vg_f = float(vg)
+        except (TypeError, ValueError):
+            vg_f = 0.0
+        try:
+            bg_f = float(bg)
+        except (TypeError, ValueError):
+            bg_f = 0.0
+        kd = lambda v: (
+            f'<span class="kd {"up" if v > 0.5 else ("dn" if v < -0.5 else "fl")}">{_esc(_pct_cmp(v))}</span>'
+        )
+        visits = r.get("visits") or 0
+        brand = r.get("brand") or 0
+        h += (
+            f'<tr class="{tr_cls.strip()}"><td class="co" data-pick="{_esc(name)}" title="Ver perfil de {_esc(name)}">'
+            f'<div class="cn"><span class="rk num">{"" if r.get("me") else i}</span>'
+            f'<span class="cdot" style="background:{_esc(r.get("color") or "#9AA3AE")}"></span>'
+            f'<span class="nm">{_esc(name)}</span>{tag}</div>'
+            f'<div class="dom">{_esc(r.get("dom") or "")}</div></td>'
+        )
+        star_v = '<span class="best" title="Maior da coluna"></span>' if visits == best_v and visits else ""
+        star_b = '<span class="best" title="Maior da coluna"></span>' if brand == best_b and brand else ""
+        h += f'<td class="kpi num"><div class="kv">{star_v}{_esc(_fmt_cmp(visits))}</div>{kd(vg_f)}</td>'
+        h += f'<td class="kpi num"><div class="kv">{star_b}{_esc(_fmt_cmp(brand))}</div>{kd(bg_f)}</td>'
+        scores = r.get("s") or {}
+        data = r.get("d") or {}
+        warns = r.get("w") or {}
+        for gi, (gk, label, cls, _subs) in enumerate(GROUPS):
+            mv = r.get(f"m_{gk}")
+            gv = 1 if mv == 0 else mv
+            lab = "—" if gv is None else LBL[gv]
+            h += (
+                f'<td class="hcell sumc {cls}{" c0" if gi == 0 else ""}{" isz" if mv == 0 else ""}" '
+                f'title="{_esc(name)} · {_esc(label)}: {_esc(lab)}">'
+                f'<span class="cw">{_m3_html(gv, big=True)}<span class="lt L{gv if gv is not None else ""}">{_esc(lab)}</span></span></td>'
+            )
+        for _gk, _label, cls, subs in GROUPS:
+            for si, (mk, lab) in enumerate(subs):
+                v = scores.get(mk)
+                w = warns.get(mk)
+                dv = data.get(mk)
+                if v is None:
+                    tip = f"{name} · {lab}: não coletado"
+                    txt = ""
+                else:
+                    try:
+                        lvl = int(v)
+                    except (TypeError, ValueError):
+                        lvl = 0
+                    tip_n = f"{int(dv):,} {UNIT.get(mk, '')} · " if isinstance(dv, (int, float)) else ""
+                    tip = f"{name} · {lab}: {tip_n}{LBL[lvl] if 0 <= lvl < len(LBL) else ''}"
+                    txt = _fmt_cmp(dv)
+                if w:
+                    tip += f" — {w}"
+                warn = f'<span class="hw" aria-label="Verificar: {_esc(w)}">!</span>' if w else ""
+                vn = (
+                    ""
+                    if v is None
+                    else f'<span class="vn num{" z" if v == 0 else ""}">{_esc(txt)}</span>'
+                )
+                h += (
+                    f'<td class="hcell subc {cls}{" c0" if si == 0 else ""}{" isz" if v == 0 else ""}{" isna" if v is None else ""}" '
+                    f'title="{_esc(tip)}"><span class="cw">{_m3_html(v)}{vn}</span>{warn}</td>'
+                )
+        h += "</tr>"
+    h += "</tbody>"
+    return h
+
+
 def build_picker_html(payload: dict[str, Any], selected: Optional[str] = None) -> str:
     from report_html import _esc
 
@@ -563,6 +734,7 @@ def build_cmp_html(
     *,
     profile_only: bool = False,
     root_id: str = "cmp",
+    variant: str = "v4",
 ) -> str:
     from report_html import _esc
 
@@ -582,7 +754,8 @@ def build_cmp_html(
         if picker_btns
         else ""
     )
-    pcard = build_pcard_html(payload, profile_only=profile_only)
+    is_v4 = variant != "v3"
+    pcard = build_pcard_html(payload, profile_only=profile_only, variant="v4" if is_v4 else "v3")
     table = ""
     if not profile_only:
         table = f"""
@@ -592,15 +765,15 @@ def build_cmp_html(
     <div style="display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center">
       <div class="seg" role="group" aria-label="Nível de detalhe">
         <button type="button" data-view="full" aria-pressed="true">Por canal</button>
-        <button type="button" data-view="compact" aria-pressed="false">Só categorias</button>
+        <button type="button" data-view="compact" aria-pressed="false"><span class="lbl-v3">Só categorias</span><span class="lbl-v4">Só resumo</span></button>
       </div>
-      <div class="seg" role="group" aria-label="Mostrar">
+      <div class="seg mode-seg" role="group" aria-label="Mostrar">
         <button type="button" data-mode="lvl" aria-pressed="true">Notas</button>
         <button type="button" data-mode="data" aria-pressed="false">Dados</button>
       </div>
       <label class="chk"><input type="checkbox" class="cmp-weak">Destacar fraquezas</label>
     </div>
-    <div class="legend">
+    <div class="legend legend-v3">
       <span class="g-org"><span class="m on3" aria-hidden="true"><i></i><i></i><i></i></span>Alto</span>
       <span class="g-org"><span class="m on2" aria-hidden="true"><i></i><i></i><i></i></span>Médio</span>
       <span class="g-org"><span class="m on1" aria-hidden="true"><i></i><i></i><i></i></span>Baixo</span>
@@ -608,20 +781,25 @@ def build_cmp_html(
       <span><span class="na">n/c</span>Não coletado</span>
       <span><span class="warn" style="margin:0">!</span>Verificar dado</span>
     </div>
+    <div class="legend hl legend-v4 tlegend">
+      {_legend_v4_html()}
+      <span><span class="hw" style="position:static">!</span>Verificar dado</span>
+    </div>
   </div>
   <div class="card">
-    <div class="tw"><table class="cmp-t">{build_table_html(payload)}</table></div>
+    <div class="tw"><table class="cmp-t{' hm' if is_v4 else ''}">{build_table_html(payload, variant="v4" if is_v4 else "v3")}</table></div>
     <div class="foot">
       <span>Clique no nome de uma coluna para ordenar. A sua empresa fica sempre no topo.</span>
       <span>Visitas: {_esc(payload.get("foot_visits") or "SimilarWeb")}. Marca: {_esc(payload.get("foot_brand") or "DataForSEO")}.</span>
-      <span>● ao lado do número = maior valor da coluna. No modo Dados, o peso do número segue a nota (negrito = Alto, cinza = Baixo, vermelho = zero).</span>
+      <span class="foot-v3">● ao lado do número = maior valor da coluna. No modo Dados, o peso do número segue a nota (negrito = Alto, cinza = Baixo, vermelho = zero).</span>
+      <span class="foot-v4">Barrinhas: verde = Alto, amarelo = Médio, vermelho = Baixo, vazias = sem presença. O número embaixo é o valor real do canal.</span>
     </div>
   </div>
 </section>"""
 
     perfil_id = "perfil" if root_id == "cmp" else f"perfil-{root_id}"
     return f"""
-<div id="{_esc(root_id)}" class="cmp{' cmp-panel' if not profile_only else ''}" data-cmp{only}>
+<div id="{_esc(root_id)}" class="cmp{' datamode is-v4' if is_v4 else ''}{' cmp-panel' if not profile_only else ''}" data-cmp{only}>
 <textarea class="cmp-data" hidden>{_esc(raw)}</textarea>
 <section class="sec" id="{_esc(perfil_id)}">
   <div class="sec-h"><h2>Perfil da empresa</h2>{picker_note}</div>

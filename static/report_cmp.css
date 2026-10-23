@@ -147,11 +147,18 @@
 :is(#cmp, #cmp-v1) a:hover{text-decoration:underline;text-underline-offset:3px}
 
 html[data-ui="v2"] #analysis-v2 .cmp-panel{display:none}
-html[data-ui="v3"] #analysis-v2 .cmp-panel{display:flex!important}
-html[data-ui="v3"] body.is-analysis #analysis-v1{display:none!important}
-html[data-ui="v3"] body.is-analysis #analysis-v2{display:block!important}
-html[data-ui="v3"] body.is-analysis{background:var(--bg,#F4F5F7)}
-html[data-ui="v3"] #analysis-v2.is-compare main.av2{max-width:1360px}
+html[data-ui="v3"] #analysis-v2 .cmp-panel,
+html[data-ui="v4"] #analysis-v2 .cmp-panel{display:flex!important}
+html[data-ui="v3"] body.is-analysis #analysis-v1,
+html[data-ui="v4"] body.is-analysis #analysis-v1{display:none!important}
+html[data-ui="v3"] body.is-analysis #analysis-v2,
+html[data-ui="v4"] body.is-analysis #analysis-v2{display:block!important}
+html[data-ui="v3"] body.is-analysis,
+html[data-ui="v4"] body.is-analysis{background:var(--bg,#F4F5F7)}
+html[data-ui="v3"] #analysis-v2.is-compare main.av2,
+html[data-ui="v4"] #analysis-v2.is-compare main.av2{max-width:1360px}
+html[data-ui="v4"] #analysis-v2:not(.is-compare) #resumo,
+html[data-ui="v4"] #analysis-v2:not(.is-compare) .anav a[href="#resumo"]{display:none!important}
 #analysis-v2 #cmp table{
   border-collapse:separate!important;border-spacing:0;width:100%;font-size:13.5px
 }
@@ -181,6 +188,14 @@ html[data-ui="v2"] #analysis-v2.is-compare .anav a[href="#concorrentes"],
 html[data-ui="v1"] #analysis-v2.is-compare .anav a[href="#perfil"],
 html[data-ui="v1"] #analysis-v2.is-compare .anav a[href="#concorrentes"]{display:none}
 .ui-ver[hidden]{display:none!important}
+html[data-ui="v4"] .lbl-v3,
+html:not([data-ui="v4"]) .lbl-v4,
+html[data-ui="v4"] .mode-seg,
+html[data-ui="v4"] .legend-v3,
+html[data-ui="v4"] .foot-v3,
+html:not([data-ui="v4"]) .legend-v4,
+html:not([data-ui="v4"]) .foot-v4{display:none!important}
+html[data-ui="v4"] .legend-v4{display:flex!important}
 
 @media (max-width:980px){
   :is(#cmp, #cmp-v1) .pf2{grid-template-columns:1fr 1fr}
@@ -193,6 +208,75 @@ html[data-ui="v1"] #analysis-v2.is-compare .anav a[href="#concorrentes"]{display
   :is(#cmp, #cmp-v1) .pf2-col:first-child{border-top:0;border-bottom:0}
 }
 @media print{
-  html[data-ui="v3"] body.is-analysis{background:#fff}
+  html[data-ui="v3"] body.is-analysis,
+  html[data-ui="v4"] body.is-analysis{background:#fff}
   :is(#cmp, #cmp-v1) .picker,:is(#cmp, #cmp-v1) .nav2,:is(#cmp, #cmp-v1) .bar{display:none}
+}
+
+/* ===== v4: traffic-light meters + numbered pills ===== */
+.m3{display:inline-flex;gap:3px;vertical-align:middle}
+.m3 i{display:block;width:12px;height:7px;border-radius:2px;background:#E8EBEF}
+.m3.big i{width:20px;height:9px;border-radius:3px}
+.m3.l1 i:nth-child(-n+1){background:#E5484D}
+.m3.l2 i:nth-child(-n+2){background:#EAB308}
+.m3.l3 i:nth-child(-n+3){background:#16A34A}
+.m3.z i{background:#fff;box-shadow:inset 0 0 0 1px #D5DAE0}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf2{grid-template-columns:1.6fr 1fr 1fr}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm-t{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3{display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:7px;font-size:12.5px;font-weight:600;line-height:1.3;color:var(--ink3)}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3 b{font-weight:700;color:var(--ink)}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3.lv3{background:#E7F6EC}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3.lv2{background:#FEF6D8}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3.lv1{background:#FDECEC}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3.z{background:#F5F6F8;color:var(--soft)}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3.z b{color:#B42318}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3.pna{background:#fff;color:var(--soft);box-shadow:inset 0 0 0 1px #E3E6EA}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3 .m3 i{width:8px;height:6px;background:#fff;box-shadow:inset 0 0 0 1px rgba(14,17,22,.14)}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3 .m3.l1 i:nth-child(-n+1){background:#E5484D;box-shadow:none}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3 .m3.l2 i:nth-child(-n+2){background:#EAB308;box-shadow:none}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pt3 .m3.l3 i:nth-child(-n+3){background:#16A34A;box-shadow:none}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm .pm-m i{background:#E3E6EA}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm.lvl3 .pm-m i.on{background:#16A34A}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm.lvl2 .pm-m i.on{background:#EAB308}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm.lvl1 .pm-m i.on{background:#E5484D}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm.lvl3 .pm-l{color:#15803D}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm.lvl2 .pm-l{color:#8A6100}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pm.lvl1 .pm-l{color:#B42318}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted);padding:10px 22px;border-bottom:1px solid var(--line);background:#FBFBFC}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf-legend span{display:inline-flex;align-items:center;gap:7px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .legend.hl{gap:6px 14px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .legend.hl span{display:inline-flex;align-items:center;gap:6px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hg{padding:10px 6px 6px;text-align:center;color:var(--cink);border-top:3px solid var(--c);background:#F8F9FA;font-size:11.5px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hsum{color:var(--ink2);border-top:3px solid #0E1116;background:#F8F9FA;border-left:7px solid #fff}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hg.subc,
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hg.c0,
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.colrow th.c0{border-left:7px solid #fff}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.colrow th{padding:6px 1px 10px;text-align:center;font-size:10.5px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.colrow th.hsc{font-size:10.5px;color:var(--cink);padding:6px 4px 10px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead .un{font-size:9px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.hcell{padding:9px 2px;position:relative;border-bottom:1px solid var(--line);text-align:center}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.c0{border-left:7px solid #fff}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm tbody td.co,
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm tbody td.kpi{border-bottom:1px solid var(--line)}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.sumc{background:#FBFBFC}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.sumc .cw{min-width:58px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .cw{display:inline-flex;flex-direction:column;align-items:center;gap:4px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .vn{font-size:11.5px;font-weight:600;color:var(--ink3)}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .vn.z{color:#B42318}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .lt{font-size:11px;font-weight:600}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .lt.L3{color:#15803D}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .lt.L2{color:#8A6100}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .lt.L1{color:#B42318}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .m3 i{width:11px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm .m3.big i{width:18px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) .hw{position:absolute;top:3px;right:2px;width:14px;height:14px;line-height:14px;text-align:center;border-radius:50%;background:#FEF6E7;color:#93600A;font-size:10px;font-weight:700;box-shadow:0 0 0 1.5px #fff}
+html[data-ui="v4"] :is(#cmp, #cmp-v1).weak table.hm tbody td.hcell:not(.isz):not(.isna) .cw{opacity:.2}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm tr.sel td.hcell{background:#FFFBEB}
+html[data-ui="v4"] #analysis-v2 #cmp table.hm td.hcell{padding:9px 2px;text-align:center;font-weight:400}
+html[data-ui="v4"] #analysis-v2 #cmp table.hm td.sumc{background:#FBFBFC}
+@media (max-width:1000px){
+  html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf2{grid-template-columns:1fr 1fr}
+}
+@media (max-width:600px){
+  html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf2{grid-template-columns:1fr}
 }

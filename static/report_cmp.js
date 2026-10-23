@@ -10,6 +10,18 @@
     x: "seguidores", ig: "seguidores", li: "seguidores", yt: "inscritos",
     tt: "seguidores", rd: "coment.", yt_inf: "views", ig_inf: "curtidas",
   };
+  var FULL = {
+    x: "X", ig: "Instagram", ig_inf: "Instagram", li: "LinkedIn", li_ads: "LinkedIn",
+    yt: "YouTube", yt_inf: "YouTube", tt: "TikTok", rd: "Reddit", seo: "SEO", google: "Google", meta: "Meta",
+  };
+  var MAC_SHORT = { paid: "Pago", org: "Orgânico", inf: "Influência" };
+  function isV4() {
+    return document.documentElement.getAttribute("data-ui") === "v4";
+  }
+  function m3(v, big) {
+    if (v == null) return '<span class="na">n/c</span>';
+    return '<span class="m3 ' + (big ? "big " : "") + (v === 0 ? "z" : "l" + v) + '" role="img" aria-label="' + LBL[v] + '"><i></i><i></i><i></i></span>';
+  }
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -82,6 +94,14 @@
     var pcard = root.querySelector(".pcard");
     var picker = root.querySelector(".picker");
     var weakEl = root.querySelector(".cmp-weak");
+    var tlegend = root.querySelector(".tlegend");
+
+    function syncVariant() {
+      var v4 = isV4();
+      root.classList.toggle("is-v4", v4);
+      root.classList.toggle("datamode", v4 || mode === "data");
+      if (tableEl) tableEl.classList.toggle("hm", v4);
+    }
 
     function syncSpans() {
       var compact = root.classList.contains("compact");
@@ -91,6 +111,88 @@
     }
 
     function render() {
+      syncVariant();
+      if (!tableEl || profileOnly) return;
+      if (isV4()) renderV4();
+      else renderV3();
+    }
+
+    function renderV4() {
+      var best = {
+        visits: Math.max.apply(null, ROWS.map(function (r) { return r.visits || 0; })),
+        brand: Math.max.apply(null, ROWS.map(function (r) { return r.brand || 0; })),
+      };
+      var me = ROWS.filter(function (r) { return r.me; });
+      var rest = ROWS.filter(function (r) { return !r.me; });
+      if (sortKey) {
+        rest.sort(function (a, b) {
+          var va = a[sortKey] != null ? a[sortKey] : (a.d || {})[sortKey];
+          var vb = b[sortKey] != null ? b[sortKey] : (b.d || {})[sortKey];
+          var A = va == null ? -1 : va;
+          var B = vb == null ? -1 : vb;
+          return (A - B) * sortDir || String(a.name).localeCompare(String(b.name));
+        });
+      }
+      var rows = me.concat(rest);
+      var ar = function (k) { return sortKey === k ? (sortDir < 0 ? "↓" : "↑") : ""; };
+      var sb = function (k, label, title) {
+        return '<button type="button" class="sb" data-sort="' + esc(k) + '" title="' + esc(title || "") + '">' + label + '<span class="ar">' + ar(k) + "</span></button>";
+      };
+      var h =
+        '<thead><tr class="grp"><th class="co" rowspan="2" style="padding:10px 14px;vertical-align:bottom">Empresa</th>' +
+        '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">' + sb("visits", "Visitas", "Visitas/mês e variação no período") + "</th>" +
+        '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">' + sb("brand", "Marca", "Buscas/mês e variação em 1 ano") + "</th>" +
+        '<th class="hg hsum" colspan="' + GROUPS.length + '">Resumo geral</th>';
+      GROUPS.forEach(function (g) {
+        h += '<th class="hg subc ' + g.cls + '" colspan="' + g.subs.length + '">' + g.label + "</th>";
+      });
+      h += '</tr><tr class="colrow">';
+      GROUPS.forEach(function (g, gi) {
+        h += '<th class="hsc ' + g.cls + (gi === 0 ? " c0" : "") + '">' + sb("m_" + g.k, MAC_SHORT[g.k], "Média dos canais de " + g.label) + "</th>";
+      });
+      GROUPS.forEach(function (g) {
+        g.subs.forEach(function (pair, si) {
+          h += '<th class="hcs subc ' + g.cls + (si === 0 ? " c0" : "") + '">' + sb(pair[0], pair[1]) + '<span class="un">' + UNIT[pair[0]] + "</span></th>";
+        });
+      });
+      h += "</tr></thead><tbody>";
+      rows.forEach(function (r, i) {
+        var tag = r.me ? '<span class="you">você</span>' : r.ex ? '<span class="ex">exemplo</span>' : "";
+        var kd = function (v) {
+          return '<span class="kd ' + (v > 0.5 ? "up" : v < -0.5 ? "dn" : "fl") + '">' + pct(v) + "</span>";
+        };
+        h +=
+          '<tr class="' + (r.me ? "me" : "") + (r.name === sel ? " sel" : "") + '"><td class="co" data-pick="' + esc(r.name) + '" title="Ver perfil de ' + esc(r.name) + '"><div class="cn"><span class="rk num">' + (r.me ? "" : i) + '</span><span class="cdot" style="background:' + esc(r.color || "#9AA3AE") + '"></span><span class="nm">' + esc(r.name) + "</span>" + tag + '</div><div class="dom">' + esc(r.dom || "") + "</div></td>";
+        h += '<td class="kpi num"><div class="kv">' + (r.visits === best.visits && r.visits ? '<span class="best" title="Maior da coluna"></span>' : "") + fmt(r.visits) + "</div>" + kd(r.vg) + "</td>";
+        h += '<td class="kpi num"><div class="kv">' + (r.brand === best.brand && r.brand ? '<span class="best" title="Maior da coluna"></span>' : "") + fmt(r.brand) + "</div>" + kd(r.bg) + "</td>";
+        GROUPS.forEach(function (g, gi) {
+          var mv = r["m_" + g.k];
+          var gv = mv === 0 ? 1 : mv;
+          h += '<td class="hcell sumc ' + g.cls + (gi === 0 ? " c0" : "") + (mv === 0 ? " isz" : "") + '" title="' + esc(r.name + " · " + g.label + ": " + (gv == null ? "sem dado" : LBL[gv])) + '"><span class="cw">' + m3(gv, true) + '<span class="lt L' + gv + '">' + (gv == null ? "—" : LBL[gv]) + "</span></span></td>";
+        });
+        GROUPS.forEach(function (g) {
+          g.subs.forEach(function (pair, si) {
+            var k = pair[0];
+            var l = pair[1];
+            var v = r.s[k];
+            var w = r.w[k];
+            var dv = r.d[k];
+            var tip = r.name + " · " + l + ": " + (v == null ? "não coletado" : (dv != null ? Number(dv).toLocaleString("pt-BR") + " " + UNIT[k] + " · " : "") + LBL[v]) + (w ? " — verificar: " + w : "");
+            var txt = v == null ? "" : fmt(dv);
+            h += '<td class="hcell subc ' + g.cls + (si === 0 ? " c0" : "") + (v === 0 ? " isz" : "") + (v == null ? " isna" : "") + '" title="' + esc(tip) + '"><span class="cw">' + m3(v) + (v == null ? "" : '<span class="vn num' + (v === 0 ? " z" : "") + '">' + txt + "</span>") + "</span>" + (w ? '<span class="hw" aria-label="Verificar: ' + esc(w) + '">!</span>' : "") + "</td>";
+          });
+        });
+        h += "</tr>";
+      });
+      h += "</tbody>";
+      tableEl.innerHTML = h;
+      tableEl.classList.add("hm");
+      if (tlegend) {
+        tlegend.innerHTML = "<span>Escala:</span>" + [3, 2, 1, 0].map(function (l) { return "<span>" + m3(l) + LBL[l] + "</span>"; }).join("") + '<span><span class="na">n/c</span>Não coletado</span><span><span class="hw" style="position:static">!</span>Verificar dado</span>';
+      }
+    }
+
+    function renderV3() {
       if (!tableEl || profileOnly) return;
       var best = {
         visits: Math.max.apply(null, ROWS.map(function (r) { return r.visits || 0; })),
@@ -198,22 +300,29 @@
       var r = ROWS.find(function (x) { return x.name === sel; }) || ROWS[0];
       var S = r.series || { v: [], b: [] };
       var tag = r.me ? '<span class="you">você</span>' : r.ex ? '<span class="ex">exemplo</span>' : "";
+      var v4 = isV4();
       var macro = function (g) {
-        var lv = r["m_" + g.k];
+        var lv0 = r["m_" + g.k];
+        var lv = v4 && lv0 === 0 ? 1 : lv0;
         var segs = [0, 1, 2].map(function (i) {
           return "<i" + (lv != null && i < lv ? ' class="on"' : "") + "></i>";
         }).join("");
         var tags = g.subs.map(function (pair) {
           var k = pair[0];
           var l = pair[1];
+          var full = FULL[k] || l;
           var v = r.s[k];
           var w = r.w[k];
           var dv = r.d[k];
-          var title = l + ": " + (v == null ? "não coletado" : (dv != null ? Number(dv).toLocaleString("pt-BR") + " " + UNIT[k] + " · " : "") + LBL[v]) + (w ? " — verificar: " + w : "");
+          var title = full + ": " + (v == null ? "não coletado" : (dv != null ? Number(dv).toLocaleString("pt-BR") + " " + UNIT[k] + " · " : "") + LBL[v]) + (w ? " — verificar: " + w : "");
+          if (v4) {
+            if (v == null) return '<span class="pt3 pna" title="' + esc(title) + '">' + full + '<span class="pt-s">n/c</span></span>';
+            return '<span class="pt3 lv' + v + (v === 0 ? " z" : "") + '" title="' + esc(title) + '">' + full + '<b class="num">' + fmt(dv) + "</b>" + m3(v) + (w ? '<span class="warn" style="margin:0">!</span>' : "") + "</span>";
+          }
           if (v == null) return '<span class="pt na" title="' + esc(title) + '">' + l + '<span class="pt-s">n/c</span></span>';
           return '<span class="pt' + (v === 0 ? " z" : "") + '" title="' + esc(title) + '">' + l + '<span class="pt-m" aria-label="' + LBL[v] + '">' + [0, 1, 2].map(function (i) { return "<i" + (i < v ? ' class="on"' : "") + "></i>"; }).join("") + "</span>" + (w ? '<span class="warn" style="margin-left:0">!</span>' : "") + "</span>";
         }).join("");
-        return '<div class="pm ' + g.cls + '"><div class="pm-h"><b>' + g.label + '</b><span class="pm-l' + (lv === 0 ? " z" : "") + '">' + (lv == null ? "—" : LBL[lv]) + '</span><span class="pm-m" role="img" aria-label="' + (lv == null ? "sem dado" : LBL[lv]) + '">' + segs + "</span></div><div class="pm-t">' + tags + "</div></div>";
+        return '<div class="pm ' + g.cls + (v4 && lv != null ? " lvl" + lv : "") + '"><div class="pm-h"><b>' + g.label + '</b><span class="pm-l' + (lv === 0 ? " z" : "") + '">' + (lv == null ? "—" : LBL[lv]) + '</span><span class="pm-m" role="img" aria-label="' + (lv == null ? "sem dado" : LBL[lv]) + '">' + segs + '</span></div><div class="pm-t">' + tags + '</div></div>';
       };
       var vg = r.vg;
       var bg = r.bg;
@@ -231,6 +340,7 @@
         '<div class="ch2"><span class="cdot" style="background:' + esc(r.color || "#9AA3AE") + ';width:11px;height:11px"></span><b>' + esc(r.name) + "</b>" + tag +
         (href ? '<a class="dm" href="' + esc(href) + '/" target="_blank" rel="noopener">' + esc(r.dom) + " ↗</a>" : (r.dom ? '<span class="dm">' + esc(r.dom) + "</span>" : "")) +
         nav + "</div>" +
+        (v4 ? '<div class="pf-legend"><span>Escala:</span><span>' + m3(3) + "Alto</span><span>" + m3(2) + "Médio</span><span>" + m3(1) + "Baixo</span><span>" + m3(0) + 'Sem presença</span><span><span class="pt-s" style="border:1px dashed #D5DAE0;border-radius:4px;padding:0 4px;color:var(--soft)">n/c</span>Não coletado</span></div>' : "") +
         '<div class="pf2">' +
         '<div class="pf2-col"><div class="pf-lab">Força por categoria</div>' + GROUPS.map(macro).join("") + "</div>" +
         '<div class="pf2-col pf2-chart"><div class="pf-lab">Visitas · SimilarWeb</div>' +
@@ -298,6 +408,10 @@
         root.classList.toggle("weak", e.target.checked);
       });
     }
+    window.addEventListener("spy-ui", function () {
+      renderCard();
+      render();
+    });
     renderCard();
     render();
   }
