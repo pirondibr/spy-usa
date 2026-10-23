@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.45"
+REPORT_UI_VERSION = "0.4.46"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2429,56 +2429,78 @@ def render_report_html(
             )
         if (c.get("domain") or "").strip().lower() in fp_domains:
             name += ' <span class="fp-mark" title="potential false positive">*</span>'
-        row = [
-            str(i),
-            name,
-            _esc(c.get("domain") or "—"),
-            _sim_edit_cell(c, editable=sim_editable),
-        ]
-        if competitors_only:
-            row.append(_fonte_cell(c.get("fonte")))
-            row.append(_esc(c.get("perfil") or "—"))
-        if competitors_only:
-            row.append(_clip_cell(c.get("motivo"), limit=48))
-        if show_brand:
-            row.extend([
-                _brand_seq_cell(c, editable=sim_editable),
-                _growth_seq_cell(c),
-            ])
         if show_sw:
             compact, full = _brand_vol_text(c.get("similarweb_visits"))
             if compact == "—" and c.get("similarweb_fmt"):
-                row.append(_esc(c.get("similarweb_fmt")))
+                sw_cell = _esc(c.get("similarweb_fmt"))
             elif not full or compact == full:
-                row.append(_esc(compact))
+                sw_cell = _esc(compact)
             else:
-                row.append(f'<span title="{_esc(full)}">{_esc(compact)}</span>')
+                sw_cell = f'<span title="{_esc(full)}">{_esc(compact)}</span>'
+        else:
+            sw_cell = ""
         if competitors_only:
-            row.append(_started_cell(c))
-        row.append(_clip_cell(_row_title(c), limit=22))
-        row.append(_clip_cell(c.get("nicho"), limit=28))
-        sort_row = [
-            str(i),
-            str(c.get("name") or c.get("domain") or "").lower(),
-            str(c.get("domain") or "").lower(),
-            _sort_sim(c),
-        ]
-        if competitors_only:
-            sort_row += [str(c.get("fonte") or "").lower(), str(c.get("perfil") or "").lower()]
-        if competitors_only:
-            sort_row.append(str(c.get("motivo") or "").lower())
-        if show_brand:
-            view = _brand_view_of(c)
-            v26, v25, v24 = _brand_vols_for_view(c, view)
-            sort_row += [
-                _sort_num(v26),
-                _sort_num(_growth_pct(v26, v24)),
+            row = [name, _sim_edit_cell(c, editable=sim_editable)]
+            sort_row = [
+                str(c.get("name") or c.get("domain") or "").lower(),
+                _sort_sim(c),
             ]
-        if show_sw:
-            sort_row.append(_sort_num(c.get("similarweb_visits")))
-        if competitors_only:
-            sort_row.append(_started_sort(c))
-        sort_row += [_row_title(c).lower(), str(c.get("nicho") or "").lower()]
+            if show_brand:
+                row.extend([_brand_seq_cell(c, editable=sim_editable), _growth_seq_cell(c)])
+                view = _brand_view_of(c)
+                v26, _v25, v24 = _brand_vols_for_view(c, view)
+                sort_row += [_sort_num(v26), _sort_num(_growth_pct(v26, v24))]
+            if show_sw:
+                row.append(sw_cell)
+                sort_row.append(_sort_num(c.get("similarweb_visits")))
+            row += [_started_cell(c), _clip_cell(_row_title(c), limit=22)]
+            sort_row += [_started_sort(c), _row_title(c).lower()]
+            row += [
+                _esc(c.get("domain") or "—"),
+                _fonte_cell(c.get("fonte")),
+                _esc(c.get("perfil") or "—"),
+                _clip_cell(c.get("motivo"), limit=48),
+                _clip_cell(c.get("nicho"), limit=28),
+            ]
+            sort_row += [
+                str(c.get("domain") or "").lower(),
+                str(c.get("fonte") or "").lower(),
+                str(c.get("perfil") or "").lower(),
+                str(c.get("motivo") or "").lower(),
+                str(c.get("nicho") or "").lower(),
+            ]
+        else:
+            row = [
+                str(i),
+                name,
+                _esc(c.get("domain") or "—"),
+                _sim_edit_cell(c, editable=sim_editable),
+            ]
+            if show_brand:
+                row.extend([
+                    _brand_seq_cell(c, editable=sim_editable),
+                    _growth_seq_cell(c),
+                ])
+            if show_sw:
+                row.append(sw_cell)
+            row.append(_clip_cell(_row_title(c), limit=22))
+            row.append(_clip_cell(c.get("nicho"), limit=28))
+            sort_row = [
+                str(i),
+                str(c.get("name") or c.get("domain") or "").lower(),
+                str(c.get("domain") or "").lower(),
+                _sort_sim(c),
+            ]
+            if show_brand:
+                view = _brand_view_of(c)
+                v26, _v25, v24 = _brand_vols_for_view(c, view)
+                sort_row += [
+                    _sort_num(v26),
+                    _sort_num(_growth_pct(v26, v24)),
+                ]
+            if show_sw:
+                sort_row.append(_sort_num(c.get("similarweb_visits")))
+            sort_row += [_row_title(c).lower(), str(c.get("nicho") or "").lower()]
         comp_rows.append(row)
         sort_rows.append(sort_row)
         view = _brand_view_of(c)
@@ -2491,18 +2513,27 @@ def render_report_html(
             "growth": _sort_num(growth_n),
             "sw": _sort_num(c.get("similarweb_visits")),
         })
-    comp_headers = ["#", "Company", "Domain", "Similarity"]
     if competitors_only:
-        comp_headers += ["Fonte", "Perfil"]
-    if competitors_only:
-        comp_headers.append("Motivo")
-    if show_brand:
-        comp_headers += ["Brand", "Growth"]
-    if show_sw:
-        comp_headers.append("SimilarWeb")
-    if competitors_only:
-        comp_headers.append("Started")
-    comp_headers += ["Title", "Niche"]
+        comp_headers = ["Company", "Similarity"]
+        if show_brand:
+            comp_headers += ["Brand", "Growth"]
+        if show_sw:
+            comp_headers.append("SimilarWeb")
+        comp_headers += ["Started", "Title", "Domain", "Fonte", "Perfil", "Motivo", "Niche"]
+        compact_keys = {
+            "company", "similarity", "brand", "growth", "similarweb", "started", "title",
+        }
+    else:
+        comp_headers = ["#", "Company", "Domain", "Similarity"]
+        if show_brand:
+            comp_headers += ["Brand", "Growth"]
+        if show_sw:
+            comp_headers.append("SimilarWeb")
+        comp_headers += ["Title", "Niche"]
+        compact_keys = {
+            "company", "title", "similarity", "niche",
+            "brand", "growth", "similarweb", "started",
+        }
     _COMP_KEY = {
         "#": "idx",
         "Company": "company",
@@ -2519,10 +2550,6 @@ def render_report_html(
         "Started": "started",
     }
     comp_keys = [_COMP_KEY.get(h, h.lower()) for h in comp_headers]
-    compact_keys = {
-        "company", "title", "similarity", "niche",
-        "brand", "growth", "similarweb", "started",
-    }
 
     market = _report_market(report, meta)
     summary = _summary_channels(report, run_meta=meta)
@@ -2692,13 +2719,15 @@ def render_report_html(
         )
         for c in comps
     ]
-    v2_html = _competitors_v2_panel(
-        _competitors_v2_json(v2_rows),
-        sim_editable=sim_editable,
-        show_brand=show_brand,
-        show_sw=show_sw,
-        sw_missing=sw_missing,
-    )
+    v2_html = ""
+    if not competitors_only:
+        v2_html = _competitors_v2_panel(
+            _competitors_v2_json(v2_rows),
+            sim_editable=sim_editable,
+            show_brand=show_brand,
+            show_sw=show_sw,
+            sw_missing=sw_missing,
+        )
     ui_ver = REPORT_UI_VERSION
     analysis_v2 = ""
     body_cls = ""
@@ -2774,13 +2803,13 @@ def render_report_html(
     </div>
 
     <div id="sec-competitors-home">
-    <div class="card" id="sec-competitors" data-group="overview" data-view="{'all' if competitors_only else 'compact'}" data-run-id="{_esc(run_id)}">
+    <div class="card" id="sec-competitors" data-group="overview" data-view="compact" data-run-id="{_esc(run_id)}">
       <div id="comp-v1">
       <div class="card-head">
         <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
         <div class="sort-bar" role="group" aria-label="Colunas dos concorrentes">
-          <button type="button" class="sort-btn comp-view{'' if competitors_only else ' is-active'}" data-view="compact">Métricas</button>
-          <button type="button" class="sort-btn comp-view{' is-active' if competitors_only else ''}" data-view="all">Todas</button>
+          <button type="button" class="sort-btn comp-view is-active" data-view="compact">Métricas</button>
+          <button type="button" class="sort-btn comp-view" data-view="all">Todas</button>
         </div>
       </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
@@ -3317,7 +3346,7 @@ _REPORT_JS = """
       function saveOrder(){
         if(!card) return;
         var keys=[].slice.call(table.querySelectorAll('thead th')).map(colKey).filter(Boolean);
-        try{ localStorage.setItem('spy-col-order', JSON.stringify(keys)); }catch(e){}
+        try{ localStorage.setItem('spy-col-order-v2', JSON.stringify(keys)); }catch(e){}
       }
       function applyOrder(keys){
         if(!keys || !keys.length) return;
@@ -3347,7 +3376,7 @@ _REPORT_JS = """
         saveOrder();
       }
       try{
-        var saved=JSON.parse(localStorage.getItem('spy-col-order')||'[]');
+        var saved=JSON.parse(localStorage.getItem('spy-col-order-v2')||'[]');
         if(saved && saved.length) applyOrder(saved);
       }catch(e){}
       head.addEventListener('dragstart',function(ev){
