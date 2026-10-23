@@ -608,6 +608,7 @@ def _build_table_html_v4(rows: list[dict[str, Any]], ordered: list[dict[str, Any
     best_b = max((float(r.get("brand") or 0) for r in rows), default=0)
 
     h = (
+        '<colgroup><col class="c-co"><col class="c-kpi"><col class="c-kpi"></colgroup>'
         '<thead><tr class="grp"><th class="co" rowspan="2" style="padding:10px 14px;vertical-align:bottom">Empresa</th>'
         '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">'
         + _sb("visits", "Visitas", "Visitas/mês e variação no período")

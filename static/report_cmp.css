@@ -246,6 +246,21 @@ html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf-legend{display:flex;flex-wrap:wrap;gap
 html[data-ui="v4"] :is(#cmp, #cmp-v1) .pf-legend span{display:inline-flex;align-items:center;gap:7px}
 html[data-ui="v4"] :is(#cmp, #cmp-v1) .legend.hl{gap:6px 14px}
 html[data-ui="v4"] :is(#cmp, #cmp-v1) .legend.hl span{display:inline-flex;align-items:center;gap:6px}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm{
+  width:max-content!important;min-width:100%;table-layout:auto
+}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm col.c-kpi,
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm th.r,
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.kpi{
+  display:table-cell!important;width:112px;min-width:112px;max-width:112px;box-sizing:border-box;
+  padding:10px 10px!important;text-align:right!important;vertical-align:middle!important
+}
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.kpi .kv,
+html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm td.kpi .kd{display:block;text-align:right}
+html[data-ui="v4"] #analysis-v2 #cmp table.hm td.kpi,
+html[data-ui="v4"] #analysis-v2 #cmp table.hm th.r{
+  display:table-cell!important;width:112px;min-width:112px;max-width:112px;padding:10px 10px!important
+}
 html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hg{padding:10px 6px 6px;text-align:center;color:var(--cink);border-top:3px solid var(--c);background:#F8F9FA;font-size:11.5px}
 html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hsum{color:var(--ink2);border-top:3px solid #0E1116;background:#F8F9FA;border-left:7px solid #fff}
 html[data-ui="v4"] :is(#cmp, #cmp-v1) table.hm thead tr.grp th.hg.subc,

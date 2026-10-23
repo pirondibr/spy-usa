@@ -139,6 +139,7 @@
         return '<button type="button" class="sb" data-sort="' + esc(k) + '" title="' + esc(title || "") + '">' + label + '<span class="ar">' + ar(k) + "</span></button>";
       };
       var h =
+        '<colgroup><col class="c-co"><col class="c-kpi"><col class="c-kpi"></colgroup>' +
         '<thead><tr class="grp"><th class="co" rowspan="2" style="padding:10px 14px;vertical-align:bottom">Empresa</th>' +
         '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">' + sb("visits", "Visitas", "Visitas/mês e variação no período") + "</th>" +
         '<th rowspan="2" class="r" style="padding:10px 12px;vertical-align:bottom">' + sb("brand", "Marca", "Buscas/mês e variação em 1 ano") + "</th>" +
