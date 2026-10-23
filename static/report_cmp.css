@@ -162,7 +162,13 @@ html[data-ui="v4"] #analysis-v2:not(.is-compare) .anav a[href="#resumo"],
 html[data-ui="v4"] #analysis-v2.is-compare #resumo,
 html[data-ui="v4"] #analysis-v2.is-compare .anav a[href="#resumo"]{display:none!important}
 html:not([data-ui="v4"]) #ganhando,
-html:not([data-ui="v4"]) .anav a[href="#ganhando"]{display:none!important}
+html:not([data-ui="v4"]) .anav a[href="#ganhando"],
+html:not([data-ui="v4"]) #analysis-v2 #lista,
+html:not([data-ui="v4"]) .anav a[href="#lista"]{display:none!important}
+#analysis-v2 #lista .card{margin:0}
+#analysis-v2 #lista #comp-v2 .card-head{
+  padding:20px 24px 16px;margin:0;align-items:center;border-bottom:1px solid var(--line)
+}
 #analysis-v2 #cmp table{
   border-collapse:separate!important;border-spacing:0;width:100%;font-size:13.5px
 }

@@ -937,6 +937,7 @@ def build_analysis_compare(
 <div id="analysis-v2" class="is-compare">
   <nav class="anav" aria-label="Seções">
     <div class="anav-in">
+      <a href="#lista">Tabela</a>
       {('<a href="#perfil">Perfil</a>' if cmp_html else "")}
       {('<a href="#concorrentes">Concorrentes</a>' if cmp_html else "")}
       {('<a href="#ganhando">Quem ganha</a>' if cmp_html else "")}
@@ -961,6 +962,7 @@ def build_analysis_compare(
         {f'<div><dt>Run</dt><dd class="num">{_esc(run_id)}</dd></div>' if run_id else ""}
       </dl>
     </section>
+    <section class="sec" id="lista"></section>
     {cmp_html}
     {summary_html}
     {busca_html}

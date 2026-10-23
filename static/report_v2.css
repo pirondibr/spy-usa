@@ -8,15 +8,25 @@ html[data-ui="v1"] #comp-v1{display:block}
 html[data-ui="v1"] #comp-v2{display:none!important}
 html[data-ui="v2"] #comp-v1{display:none!important}
 html[data-ui="v2"] #comp-v2{display:block}
+html[data-ui="v3"] #comp-v1,
+html[data-ui="v4"] #comp-v1{display:none!important}
+html[data-ui="v3"] #comp-v2,
+html[data-ui="v4"] #comp-v2{display:block}
 html:not([data-ui]) #comp-v1{display:none}
 html:not([data-ui]) #comp-v2{display:block}
 
+#sec-competitors-home{display:contents}
+
 html[data-ui="v2"] #sec-competitors,
+html[data-ui="v3"] #sec-competitors,
+html[data-ui="v4"] #sec-competitors,
 html:not([data-ui]) #sec-competitors{
   padding:0;
   overflow:hidden;
 }
 html[data-ui="v2"] #sec-competitors::before,
+html[data-ui="v3"] #sec-competitors::before,
+html[data-ui="v4"] #sec-competitors::before,
 html:not([data-ui]) #sec-competitors::before{display:none}
 
 #comp-v2{

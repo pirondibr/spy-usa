@@ -17,6 +17,17 @@
     } catch (e) {}
     return "v4";
   }
+  function placeCompTable(v) {
+    var card = document.getElementById("sec-competitors");
+    var slot = document.getElementById("lista");
+    var home = document.getElementById("sec-competitors-home");
+    if (!card) return;
+    if (v === "v4" && slot) {
+      if (card.parentElement !== slot) slot.appendChild(card);
+    } else if (home && card.parentElement !== home) {
+      home.appendChild(card);
+    }
+  }
   function applyUi(v) {
     if (!ALLOWED[v]) v = "v4";
     document.documentElement.setAttribute("data-ui", v);
@@ -28,6 +39,7 @@
       b.classList.toggle("is-active", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    placeCompTable(v);
     try {
       window.dispatchEvent(new CustomEvent("spy-ui", { detail: v }));
     } catch (e) {}
@@ -53,7 +65,7 @@
       });
     });
   }, { rootMargin: "-35% 0px -60% 0px" });
-  ["perfil", "concorrentes", "ganhando", "resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
+  ["lista", "perfil", "concorrentes", "ganhando", "resumo", "busca", "paga", "social", "execucao"].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) io.observe(el);
   });

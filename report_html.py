@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.35"
+REPORT_UI_VERSION = "0.4.36"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2604,6 +2604,7 @@ def render_report_html(
       <p>{_md_lite(briefing.get('summary') or '')}</p>
     </div>
 
+    <div id="sec-competitors-home">
     <div class="card" id="sec-competitors" data-group="overview" data-view="compact" data-run-id="{_esc(run_id)}">
       <div id="comp-v1">
       <div class="card-head">
@@ -2629,6 +2630,7 @@ def render_report_html(
       </div>
       {v2_html}
     </div>
+    </div>
 
     {cards}
     {f'<div class="card" id="sec-runlog" data-group="overview">{run_log_html}</div>' if run_log_html else ''}
@@ -2636,6 +2638,9 @@ def render_report_html(
   </main>
 </div>
 {analysis_v2}
+<script>
+(function(){{try{{var ui=document.documentElement.getAttribute('data-ui');var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');var home=document.getElementById('sec-competitors-home');if(card&&slot&&ui==='v4')slot.appendChild(card);else if(card&&home&&card.parentElement!==home)home.appendChild(card);}}catch(e){{}}}})();
+</script>
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
 <script src="/static/report_cmp.js?v={_esc(ui_ver)}"></script>
