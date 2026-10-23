@@ -46,9 +46,9 @@
 :is(#cmp, #cmp-v1) tr.me td.co{background:#F3FAF7;box-shadow:inset 3px 0 0 var(--accent)}
 :is(#cmp, #cmp-v1) tbody tr:hover td{background:#FAFBFC}
 :is(#cmp, #cmp-v1) tbody tr.me:hover td{background:#EAF6F1}
-:is(#cmp, #cmp-v1) td.kpi{padding:10px 10px;text-align:right}
-:is(#cmp, #cmp-v1) .kv{font-weight:700;color:var(--ink);font-size:14px}
-:is(#cmp, #cmp-v1) .kd{font-size:12px;font-weight:600}
+:is(#cmp, #cmp-v1) td.kpi{padding:10px 12px;text-align:right;min-width:88px}
+:is(#cmp, #cmp-v1) .kv{display:block;font-weight:700;color:var(--ink);font-size:14px;line-height:1.25}
+:is(#cmp, #cmp-v1) .kd{display:block;font-size:12px;font-weight:600;margin-top:1px}
 :is(#cmp, #cmp-v1) .kd.up{color:var(--up)}
 :is(#cmp, #cmp-v1) .kd.dn{color:var(--down)}
 :is(#cmp, #cmp-v1) .kd.fl{color:var(--muted)}
@@ -156,13 +156,25 @@ html[data-ui="v3"] #analysis-v2.is-compare main.av2{max-width:1360px}
   border-collapse:separate!important;border-spacing:0;width:100%;font-size:13.5px
 }
 #analysis-v2 #cmp th,#analysis-v2 #cmp td{
-  padding:0;border-bottom:1px solid var(--line);white-space:nowrap;text-align:center;font-weight:600
+  padding:0;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:600
 }
 #analysis-v2 #cmp thead th{
   background:#F8F9FA;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:#4B5563
 }
-#analysis-v2 #cmp td.co,#analysis-v2 #cmp th.co{text-align:left}
-#analysis-v2 #cmp td.kpi,#analysis-v2 #cmp th.r,#analysis-v2 #cmp td.r{text-align:right}
+#analysis-v2 #cmp td.co,#analysis-v2 #cmp th.co{text-align:left;font-weight:600}
+#analysis-v2 #cmp th.r{
+  padding:10px 12px;text-align:right;vertical-align:bottom;font-weight:600
+}
+#analysis-v2 #cmp td.kpi{
+  padding:10px 12px;text-align:right;vertical-align:middle;font-weight:400;min-width:88px
+}
+#analysis-v2 #cmp td.kpi .kv{
+  display:block;font-weight:700;font-size:14px;color:var(--ink);line-height:1.25
+}
+#analysis-v2 #cmp td.kpi .kd{
+  display:block;font-size:12px;font-weight:600;margin-top:1px
+}
+#analysis-v2 #cmp tfoot td.kpi{font-size:12.5px;color:var(--muted);font-weight:500}
 #analysis-v2 #cmp td.cell,#analysis-v2 #cmp td.macv{text-align:center}
 html[data-ui="v2"] #analysis-v2.is-compare .anav a[href="#perfil"],
 html[data-ui="v2"] #analysis-v2.is-compare .anav a[href="#concorrentes"],

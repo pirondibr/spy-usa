@@ -243,11 +243,11 @@ def _fmt_cmp(n: Any) -> str:
     except (TypeError, ValueError):
         return "—"
     if abs(v) >= 1e6:
-        s = f"{v / 1e6:.2f}" if abs(v) < 1e7 else f"{v / 1e6:.1f}"
-        return s.rstrip("0").rstrip(".") + "M"
+        s = f"{v / 1e6:.1f}" if abs(v) >= 1e7 else f"{v / 1e6:.2f}"
+        return s.rstrip("0").rstrip(".").replace(".", ",") + "M"
     if abs(v) >= 1e3:
-        s = f"{v / 1e3:.1f}" if abs(v) < 1e5 else f"{v / 1e3:.0f}"
-        return s.rstrip("0").rstrip(".") + "k"
+        s = f"{v / 1e3:.0f}" if abs(v) >= 1e5 else f"{v / 1e3:.1f}"
+        return s.replace(".0", "").replace(".", ",") + "k"
     return str(int(round(v)))
 
 
