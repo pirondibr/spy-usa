@@ -1,10 +1,12 @@
 (function () {
-  document.documentElement.setAttribute("data-ui", "v4");
+  var isComps = document.documentElement.getAttribute("data-tool") === "competitors";
+  var ui = isComps ? "v1" : "v4";
+  document.documentElement.setAttribute("data-ui", ui);
   var card = document.getElementById("sec-competitors");
   var slot = document.getElementById("lista");
-  if (card && slot && card.parentElement !== slot) slot.appendChild(card);
+  if (!isComps && card && slot && card.parentElement !== slot) slot.appendChild(card);
   try {
-    window.dispatchEvent(new CustomEvent("spy-ui", { detail: "v4" }));
+    window.dispatchEvent(new CustomEvent("spy-ui", { detail: ui }));
   } catch (e) {}
 })();
 

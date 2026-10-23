@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.44"
+REPORT_UI_VERSION = "0.4.45"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2731,7 +2731,7 @@ def render_report_html(
             )
 
     return f"""<!DOCTYPE html>
-<html lang="en-US" data-ui="v4"{' data-has-v3="1"' if with_competitors else ''}>
+<html lang="en-US" data-ui="{'v1' if competitors_only else 'v4'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2774,13 +2774,13 @@ def render_report_html(
     </div>
 
     <div id="sec-competitors-home">
-    <div class="card" id="sec-competitors" data-group="overview" data-view="compact" data-run-id="{_esc(run_id)}">
+    <div class="card" id="sec-competitors" data-group="overview" data-view="{'all' if competitors_only else 'compact'}" data-run-id="{_esc(run_id)}">
       <div id="comp-v1">
       <div class="card-head">
         <h2>Competitors <span class="count">{_esc(comp_count)}</span></h2>
         <div class="sort-bar" role="group" aria-label="Colunas dos concorrentes">
-          <button type="button" class="sort-btn comp-view is-active" data-view="compact">Métricas</button>
-          <button type="button" class="sort-btn comp-view" data-view="all">Todas</button>
+          <button type="button" class="sort-btn comp-view{'' if competitors_only else ' is-active'}" data-view="compact">Métricas</button>
+          <button type="button" class="sort-btn comp-view{' is-active' if competitors_only else ''}" data-view="all">Todas</button>
         </div>
       </div>
       {f"<p class='note'>{_esc(note)}</p>" if note else ''}
@@ -2808,7 +2808,7 @@ def render_report_html(
 </div>
 {analysis_v2}
 <script>
-(function(){{try{{document.documentElement.setAttribute('data-ui','v4');var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot)slot.appendChild(card);}}catch(e){{}}}})();
+(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');document.documentElement.setAttribute('data-ui',tool==='competitors'?'v1':'v4');var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
 </script>
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
