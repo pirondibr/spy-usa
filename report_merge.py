@@ -203,13 +203,43 @@ def assemble_compare_all_report(
     if isinstance(merged["briefing"], dict):
         merged["briefing"]["url"] = primary.get("url") or merged["briefing"].get("url") or ""
 
+    def _briefing_nicho(briefing: Any) -> str:
+        if not isinstance(briefing, dict):
+            return ""
+        for key in ("nicho_principal", "nicho", "nicho_especifico", "nicho_medio"):
+            val = str(briefing.get(key) or "").strip()
+            if val and val not in ("—", "-", "n/d"):
+                return val
+        return ""
+
+    def _client_row(src: dict[str, Any]) -> dict[str, Any]:
+        for row in src.get("competitors_raw") or src.get("competitors") or []:
+            if isinstance(row, dict) and row.get("is_client"):
+                return row
+        return {}
+
+    primary_nicho = _briefing_nicho(merged.get("briefing") or {})
     for i, company in enumerate(companies):
+        src = per_company_reports[i] if i < len(per_company_reports) and isinstance(per_company_reports[i], dict) else {}
+        own = _client_row(src)
+        brief = src.get("briefing") if isinstance(src.get("briefing"), dict) else {}
+        dfs_rows = ((src.get("brand_dataforseo") or {}).get("rows") or []) if isinstance(src.get("brand_dataforseo"), dict) else []
+        dfs_me = next((r for r in dfs_rows if isinstance(r, dict) and r.get("is_client")), dfs_rows[0] if dfs_rows else {})
+        if not isinstance(dfs_me, dict):
+            dfs_me = {}
+        title = str(own.get("title") or dfs_me.get("site_title") or dfs_me.get("title") or "").strip()
         entry = {
             "name": company["name"],
             "domain": company["domain"],
             "url": company["url"],
             "is_client": i == 0,
             "similaridade": "Cliente" if i == 0 else "—",
+            "nicho": _briefing_nicho(brief) or own.get("nicho") or primary_nicho or "",
+            "title": title,
+            "site_title": str(dfs_me.get("site_title") or own.get("site_title") or title or "").strip(),
+            "started": own.get("started") or "",
+            "started_fmt": own.get("started_fmt") or "",
+            "started_truncated": bool(own.get("started_truncated")),
         }
         merged["competitors_raw"].append(entry)
         if i > 0:

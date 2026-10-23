@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.39"
+REPORT_UI_VERSION = "0.4.40"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1388,8 +1388,30 @@ def _first_num(*vals: Any) -> Optional[float]:
     return None
 
 
+def _is_blank(v: Any) -> bool:
+    return str(v or "").strip() in ("", "—", "-", "n/d", "n/a")
+
+
+def _briefing_nicho(briefing: dict[str, Any]) -> str:
+    if not isinstance(briefing, dict):
+        return ""
+    for key in ("nicho_principal", "nicho", "nicho_especifico", "nicho_medio"):
+        val = str(briefing.get(key) or "").strip()
+        if not _is_blank(val):
+            return val
+    return ""
+
+
+def _first_text(*vals: Any) -> str:
+    for v in vals:
+        s = str(v or "").strip()
+        if not _is_blank(s):
+            return s
+    return ""
+
+
 def _enrich_competitor_from_channels(c: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
-    """Fill Brand / SimilarWeb / title on compare-all rows from channel tables."""
+    """Fill Brand / SimilarWeb / title / niche on compare-all rows from channel tables."""
     out = dict(c)
     sw = report.get("similarweb") if isinstance(report.get("similarweb"), dict) else {}
     sw_row = _row_for_company_loose(sw, out) if sw else None
@@ -1398,9 +1420,11 @@ def _enrich_competitor_from_channels(c: dict[str, Any], report: dict[str, Any]) 
             n = _first_num(sw_row.get("traffic"), sw_row.get("visits"), sw_row.get("value"))
             if n is not None:
                 out["similarweb_visits"] = n
-        title = str(sw_row.get("title") or sw_row.get("site_title") or "").strip()
-        if title and (not out.get("title") or out.get("title") in ("—", "-")):
+        title = _first_text(sw_row.get("title"), sw_row.get("site_title"), sw_row.get("page_title"))
+        if title and _is_blank(out.get("title")):
             out["title"] = title
+        if title and _is_blank(out.get("site_title")):
+            out["site_title"] = title
     dfs = report.get("brand_dataforseo") if isinstance(report.get("brand_dataforseo"), dict) else {}
     dfs_row = _row_for_company_loose(dfs, out) if dfs else None
     if dfs_row:
@@ -1412,6 +1436,11 @@ def _enrich_competitor_from_channels(c: dict[str, Any], report: dict[str, Any]) 
             out["brand_aug_2024"] = _first_num(dfs_row.get("volume_2y"))
         if not out.get("brand_keyword"):
             out["brand_keyword"] = str(dfs_row.get("keyword") or dfs_row.get("client_keyword") or "").strip()
+        site_title = _first_text(dfs_row.get("site_title"), dfs_row.get("title"), dfs_row.get("page_title"))
+        if site_title and _is_blank(out.get("title")):
+            out["title"] = site_title
+        if site_title and _is_blank(out.get("site_title")):
+            out["site_title"] = site_title
     brand = report.get("brand") if isinstance(report.get("brand"), dict) else {}
     brand_row = _row_for_company_loose(brand, out) if brand else None
     if brand_row:
@@ -1421,16 +1450,64 @@ def _enrich_competitor_from_channels(c: dict[str, Any], report: dict[str, Any]) 
             out["sm_marca_aug_2025"] = _first_num(brand_row.get("volume_1y"))
         if out.get("sm_marca_aug_2024") in (None, ""):
             out["sm_marca_aug_2024"] = _first_num(brand_row.get("volume_2y"))
+        site_title = _first_text(brand_row.get("site_title"), brand_row.get("title"))
+        if site_title and _is_blank(out.get("title")):
+            out["title"] = site_title
     seo = report.get("seo") if isinstance(report.get("seo"), dict) else {}
     seo_row = _row_for_company_loose(seo, out) if seo else None
     if seo_row:
-        if not out.get("started"):
+        if _is_blank(out.get("started")):
             out["started"] = seo_row.get("started") or seo_row.get("first_month") or seo_row.get("started_ym")
-        if not out.get("started_fmt"):
+        if _is_blank(out.get("started_fmt")):
             out["started_fmt"] = seo_row.get("started_fmt") or seo_row.get("first_month_fmt") or ""
-        if (not out.get("nicho") or out.get("nicho") in ("—", "-")) and seo_row.get("nicho"):
+        if _is_blank(out.get("nicho")) and not _is_blank(seo_row.get("nicho")):
             out["nicho"] = seo_row.get("nicho")
+        site_title = _first_text(seo_row.get("site_title"), seo_row.get("title"), seo_row.get("page_title"))
+        if site_title and _is_blank(out.get("title")):
+            out["title"] = site_title
+    niche = _briefing_nicho(report.get("briefing") or {})
+    if niche and _is_blank(out.get("nicho")):
+        out["nicho"] = niche
     return out
+
+
+def build_competitor_table_rows(
+    report: dict[str, Any],
+    *,
+    run_meta: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    """Company rows for the basic competitors table (client included on compare-all)."""
+    meta = run_meta or {}
+    comps = list(report.get("competitors") or [])
+    competitors_only = bool(report.get("competitors_only") or meta.get("competitors_only"))
+    compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
+    if competitors_only and report.get("competitors_raw"):
+        comps = list(report.get("competitors_raw") or comps)
+    elif compare_all:
+        merged_comps: list[dict[str, Any]] = []
+        seen_slugs: set[str] = set()
+
+        def _add_comp(row: Any) -> None:
+            if not isinstance(row, dict):
+                return
+            slug = _slug_key(row)
+            if not slug or slug in seen_slugs:
+                return
+            seen_slugs.add(slug)
+            merged_comps.append(row)
+
+        for row in report.get("competitors_raw") or []:
+            _add_comp(row)
+        for row in _summary_companies(report):
+            _add_comp(row)
+        for row in comps:
+            _add_comp(row)
+        comps = merged_comps
+    return [
+        _enrich_competitor_from_channels(c, report)
+        for c in comps
+        if isinstance(c, dict)
+    ]
 
 
 def _summary_scoreboard(
@@ -2290,37 +2367,10 @@ def render_report_html(
     meta = run_meta or {}
     client = report.get("client") or meta.get("company") or meta.get("slug") or "Company"
     briefing = report.get("briefing") or {}
-    comps = report.get("competitors") or []
     note = report.get("competitors_note") or ""
     competitors_only = bool(report.get("competitors_only") or meta.get("competitors_only"))
     compare_all = bool(report.get("compare_all") or meta.get("compare_all"))
-    if competitors_only and report.get("competitors_raw"):
-        comps = report.get("competitors_raw") or comps
-    elif compare_all:
-        merged_comps: list[dict[str, Any]] = []
-        seen_slugs: set[str] = set()
-
-        def _add_comp(row: Any) -> None:
-            if not isinstance(row, dict):
-                return
-            slug = _slug_key(row)
-            if not slug or slug in seen_slugs:
-                return
-            seen_slugs.add(slug)
-            merged_comps.append(row)
-
-        for row in _summary_companies(report):
-            _add_comp(row)
-        for row in report.get("competitors_raw") or []:
-            _add_comp(row)
-        for row in comps:
-            _add_comp(row)
-        comps = merged_comps
-    comps = [
-        _enrich_competitor_from_channels(c, report)
-        for c in comps
-        if isinstance(c, dict)
-    ]
+    comps = build_competitor_table_rows(report, run_meta=meta)
     fp_domains = _brand_fp_domains(comps, report)
     run_id = str(meta.get("id") or "").strip()
     sim_editable = bool(competitors_only and run_id)

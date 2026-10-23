@@ -28,7 +28,7 @@ from competitor_edits import (
     set_competitor_similarity,
 )
 from pipeline import RUNS_DIR, STEP_DEFS, clear_slug_cache, run_pipeline
-from report_html import load_saved_report, render_report_html
+from report_html import build_competitor_table_rows, load_saved_report, render_report_html
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
@@ -57,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.39"
+APP_VERSION = "0.4.40"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -794,8 +794,20 @@ def run_report(run_id: str):
     report = load_saved_report(run_id, RUNS_DIR)
     if report is not None:
         try:
-            rows = list(report.get("competitors") or report.get("competitors_raw") or [])
             meta_now = _read_run_meta(run_id) or {}
+            if report.get("compare_all") or meta_now.get("compare_all"):
+                table_rows = build_competitor_table_rows(report, run_meta=meta_now)
+                if table_rows:
+                    report["competitors_raw"] = table_rows
+                    peers = [r for r in table_rows if not r.get("is_client")]
+                    report["competitors"] = peers or table_rows
+                    if not report.get("table_profile_hydrated"):
+                        report["table_profile_hydrated"] = True
+                        (RUNS_DIR / run_id / "report.json").write_text(
+                            json.dumps(report, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+            rows = list(report.get("competitors") or report.get("competitors_raw") or [])
             if rows and not report.get("titles_backfilled"):
                 try:
                     from pipeline import find_concorrentes_xlsx
@@ -858,7 +870,11 @@ def run_report(run_id: str):
                     print(f"[TITLE] scrubbed {run_id} extra_llm={extra}", flush=True)
                 except Exception as e:
                     print(f"[TITLE] scrub skipped for {run_id}: {e}", flush=True)
-            if report.get("competitors_only") and not report.get("started_checked"):
+            if (
+                report.get("competitors_only")
+                or report.get("compare_all")
+                or meta_now.get("compare_all")
+            ) and not report.get("started_checked"):
                 try:
                     from pipeline import _enrich_started
 
@@ -870,6 +886,25 @@ def run_report(run_id: str):
                     print(f"[STARTED] backfill saved for {run_id}", flush=True)
                 except Exception as e:
                     print(f"[STARTED] backfill skipped for {run_id}: {e}", flush=True)
+            if (report.get("compare_all") or meta_now.get("compare_all")) and not report.get("titles_compare_checked"):
+                try:
+                    vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+                    if str(vendor) not in sys.path:
+                        sys.path.insert(0, str(vendor))
+                    from seo_pipeline import fill_missing_titles  # noqa: E402
+
+                    rows = list(report.get("competitors_raw") or [])
+                    filled_cmp = fill_missing_titles(rows)
+                    report["titles_compare_checked"] = True
+                    if filled_cmp:
+                        report["competitors_raw"] = rows
+                    (RUNS_DIR / run_id / "report.json").write_text(
+                        json.dumps(report, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    print(f"[TITLE/LLM] compare fill {run_id}: {filled_cmp}", flush=True)
+                except Exception as e:
+                    print(f"[TITLE/LLM] compare fill skipped for {run_id}: {e}", flush=True)
             if report.get("include_brand_growth") and not report.get("brand_fp_checked"):
                 try:
                     vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
