@@ -57,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.42"
+APP_VERSION = "0.4.43"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -876,7 +876,7 @@ def run_report(run_id: str):
                 report.get("competitors_only")
                 or report.get("compare_all")
                 or meta_now.get("compare_all")
-            ) and missing_started and int(report.get("started_attempts") or 0) < 3:
+            ) and missing_started and int(report.get("started_attempts") or 0) < 4:
                 try:
                     from pipeline import _enrich_started
 

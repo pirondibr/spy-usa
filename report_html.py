@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.42"
+REPORT_UI_VERSION = "0.4.43"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1415,8 +1415,13 @@ def _enrich_competitor_from_channels(c: dict[str, Any], report: dict[str, Any]) 
     out = dict(c)
     sw = report.get("similarweb") if isinstance(report.get("similarweb"), dict) else {}
     sw_row = _row_for_company_loose(sw, out) if sw else None
+    if out.get("is_client"):
+        client_dom = str(sw.get("client_domain") or "").strip().lower()
+        if client_dom:
+            out["domain"] = client_dom
     if sw_row:
-        live_dom = str(sw_row.get("domain") or "").strip().lower()
+        url_host = urlparse(str(sw_row.get("url") or "")).netloc.replace("www.", "").lower().split(":")[0]
+        live_dom = url_host or str(sw.get("client_domain") or sw_row.get("domain") or "").strip().lower()
         if live_dom:
             out["domain"] = live_dom
         if out.get("similarweb_visits") in (None, ""):
