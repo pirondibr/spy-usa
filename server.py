@@ -57,7 +57,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.40"
+APP_VERSION = "0.4.41"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -870,15 +870,18 @@ def run_report(run_id: str):
                     print(f"[TITLE] scrubbed {run_id} extra_llm={extra}", flush=True)
                 except Exception as e:
                     print(f"[TITLE] scrub skipped for {run_id}: {e}", flush=True)
+            raw_now = list(report.get("competitors_raw") or report.get("competitors") or [])
+            missing_started = any(not str(r.get("started") or "").strip() for r in raw_now)
             if (
                 report.get("competitors_only")
                 or report.get("compare_all")
                 or meta_now.get("compare_all")
-            ) and not report.get("started_checked"):
+            ) and missing_started and int(report.get("started_attempts") or 0) < 2:
                 try:
                     from pipeline import _enrich_started
 
                     _enrich_started(report)
+                    report["started_attempts"] = int(report.get("started_attempts") or 0) + 1
                     (RUNS_DIR / run_id / "report.json").write_text(
                         json.dumps(report, ensure_ascii=False, indent=2),
                         encoding="utf-8",

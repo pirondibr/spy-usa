@@ -358,7 +358,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.40"
+REPORT_UI_VERSION = "0.4.41"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1484,17 +1484,26 @@ def build_competitor_table_rows(
     if competitors_only and report.get("competitors_raw"):
         comps = list(report.get("competitors_raw") or comps)
     elif compare_all:
-        merged_comps: list[dict[str, Any]] = []
-        seen_slugs: set[str] = set()
+        by_slug: dict[str, dict[str, Any]] = {}
 
         def _add_comp(row: Any) -> None:
             if not isinstance(row, dict):
                 return
             slug = _slug_key(row)
-            if not slug or slug in seen_slugs:
+            if not slug:
                 return
-            seen_slugs.add(slug)
-            merged_comps.append(row)
+            prev = by_slug.get(slug)
+            if prev is None:
+                by_slug[slug] = dict(row)
+                return
+            if row.get("_key") and row.get("domain"):
+                prev["domain"] = row["domain"]
+                prev["_key"] = row["_key"]
+            if row.get("is_client"):
+                prev["is_client"] = True
+            for key, val in row.items():
+                if _is_blank(prev.get(key)) and not _is_blank(val):
+                    prev[key] = val
 
         for row in report.get("competitors_raw") or []:
             _add_comp(row)
@@ -1502,7 +1511,8 @@ def build_competitor_table_rows(
             _add_comp(row)
         for row in comps:
             _add_comp(row)
-        comps = merged_comps
+        comps = list(by_slug.values())
+        comps.sort(key=lambda c: (0 if c.get("is_client") else 1, str(c.get("name") or "").lower()))
     return [
         _enrich_competitor_from_channels(c, report)
         for c in comps
