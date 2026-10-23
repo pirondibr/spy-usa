@@ -25,7 +25,7 @@
         radial-gradient(900px 400px at 100% 0%, #f6e7c8 0%, transparent 50%),
         linear-gradient(180deg, #f7fafc 0%, var(--sand) 100%);
     }
-    .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 48px 20px 80px; }
     .brand {
       font-family: Georgia, "Times New Roman", serif;
       font-size: clamp(2.4rem, 6vw, 3.4rem);
@@ -95,7 +95,7 @@
       border: 1px solid #fecaca;
     }
     button.danger:hover { background: #fef2f2; }
-    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .row-actions { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
     .opts { display: grid; gap: 8px; }
     .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 500; }
     .check .hint { color: #94a3b8; font-weight: 400; }
@@ -174,7 +174,8 @@
     .history-sub { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
     .history-tabs { margin: 0 0 14px; }
     .history-tabs .tab .num { font-weight: 600; opacity: .75; margin-left: 4px; }
-    .history table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .table-wrap { overflow-x: auto; }
+    .history table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
     .history th, .history td {
       text-align: left;
       padding: 9px 8px;
@@ -193,7 +194,12 @@
       text-decoration: none;
     }
     .history a.company:hover { text-decoration: underline; }
-    .history .company-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+    .history .company-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+    .history td { overflow-wrap: break-word; }
+    .history th:nth-child(3), .history td:nth-child(3) { width: 72px; }
+    .history th:nth-child(4), .history td:nth-child(4) { width: 128px; }
+    .history th:nth-child(5), .history td:nth-child(5) { width: 148px; white-space: nowrap; }
+    .history th:nth-child(6), .history td:nth-child(6) { width: 168px; }
     .tag-comps {
       display: inline-block;
       font-size: 10.5px;
@@ -407,8 +413,20 @@
       try {
         const d = new Date(iso);
         if (Number.isNaN(d.getTime())) return iso;
-        return d.toLocaleString();
+        return d.toLocaleString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
       } catch { return iso; }
+    }
+
+    function shortError(err) {
+      const s = String(err || "").replace(/\s+/g, " ").trim();
+      if (!s) return "";
+      return s.length > 140 ? `${s.slice(0, 137)}…` : s;
     }
 
     function hasCompetitors(r) {
@@ -466,7 +484,7 @@
         const companyCell = `<div class="company-cell">${companyLink}${compsTag}</div>`;
         const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
         const delBtn = `<button type="button" class="ghost sm danger" data-del="${escapeHtml(run.id)}" data-name="${escapeHtml(company)}">Apagar</button>`;
-        const errHint = run.error ? ` title="${escapeHtml(run.error)}"` : "";
+        const errHint = run.error ? ` title="${escapeHtml(shortError(run.error))}"` : "";
         return `<tr>
           <td>${companyCell}</td>
           <td class="muted-row">${escapeHtml(run.url || "—")}</td>
