@@ -1,0 +1,752 @@
+(function (global) {
+  var KEY = "spy-lang";
+  var EN = {
+    "nav.new": "New analysis",
+    "nav.export": "Export PDF",
+    "nav.print": "Print / PDF",
+    "nav.layout": "Layout",
+    "nav.layout_aria": "Report layout",
+    "nav.lang": "Language",
+    "nav.rerun": "Rerun",
+
+    "g.paid": "Paid media",
+    "g.org": "Organic",
+    "g.inf": "Influencers",
+
+    "lv.0": "No presence",
+    "lv.1": "Low",
+    "lv.2": "Medium",
+    "lv.3": "High",
+    "lv.abs": "Absent",
+
+    "you": "you",
+    "nc": "n/a",
+    "vs.one": "1 competitor",
+    "vs.many": "{n} competitors",
+    "market.us": "USA",
+    "market.br": "Brazil",
+    "eyebrow.snap": "data from {snap}",
+
+    "m.visits": "Visits",
+    "m.brand": "Brand search",
+    "unit.visits": "visits/mo",
+    "unit.brand": "searches/mo",
+    "unit.ads": "ads",
+    "unit.followers": "followers",
+    "unit.subscribers": "subscribers",
+    "unit.comments": "comments",
+    "unit.video_views": "video views",
+    "unit.likes": "likes",
+    "ch.creators": "{name} (creators)",
+    "ch.creators_short": "{name} creators",
+    "ch.followers": "{name} (followers)",
+
+    "ins.lead": "Where you lead",
+    "ins.behind": "Where you trail",
+    "ins.free": "Open space — nobody in the group is on",
+
+    "board.company": "Company",
+    "board.visits": "Visits/mo",
+    "board.brand": "Brand searches",
+    "board.groups": "Paid · Org · Inf",
+    "board.leads": "Leads in",
+    "board.active": "Active channels",
+    "board.none": "no channel",
+    "board.of": "of",
+    "board.mo2": "in 2 months",
+    "board.yr1": "in 1 year",
+    "board.see": "See profile of {name}",
+
+    "score.h": "Scoreboard",
+    "score.p": "Sorted by visits · click a company to see the profile",
+    "score.p5": "Click a company to see the profile",
+    "more.h": "More analysis",
+    "more.p": "Click to open · one at a time",
+
+    "flags.n": "{n} data points to check",
+    "flag.ig": "Instagram (followers): not collected for any company in this run.",
+
+    "p.perfil": "Company profile",
+    "p.perfil_d": "Channels grouped by strength",
+    "p.perfil_d5": "Strength by category, channel by channel",
+    "p.canais": "Who is on each channel",
+    "p.canais_d": "The bigger the bubble, the stronger the presence",
+    "p.canais5": "Channel by channel",
+    "p.canais5_d": "Every company on every channel",
+    "p.ganha": "Who is winning",
+    "p.ganha_d": "Group ranking, one channel at a time",
+    "p.trafego": "Traffic and brand",
+    "p.trafego_d": "SimilarWeb · DataForSEO · Semrush",
+    "p.origem": "Traffic sources",
+    "p.origem_d": "SimilarWeb · estimate, use with caution",
+    "p.ads": "Ads",
+    "p.ads_d": "Public ad libraries · USA",
+    "p.ads_d5": "Public ad libraries",
+    "p.yt": "YouTube",
+    "p.yt_d": "Page 1 of the brand-name search",
+    "p.ig": "Instagram",
+    "p.ig_d": "Page 1 · own posts and influencer posts",
+    "p.rd": "Reddit",
+    "p.rd_d": "Google: site:reddit.com + brand name",
+    "p.exec": "Run log",
+    "p.exec_d": "Time, cost and analysis log",
+    "close": "Close {name}",
+
+    "tip.none": "nobody in the group is here",
+    "tip.leads": "leads the group",
+    "tip.leader": "leader: {name} ({n})",
+    "tip.check": "check: {note}",
+    "tip.verify": "verify: {note}",
+    "tip.not_collected": "not collected",
+
+    "pf.strong": "is strongest on <b>{names}</b>",
+    "pf.none": "has no strong channel",
+    "pf.leads": " and leads the group on <b>{names}</b>",
+    "pf.out": " Is missing from <b>{names}</b>, where competitors already are.",
+    "pf.hint_lead": "leads the group",
+    "pf.hint_hover": "Hover to see the leader",
+    "pf.visits": "Visits per month",
+    "pf.brand": "Brand searches per month",
+    "pf.you": "you: {n}",
+    "pf.no_series": "Monthly series not available",
+    "seg.company": "Company",
+
+    "flt.aria": "Highlight level",
+    "flt.label": "Highlight",
+    "flt.all": "All",
+    "flt.nobody": "nobody",
+    "flt.free": "Open space (nobody present):",
+    "flt.nc": "Not collected:",
+    "flt.legend": "Green = High · yellow = Medium · red = Low · empty = no presence",
+
+    "rk.none": "No channels with volume.",
+    "rk.nodata": "No data.",
+    "rk.out": "<b class=\"dn\">You are not on this channel.</b> {name} leads with {n} {unit}.",
+    "rk.lead": "<b class=\"up\">You lead</b>",
+    "rk.lead2": " — {x} the 2nd place ({name})",
+    "rk.pos": "You are <b>{nth} of {n}</b>. {name} has <b class=\"dn\">{x}</b> your volume.",
+    "rk.channel": "Channel",
+
+    "tr.company": "Company",
+    "tr.visits": "Visits/mo",
+    "tr.julset": "Jul → Sep",
+    "tr.change": "Change",
+    "tr.bounce": "Bounce",
+    "tr.ppv": "Pages/visit",
+    "tr.time": "Time on site",
+    "tr.brand": "Brand search · USA",
+    "tr.brand5": "Brand search",
+    "tr.d1y": "Δ 1 year",
+    "tr.sem": "Branded traffic (Semrush)",
+
+    "or.none": "Traffic sources were not collected in this run.",
+    "or.paid": "paid {n}%",
+    "or.source": "Source",
+    "or.paid_tag": "(paid)",
+
+    "ex.time": "Total time",
+    "ex.cost": "Estimated cost",
+    "ex.cos": "Companies",
+    "ex.steps": "Steps",
+    "ex.aria": "Run log",
+    "ex.summary": "Summary",
+    "ex.log": "Log",
+    "ex.area": "Area",
+    "ex.time_col": "Time",
+    "ex.cost_col": "Cost",
+    "ex.status": "Status",
+    "ex.total": "Total",
+    "ex.none": "No steps.",
+    "ex.empty": "Empty log for this run.",
+    "st.done": "Done",
+    "st.skipped": "Skipped",
+    "st.na": "n/a",
+
+    "yt.company": "Company",
+    "yt.views": "Views",
+    "yt.off": "Official channel",
+    "yt.oth": "Other channels",
+    "yt.videos": "Videos",
+    "yt.d30": "Last 30d",
+    "yt.m6": "Up to 6m",
+    "yt.y1": "1 year+",
+    "yt.page": "Videos on page 1 of the search for",
+    "yt.off_h": "Official channel",
+    "yt.oth_h": "Other channels",
+    "yt.empty_off": "No official-channel video on page 1.",
+    "yt.empty_oth": "No videos from other channels.",
+    "yt.search": "See YouTube search ↗",
+    "yt.ch": "Official channel ↗",
+
+    "ig.company": "Company",
+    "ig.followers": "Followers",
+    "ig.likes": "Likes (page 1)",
+    "ig.own": "Own posts",
+    "ig.inf": "Influencers",
+    "ig.infp": "Influencer posts",
+    "ig.posts_of": "Posts from",
+    "ig.own_h": "Top liked own posts",
+    "ig.inf_h": "Influencer posts",
+    "ig.own_tag": "own post",
+    "ig.inf_tag": "influencer",
+    "ig.likes_n": "{n} likes",
+    "ig.empty_own": "No posts found.",
+    "ig.empty_inf": "No influencer on page 1.",
+    "ig.profile": "Profile",
+    "ig.note": "Instagram followers may not have been collected in this run.",
+
+    "rd.company": "Company",
+    "rd.posts": "Posts (page 1)",
+    "rd.com": "Comments",
+    "rd.g": "Google results",
+    "rd.about": "Posts about",
+    "rd.empty": "No posts on page 1.",
+    "rd.search": "See Google search ↗",
+    "rd.note": "\"Google results\" is the generic search count and does not measure real presence.",
+
+    "ads.spend": " · estimated spend ≈ US$ {n}/ad",
+    "ads.none": "No company in the group advertises here.",
+    "ads.lib": "Library ↗",
+    "ads.note": "Spend is a pipeline estimate, not a declared value.",
+
+    "foot.cost": "est. cost {n}",
+    "foot.src": "Sources: SimilarWeb, DataForSEO, Semrush, ad libraries, public profiles",
+
+    "add.one": "One website per line",
+    "add.limit": "Limit of 8 companies reached",
+    "add.sim": "Similarity",
+    "add.auto": "Auto",
+    "add.high": "High",
+    "add.med": "Medium",
+    "add.low": "Low",
+    "add.btn": "Add websites",
+
+    "src.direct": "Direct",
+    "src.search": "Search",
+    "src.social": "Social",
+    "src.referrals": "Referrals",
+    "src.email": "Email",
+    "src.paid_search": "Paid search",
+    "src.paid_social": "Paid social",
+    "src.display": "Display",
+    "src.paid_referrals": "Paid referrals",
+    "src.ai": "Generative AI",
+    "src.affiliates": "Affiliates",
+
+    "home.lede": "Marketing analysis — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. US or BR market.",
+    "home.lede_comp": "Isolated test: find competitors (SEO + LLM + Semrush top 5). Pick USA or BR — SERP, Semrush and briefing language follow the market.",
+    "home.tab.analyze": "Analysis",
+    "home.tab.comp": "Competitors",
+    "home.domain": "Domain / URL",
+    "home.hint.analyze": "One per line — up to 12. Without All = 1 report per site. All = 1 report with all of them (reuses cache; Force = redo everything)",
+    "home.hint.comp": "One company at a time (or several lines = separate jobs). Briefing + discovery only — no SEO/Brand/Ads/social.",
+    "home.market": "Market",
+    "home.sites_us": "US sites",
+    "home.sites_br": "BR sites",
+    "home.all": "All",
+    "home.all_hint": "(same report; reuses individual cache — Force redoes all)",
+    "home.site_only": "Don't find competitors",
+    "home.site_only_hint": "(analyze only the companies you entered)",
+    "home.yt_hint": "(native YouTube search · page 1 · ~1–2 min/company)",
+    "home.ig_hint": "(Google search + download page 1 · likes)",
+    "home.rd_hint": "(site:reddit.com + comments page 1 · Google total if available)",
+    "home.tw_hint": "(profile + followers via Google / ScrapingBee)",
+    "home.li_hint": "(company/profile followers via Google snippet)",
+    "home.find": "Find competitors",
+    "home.comp_note": "USA = Google US + Semrush db=us + English prompt. BR = Google Brazil + Semrush db=br + Portuguese prompt. Sources: SEO SERP + LLM + Semrush (top 5). Citation when the domain appears in more than one: seo,llm,semrush.",
+    "home.brand_growth": "Brand growth",
+    "home.brand_growth_hint": "(DataForSEO · Aug/2026 vs Aug/2024)",
+    "home.sw_hint": "(High similarity + client only)",
+    "home.force_hint": "(redo briefing + competitor list)",
+    "home.hist": "Previous runs",
+    "home.hist_sub": "Click the company to open the report, rerun or delete.",
+    "home.hist_aria": "Run type",
+    "home.loading": "Loading…",
+    "home.empty": "No runs yet. Analyze a company above.",
+    "home.empty_comp": "No competitor runs yet.",
+    "home.empty_an": "No analysis runs yet.",
+    "home.th.company": "Company",
+    "home.th.url": "URL",
+    "home.th.status": "Status",
+    "home.th.mode": "Mode",
+    "home.th.when": "When",
+    "home.with_comp": "With competitors",
+    "home.rerun": "Rerun",
+    "home.delete": "Delete",
+    "home.load_err": "Could not load history.",
+    "home.queuing": "Queuing job…",
+    "home.redo": "Rerun",
+    "home.redo_last": "Rerun last",
+    "home.open": "Open tables report",
+    "home.ready_enrich": "Report ready — still enriching",
+    "home.mode.comp": "competitors",
+    "home.mode.comp_only": "competitors only",
+    "home.mode.no_comp": "no competitors",
+    "home.mode.with_comp": "with competitors",
+    "home.n_cos": "{n} companies",
+    "home.co_n": "Company {i}/{n}: {name}…",
+    "home.confirm_del": "Delete the report for {name}?\nThis removes the files for this run.",
+    "home.del_fail": "Failed to delete",
+    "home.redo_fail": "Failed to rerun",
+    "home.redoing": "Rerunning…",
+    "home.start": "Starting…"
+  };
+
+  var PT = {
+    "nav.new": "Nova análise",
+    "nav.export": "Exportar PDF",
+    "nav.print": "Imprimir / PDF",
+    "nav.layout": "Layout",
+    "nav.layout_aria": "Layout do relatório",
+    "nav.lang": "Idioma",
+    "nav.rerun": "Refazer",
+
+    "g.paid": "Mídia paga",
+    "g.org": "Orgânico",
+    "g.inf": "Influenciadores",
+
+    "lv.0": "Sem presença",
+    "lv.1": "Baixo",
+    "lv.2": "Médio",
+    "lv.3": "Alto",
+    "lv.abs": "Ausente",
+
+    "you": "você",
+    "nc": "n/c",
+    "vs.one": "1 concorrente",
+    "vs.many": "{n} concorrentes",
+    "market.us": "EUA",
+    "market.br": "Brasil",
+    "eyebrow.snap": "dados de {snap}",
+
+    "m.visits": "Visitas",
+    "m.brand": "Busca pela marca",
+    "unit.visits": "visitas/mês",
+    "unit.brand": "buscas/mês",
+    "unit.ads": "anúncios",
+    "unit.followers": "seguidores",
+    "unit.subscribers": "inscritos",
+    "unit.comments": "comentários",
+    "unit.video_views": "views de vídeos",
+    "unit.likes": "curtidas",
+    "ch.creators": "{name} (criadores)",
+    "ch.creators_short": "{name} criadores",
+    "ch.followers": "{name} (seguidores)",
+
+    "ins.lead": "Onde você lidera",
+    "ins.behind": "Onde você está atrás",
+    "ins.free": "Espaço livre — ninguém do grupo está em",
+
+    "board.company": "Empresa",
+    "board.visits": "Visitas/mês",
+    "board.brand": "Buscas pela marca",
+    "board.groups": "Paga · Org · Inf",
+    "board.leads": "Lidera em",
+    "board.active": "Canais ativos",
+    "board.none": "nenhum canal",
+    "board.of": "de",
+    "board.mo2": "em 2 meses",
+    "board.yr1": "em 1 ano",
+    "board.see": "Ver perfil de {name}",
+
+    "score.h": "Placar",
+    "score.p": "Ordenado por visitas · clique numa empresa para ver o perfil",
+    "score.p5": "Clique numa empresa para ver o perfil",
+    "more.h": "Mais análises",
+    "more.p": "Clique para abrir · uma de cada vez",
+
+    "flags.n": "{n} dados para verificar",
+    "flag.ig": "Instagram (seguidores): não coletado para nenhuma empresa nesta rodada.",
+
+    "p.perfil": "Perfil da empresa",
+    "p.perfil_d": "Canais agrupados por força",
+    "p.perfil_d5": "Força por categoria, canal a canal",
+    "p.canais": "Quem está em cada canal",
+    "p.canais_d": "Quanto maior a bolha, mais forte a presença",
+    "p.canais5": "Canal a canal",
+    "p.canais5_d": "Todas as empresas em todos os canais",
+    "p.ganha": "Quem está ganhando",
+    "p.ganha_d": "Ranking do grupo, um canal por vez",
+    "p.trafego": "Tráfego e marca",
+    "p.trafego_d": "SimilarWeb · DataForSEO · Semrush",
+    "p.origem": "Origem do tráfego",
+    "p.origem_d": "SimilarWeb · estimativa, use com cautela",
+    "p.ads": "Anúncios",
+    "p.ads_d": "Bibliotecas públicas de anúncios · EUA",
+    "p.ads_d5": "Bibliotecas públicas de anúncios",
+    "p.yt": "YouTube",
+    "p.yt_d": "1ª página da busca pelo nome da marca",
+    "p.ig": "Instagram",
+    "p.ig_d": "1ª página · posts próprios e de influenciadores",
+    "p.rd": "Reddit",
+    "p.rd_d": "Google: site:reddit.com + nome da marca",
+    "p.exec": "Execução",
+    "p.exec_d": "Tempo, custo e log da análise",
+    "close": "Fechar {name}",
+
+    "tip.none": "ninguém do grupo está aqui",
+    "tip.leads": "lidera o grupo",
+    "tip.leader": "líder: {name} ({n})",
+    "tip.check": "verificar: {note}",
+    "tip.verify": "verificar: {note}",
+    "tip.not_collected": "não coletado",
+
+    "pf.strong": "é mais forte em <b>{names}</b>",
+    "pf.none": "não tem nenhum canal forte",
+    "pf.leads": " e lidera o grupo em <b>{names}</b>",
+    "pf.hint_lead": "lidera o grupo",
+    "pf.hint_hover": "Passe o mouse para ver o líder",
+    "pf.out": " Está fora de <b>{names}</b>, onde concorrentes já estão.",
+    "pf.visits": "Visitas por mês",
+    "pf.brand": "Buscas pela marca por mês",
+    "pf.you": "você: {n}",
+    "pf.no_series": "Série mensal não disponível",
+    "seg.company": "Empresa",
+
+    "flt.aria": "Destacar nível",
+    "flt.label": "Destacar",
+    "flt.all": "Todos",
+    "flt.nobody": "ninguém",
+    "flt.free": "Espaço livre (ninguém presente):",
+    "flt.nc": "Não coletado:",
+    "flt.legend": "Verde = Alto · amarelo = Médio · vermelho = Baixo · vazio = sem presença",
+
+    "rk.none": "Sem canais com volume.",
+    "rk.nodata": "Sem dados.",
+    "rk.out": "<b class=\"dn\">Você não está neste canal.</b> {name} lidera com {n} {unit}.",
+    "rk.lead": "<b class=\"up\">Você lidera</b>",
+    "rk.lead2": " — {x} o 2º colocado ({name})",
+    "rk.pos": "Você é <b>{nth} de {n}</b>. {name} tem <b class=\"dn\">{x}</b> o seu volume.",
+    "rk.channel": "Canal",
+
+    "tr.company": "Empresa",
+    "tr.visits": "Visitas/mês",
+    "tr.julset": "Jul → Set",
+    "tr.change": "Variação",
+    "tr.bounce": "Rejeição",
+    "tr.ppv": "Páginas/visita",
+    "tr.time": "Tempo no site",
+    "tr.brand": "Busca pela marca · EUA",
+    "tr.brand5": "Busca pela marca",
+    "tr.d1y": "Δ 1 ano",
+    "tr.sem": "Tráfego de marca (Semrush)",
+
+    "or.none": "Origem do tráfego não coletada nesta rodada.",
+    "or.paid": "pago {n}%",
+    "or.source": "Origem",
+    "or.paid_tag": "(pago)",
+
+    "ex.time": "Tempo total",
+    "ex.cost": "Custo estimado",
+    "ex.cos": "Empresas",
+    "ex.steps": "Etapas",
+    "ex.aria": "Execução",
+    "ex.summary": "Resumo",
+    "ex.log": "Log",
+    "ex.area": "Área",
+    "ex.time_col": "Tempo",
+    "ex.cost_col": "Custo",
+    "ex.status": "Situação",
+    "ex.total": "Total",
+    "ex.none": "Sem etapas.",
+    "ex.empty": "Log vazio para este run.",
+    "st.done": "Feito",
+    "st.skipped": "Pulado",
+    "st.na": "n/d",
+
+    "yt.company": "Empresa",
+    "yt.views": "Views",
+    "yt.off": "Canal oficial",
+    "yt.oth": "Outros canais",
+    "yt.videos": "Vídeos",
+    "yt.d30": "Últimos 30d",
+    "yt.m6": "Até 6m",
+    "yt.y1": "1 ano+",
+    "yt.page": "Vídeos na 1ª página da busca por",
+    "yt.off_h": "Canal oficial",
+    "yt.oth_h": "Outros canais",
+    "yt.empty_off": "Nenhum vídeo do canal oficial na 1ª página.",
+    "yt.empty_oth": "Nenhum vídeo de outros canais.",
+    "yt.search": "Ver busca no YouTube ↗",
+    "yt.ch": "Canal oficial ↗",
+
+    "ig.company": "Empresa",
+    "ig.followers": "Seguidores",
+    "ig.likes": "Curtidas (1ª página)",
+    "ig.own": "Posts próprios",
+    "ig.inf": "Influenciadores",
+    "ig.infp": "Posts de influenciadores",
+    "ig.posts_of": "Posts de",
+    "ig.own_h": "Posts próprios mais curtidos",
+    "ig.inf_h": "Posts de influenciadores",
+    "ig.own_tag": "post próprio",
+    "ig.inf_tag": "influenciador",
+    "ig.likes_n": "{n} curtidas",
+    "ig.empty_own": "Nenhum post encontrado.",
+    "ig.empty_inf": "Nenhum influenciador na 1ª página.",
+    "ig.profile": "Perfil",
+    "ig.note": "Seguidores do Instagram podem não ter sido coletados nesta rodada.",
+
+    "rd.company": "Empresa",
+    "rd.posts": "Posts (1ª página)",
+    "rd.com": "Comentários",
+    "rd.g": "Resultados no Google",
+    "rd.about": "Posts sobre",
+    "rd.empty": "Nenhum post na 1ª página.",
+    "rd.search": "Ver busca no Google ↗",
+    "rd.note": "\"Resultados no Google\" é a contagem genérica da busca e não mede presença real.",
+
+    "ads.spend": " · gasto estimado ≈ US$ {n}/anúncio",
+    "ads.none": "Nenhuma empresa do grupo anuncia aqui.",
+    "ads.lib": "Biblioteca ↗",
+    "ads.note": "Gasto é estimativa do pipeline, não valor declarado.",
+
+    "foot.cost": "custo est. {n}",
+    "foot.src": "Fontes: SimilarWeb, DataForSEO, Semrush, bibliotecas de anúncios, perfis públicos",
+
+    "add.one": "Um site por linha",
+    "add.limit": "Limite de 8 empresas atingido",
+    "add.sim": "Similaridade",
+    "add.auto": "Auto",
+    "add.high": "Alto",
+    "add.med": "Médio",
+    "add.low": "Baixo",
+    "add.btn": "Adicionar sites",
+
+    "src.direct": "Direto",
+    "src.search": "Busca",
+    "src.social": "Social",
+    "src.referrals": "Indicações",
+    "src.email": "E-mail",
+    "src.paid_search": "Busca paga",
+    "src.paid_social": "Social pago",
+    "src.display": "Display",
+    "src.paid_referrals": "Indicações pagas",
+    "src.ai": "IA generativa",
+    "src.affiliates": "Afiliados",
+
+    "home.lede": "Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.",
+    "home.lede_comp": "Teste isolado: achar concorrentes (SEO + LLM + Semrush top 5). Escolha USA ou BR — SERP, Semrush e o idioma do briefing seguem o mercado.",
+    "home.tab.analyze": "Análise",
+    "home.tab.comp": "Concorrentes",
+    "home.domain": "Domain / URL",
+    "home.hint.analyze": "Uma por linha — até 12. Sem All = 1 relatório por site. All = 1 relatório com todas (reusa cache; Force = refaz tudo)",
+    "home.hint.comp": "Uma empresa por vez (ou várias linhas = jobs separados). Só briefing + discovery — sem SEO/Brand/Ads/social.",
+    "home.market": "Mercado",
+    "home.sites_us": "Sites US",
+    "home.sites_br": "Sites BR",
+    "home.all": "All",
+    "home.all_hint": "(mesmo relatório; reusa cache individual — Force refaz todas)",
+    "home.site_only": "Modo sem pesquisar concorrentes",
+    "home.site_only_hint": "(analisa só as empresas informadas)",
+    "home.yt_hint": "(busca nativa YouTube · 1ª página · ~1–2 min/empresa)",
+    "home.ig_hint": "(Google search + download 1ª página · likes)",
+    "home.rd_hint": "(site:reddit.com + comments 1ª página · Google total se disponível)",
+    "home.tw_hint": "(perfil + followers via Google / ScrapingBee)",
+    "home.li_hint": "(company/profile followers via Google snippet)",
+    "home.find": "Achar concorrentes",
+    "home.comp_note": "USA = Google US + Semrush db=us + prompt em inglês. BR = Google Brasil + Semrush db=br + prompt em português. Fontes: SEO SERP + LLM + Semrush (top 5). Citação quando o domínio aparece em mais de uma: seo,llm,semrush.",
+    "home.brand_growth": "Crescimento da marca",
+    "home.brand_growth_hint": "(DataForSEO · ago/2026 vs ago/2024)",
+    "home.sw_hint": "(só similaridade Alto + cliente)",
+    "home.force_hint": "(refaz briefing + lista de concorrentes)",
+    "home.hist": "Runs anteriores",
+    "home.hist_sub": "Clique na empresa para abrir o relatório, refaça ou apague.",
+    "home.hist_aria": "Tipo de run",
+    "home.loading": "Carregando…",
+    "home.empty": "Nenhuma run ainda. Analise uma empresa acima.",
+    "home.empty_comp": "Nenhuma run de concorrentes ainda.",
+    "home.empty_an": "Nenhuma run de análise ainda.",
+    "home.th.company": "Empresa",
+    "home.th.url": "URL",
+    "home.th.status": "Status",
+    "home.th.mode": "Modo",
+    "home.th.when": "Quando",
+    "home.with_comp": "Com concorrentes",
+    "home.rerun": "Refazer",
+    "home.delete": "Apagar",
+    "home.load_err": "Não foi possível carregar o histórico.",
+    "home.queuing": "Enfileirando job…",
+    "home.redo": "Refazer",
+    "home.redo_last": "Refazer última",
+    "home.open": "Open tables report",
+    "home.ready_enrich": "Relatório pronto — ainda enriquecendo",
+    "home.mode.comp": "concorrentes",
+    "home.mode.comp_only": "só concorrentes",
+    "home.mode.no_comp": "sem concorrentes",
+    "home.mode.with_comp": "com concorrentes",
+    "home.n_cos": "{n} empresas",
+    "home.co_n": "Empresa {i}/{n}: {name}…",
+    "home.confirm_del": "Apagar o relatório de {name}?\nIsso remove os arquivos desta run.",
+    "home.del_fail": "Falha ao apagar",
+    "home.redo_fail": "Falha ao refazer",
+    "home.redoing": "Refazendo run…",
+    "home.start": "Starting…"
+  };
+
+  var UNIT_BY_CH = {
+    google: "ads", meta: "ads", liads: "ads",
+    seo: "visits",
+    x: "followers", ig: "followers", li: "followers", tk: "followers",
+    yt: "subscribers",
+    rd: "comments",
+    ytv: "video_views",
+    igl: "likes"
+  };
+
+  var SRC_KEY = {
+    "direct": "src.direct", "direto": "src.direct",
+    "search": "src.search", "organic search": "src.search", "busca": "src.search",
+    "social": "src.social",
+    "referrals": "src.referrals", "referral": "src.referrals",
+    "indicações": "src.referrals", "indicacoes": "src.referrals",
+    "mail": "src.email", "email": "src.email", "e-mail": "src.email",
+    "paid search": "src.paid_search", "busca paga": "src.paid_search",
+    "paid social": "src.paid_social", "social pago": "src.paid_social",
+    "display": "src.display", "display ads": "src.display",
+    "paid referrals": "src.paid_referrals", "indicações pagas": "src.paid_referrals",
+    "generative ai": "src.ai", "ai": "src.ai", "ia generativa": "src.ai",
+    "affiliates": "src.affiliates", "afiliados": "src.affiliates"
+  };
+
+  var ST_KEY = {
+    "done": "st.done", "feito": "st.done",
+    "skipped": "st.skipped", "pulado": "st.skipped", "skip": "st.skipped",
+    "n/a": "st.na", "n/d": "st.na", "nd": "st.na", "na": "st.na"
+  };
+
+  var LANG = "en";
+
+  function pack() {
+    return LANG === "pt" ? PT : EN;
+  }
+
+  function t(key, vars) {
+    var dict = pack();
+    var s = dict[key];
+    if (s == null) s = EN[key];
+    if (s == null) return key;
+    if (vars) {
+      s = String(s).replace(/\{(\w+)\}/g, function (_, k) {
+        return vars[k] == null ? "" : String(vars[k]);
+      });
+    }
+    return s;
+  }
+
+  function locale() {
+    return LANG === "pt" ? "pt-BR" : "en-US";
+  }
+
+  function nth(n) {
+    n = Number(n) || 0;
+    if (LANG === "pt") return n + "º";
+    var v = n % 100;
+    var s = ["th", "st", "nd", "rd"];
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function unitOf(ch) {
+    if (!ch) return "";
+    var uk = ch.uk || UNIT_BY_CH[ch.k];
+    return uk ? t("unit." + uk) : (ch.u || "");
+  }
+
+  function src(label) {
+    var k = SRC_KEY[String(label || "").toLowerCase()];
+    return k ? t(k) : label;
+  }
+
+  function status(raw) {
+    var k = ST_KEY[String(raw || "done").toLowerCase()];
+    return k ? t(k) : raw;
+  }
+
+  function apply(root) {
+    root = root || document;
+    root.querySelectorAll("[data-i18n]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n");
+      if (!k) return;
+      var attr = el.getAttribute("data-i18n-attr");
+      var val = t(k);
+      if (attr) el.setAttribute(attr, val);
+      else el.textContent = val;
+    });
+    root.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n-html");
+      if (k) el.innerHTML = t(k);
+    });
+    root.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n-placeholder");
+      if (k) el.setAttribute("placeholder", t(k));
+    });
+    root.querySelectorAll("[data-i18n-title]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n-title");
+      if (k) el.setAttribute("title", t(k));
+    });
+  }
+
+  function syncButtons() {
+    document.querySelectorAll("[data-lang-set]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-lang-set") === LANG ? "true" : "false");
+    });
+  }
+
+  function boot(lang) {
+    LANG = lang === "pt" ? "pt" : "en";
+    document.documentElement.setAttribute("data-lang", LANG);
+    document.documentElement.setAttribute("lang", LANG === "pt" ? "pt-BR" : "en-US");
+    apply(document);
+    syncButtons();
+  }
+
+  function set(lang) {
+    lang = lang === "pt" ? "pt" : "en";
+    try { localStorage.setItem(KEY, lang); } catch (e) {}
+    boot(lang);
+    try { document.dispatchEvent(new CustomEvent("spy-lang", { detail: { lang: lang } })); } catch (e) {}
+  }
+
+  function get() {
+    try {
+      var s = localStorage.getItem(KEY);
+      return s === "pt" ? "pt" : "en";
+    } catch (e) {
+      return "en";
+    }
+  }
+
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-lang-set]");
+    if (!b) return;
+    e.preventDefault();
+    set(b.getAttribute("data-lang-set"));
+  });
+
+  LANG = get();
+  document.documentElement.setAttribute("data-lang", LANG);
+  document.documentElement.setAttribute("lang", LANG === "pt" ? "pt-BR" : "en-US");
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
+      apply(document);
+      syncButtons();
+    });
+  } else {
+    apply(document);
+    syncButtons();
+  }
+
+  global.SpyI18n = {
+    t: t,
+    set: set,
+    get: get,
+    locale: locale,
+    nth: nth,
+    unitOf: unitOf,
+    src: src,
+    status: status,
+    apply: apply,
+    lang: function () { return LANG; }
+  };
+})(window);

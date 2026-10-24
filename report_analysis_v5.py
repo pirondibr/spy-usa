@@ -11,18 +11,18 @@ from report_analysis_compare import COLORS, MAX_COMPANIES, SOURCE_META
 from report_cmp import CHAN, GROUPS, SCORE_LVL, build_cmp_payload
 
 CH_META = (
-    ("google", "paid", "Google Ads", "anúncios", 200),
-    ("meta", "paid", "Meta Ads", "anúncios", 80),
-    ("liads", "paid", "LinkedIn Ads", "anúncios", 0),
-    ("seo", "org", "SEO", "visitas/mês", 0),
-    ("x", "org", "X", "seguidores", 0),
-    ("ig", "org", "Instagram", "seguidores", 0),
-    ("li", "org", "LinkedIn", "seguidores", 0),
-    ("yt", "org", "YouTube", "inscritos", 0),
-    ("tk", "org", "TikTok", "seguidores", 0),
-    ("rd", "org", "Reddit", "comentários", 0),
-    ("ytv", "inf", "YouTube", "views de vídeos", 0),
-    ("igl", "inf", "Instagram", "curtidas", 0),
+    ("google", "paid", "Google Ads", "ads", 200),
+    ("meta", "paid", "Meta Ads", "ads", 80),
+    ("liads", "paid", "LinkedIn Ads", "ads", 0),
+    ("seo", "org", "SEO", "visits/mo", 0),
+    ("x", "org", "X", "followers", 0),
+    ("ig", "org", "Instagram", "followers", 0),
+    ("li", "org", "LinkedIn", "followers", 0),
+    ("yt", "org", "YouTube", "subscribers", 0),
+    ("tk", "org", "TikTok", "followers", 0),
+    ("rd", "org", "Reddit", "comments", 0),
+    ("ytv", "inf", "YouTube", "video views", 0),
+    ("igl", "inf", "Instagram", "likes", 0),
 )
 CH_TO_CMP = {
     "google": "google",
@@ -212,7 +212,7 @@ def build_v5_payload(
             scores_map[k] = [lvl, metric if metric is not None else 0]
             note = str(row.get("note") or row.get("flag") or "").strip()
             if report_key == "meta" and metric and not (row.get("confirmed") or row.get("meta_confirmed")):
-                extra = f"{int(metric)} anúncios não confirmados na Ad Library"
+                extra = f"{int(metric)} ads not confirmed in Ad Library"
                 note = f"{note} · {extra}".strip(" ·") if note else extra
             if note:
                 warns[k] = note
@@ -229,7 +229,7 @@ def build_v5_payload(
             ch["w"] = warns
         channels.append(ch)
     if ig_all_nc:
-        extra_flags.append("Instagram (seguidores): não coletado para nenhuma empresa nesta rodada.")
+        extra_flags.append("ig_followers_missing")
 
     # traffic sources
     src_order: list[str] = []
@@ -363,11 +363,11 @@ def build_v5_payload(
         skipped = "skip" in blob or "pulado" in blob
         status = str(ch.get("status") or "").strip().lower()
         if skipped:
-            sit = "Pulado"
+            sit = "skipped"
         elif status in ("n/d", "nd"):
-            sit = "n/d"
+            sit = "n/a"
         else:
-            sit = "Feito"
+            sit = "done"
         steps.append({
             "label": str(ch.get("label") or ch.get("id") or "—"),
             "time": str(ch.get("sec_fmt") or "—"),
@@ -379,27 +379,21 @@ def build_v5_payload(
     lines = [str(x) for x in (log.get("lines") or [])]
 
     n_peers = max(0, len(companies) - 1)
-    vs = "1 concorrente" if n_peers == 1 else f"{n_peers} concorrentes"
-    market_label = "EUA" if str(market).upper() == "US" else "Brasil"
+    market_code = "US" if str(market).upper() == "US" else "BR"
     nicho = str(briefing.get("nicho") or "").strip()
     snap = ""
     for company in raw_cos:
         row = _row_for_company(section("similarweb"), company) or {}
         snap = str(row.get("snapshot_label") or snap)
-    eyebrow_bits = ["E-commerce analytics", market_label]
-    if nicho:
-        eyebrow_bits.insert(1, nicho)
-    if snap:
-        eyebrow_bits.append(f"dados de {snap}")
 
     return {
         "meta": {
             "client": client,
-            "vs": vs,
-            "market": market_label,
+            "peers": n_peers,
+            "market_code": market_code,
+            "market": market_code,
             "nicho": nicho,
             "snap": snap,
-            "eyebrow": " · ".join(eyebrow_bits),
             "run_id": run_id,
             "duration": str(totals.get("sec_fmt") or ""),
             "cost": str(totals.get("cost_fmt") or ""),
@@ -432,7 +426,7 @@ def build_v5_payload(
 
 
 def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
-    from report_html import _esc, analysis_add_form_html
+    from report_html import _esc, analysis_add_form_html, lang_switch_html
 
     data = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     meta = payload.get("meta") or {}
@@ -450,14 +444,15 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
 <script type="application/json" id="spy-v5-data">{data}</script>
 <header class="top"><div class="wrap"><span class="logo">S</span><b>Spy USA</b>
   <div class="acts">
-    <div class="ui-switch" role="group" aria-label="Layout do relatório">
-      <span class="ui-switch-lab">Layout</span>
+    {lang_switch_html()}
+    <div class="ui-switch" role="group" aria-label="Report layout">
+      <span class="ui-switch-lab" data-i18n="nav.layout">Layout</span>
       <button type="button" data-ui-set="v4">v4</button>
       <button type="button" data-ui-set="v5" aria-pressed="true">v5</button>
       <button type="button" data-ui-set="v6">v6</button>
     </div>
-    <a href="/">Nova análise</a>
-    <button type="button" onclick="window.print()">Exportar PDF</button>
+    <a href="/" data-i18n="nav.new">New analysis</a>
+    <button type="button" onclick="window.print()" data-i18n="nav.export">Export PDF</button>
   </div>
 </div></header>
 <main class="wrap">
@@ -469,14 +464,14 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
     <ul class="ins" id="ins"></ul>
   </section>
   <section class="sec">
-    <div class="sh"><h2>Placar</h2><p>Clique numa empresa para ver o perfil</p></div>
+    <div class="sh"><h2 data-i18n="score.h">Scoreboard</h2><p data-i18n="score.p5">Click a company to see the profile</p></div>
     <div class="bw"><table class="board" id="board"></table></div>
     <details class="flags" id="flags"></details>
   </section>
   <div id="fixed"></div>
   <section class="moresec" aria-labelledby="more-h">
-    <div class="sh" style="margin-top:44px"><h2 id="more-h">Mais análises</h2><p>Clique para abrir · uma de cada vez</p></div>
-    <nav class="tags" id="tags" aria-label="Mais análises"></nav>
+    <div class="sh" style="margin-top:44px"><h2 id="more-h" data-i18n="more.h">More analysis</h2><p data-i18n="more.p">Click to open · one at a time</p></div>
+    <nav class="tags" id="tags" aria-label="More analysis" data-i18n="more.h" data-i18n-attr="aria-label"></nav>
     <div id="panels"></div>
   </section>
   <footer class="foot" id="v5-foot"></footer>

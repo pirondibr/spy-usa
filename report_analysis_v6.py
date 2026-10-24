@@ -10,7 +10,7 @@ from report_analysis_v5 import build_v5_payload
 
 
 def build_analysis_v6(payload: dict[str, Any], *, ui_ver: str) -> str:
-    from report_html import _esc, analysis_add_form_html
+    from report_html import _esc, analysis_add_form_html, lang_switch_html
 
     data = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     meta = payload.get("meta") or {}
@@ -24,8 +24,8 @@ def build_analysis_v6(payload: dict[str, Any], *, ui_ver: str) -> str:
         ],
     )
     switch = """
-    <div class="ui-switch" role="group" aria-label="Layout do relatório">
-      <span class="ui-switch-lab">Layout</span>
+    <div class="ui-switch" role="group" aria-label="Report layout">
+      <span class="ui-switch-lab" data-i18n="nav.layout">Layout</span>
       <button type="button" data-ui-set="v4">v4</button>
       <button type="button" data-ui-set="v5">v5</button>
       <button type="button" data-ui-set="v6" aria-pressed="true">v6</button>
@@ -35,9 +35,10 @@ def build_analysis_v6(payload: dict[str, Any], *, ui_ver: str) -> str:
 <script type="application/json" id="spy-v6-data">{data}</script>
 <header class="top"><div class="wrap"><span class="logo">S</span><b>Spy USA</b>
   <div class="acts">
+    {lang_switch_html()}
     {switch}
-    <a href="/">Nova análise</a>
-    <button type="button" onclick="window.print()">Exportar PDF</button>
+    <a href="/" data-i18n="nav.new">New analysis</a>
+    <button type="button" onclick="window.print()" data-i18n="nav.export">Export PDF</button>
   </div>
 </div></header>
 <main class="wrap">
@@ -49,14 +50,14 @@ def build_analysis_v6(payload: dict[str, Any], *, ui_ver: str) -> str:
     <ul class="ins" id="v6-ins"></ul>
   </section>
   <section class="sec">
-    <div class="sh"><h2>Placar</h2><p>Ordenado por visitas · clique numa empresa para ver o perfil</p></div>
+    <div class="sh"><h2 data-i18n="score.h">Scoreboard</h2><p data-i18n="score.p">Sorted by visits · click a company to see the profile</p></div>
     <div class="bw"><table class="board" id="v6-board"></table></div>
     <details class="flags" id="v6-flags"></details>
   </section>
   <div id="v6-fixed"></div>
   <section class="moresec" aria-labelledby="v6-more-h">
-    <div class="sh" style="margin-top:44px"><h2 id="v6-more-h">Mais análises</h2><p>Clique para abrir · uma de cada vez</p></div>
-    <nav class="tags" id="v6-tags" aria-label="Mais análises"></nav>
+    <div class="sh" style="margin-top:44px"><h2 id="v6-more-h" data-i18n="more.h">More analysis</h2><p data-i18n="more.p">Click to open · one at a time</p></div>
+    <nav class="tags" id="v6-tags" aria-label="More analysis" data-i18n="more.h" data-i18n-attr="aria-label"></nav>
     <div id="v6-panels"></div>
   </section>
   <footer class="foot" id="v6-foot"></footer>

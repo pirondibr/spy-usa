@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en-US" data-lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Spy USA</title>
+  <script>(function(){try{var s=localStorage.getItem('spy-lang');var lang=(s==='pt')?'pt':'en';document.documentElement.setAttribute('data-lang',lang);document.documentElement.setAttribute('lang',lang==='pt'?'pt-BR':'en-US');}catch(e){}})();</script>
   <style>
     :root {
       --ink: #0b1220;
@@ -227,40 +228,50 @@
     .badge.error { background: #fee2e2; color: #b91c1c; }
     .empty { color: var(--muted); font-size: 13px; margin: 0; }
     .foot { margin-top: 28px; font-size: 12px; color: var(--muted); }
+    .top-tools { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+    .ui-switch { display: inline-flex; align-items: center; gap: 2px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+    .ui-switch button { appearance: none; border: 0; background: none; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+    .ui-switch button[aria-pressed="true"] { background: var(--ink); color: #fff; }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <div class="top-tools">
+      <div class="ui-switch lang-switch" role="group" aria-label="Language">
+        <button type="button" data-lang-set="en">EN</button>
+        <button type="button" data-lang-set="pt">PT</button>
+      </div>
+    </div>
     <h1 class="brand">Spy USA</h1>
-    <p class="lede" id="lede">Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.</p>
+    <p class="lede" id="lede">Marketing analysis — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. US or BR market.</p>
     <div class="tabs" role="tablist">
-      <button type="button" class="tab on" id="tabAnalyze" data-tab="analyze">Análise</button>
-      <button type="button" class="tab" id="tabCompetitors" data-tab="competitors">Concorrentes</button>
+      <button type="button" class="tab on" id="tabAnalyze" data-tab="analyze" data-i18n="home.tab.analyze">Analysis</button>
+      <button type="button" class="tab" id="tabCompetitors" data-tab="competitors" data-i18n="home.tab.comp">Competitors</button>
     </div>
 
     <form id="form" class="panel on" data-panel="analyze">
       <label>
-        Domain / URL
-        <span class="hint-field">Uma por linha — até 12. Sem All = 1 relatório por site. All = 1 relatório com todas (reusa cache; Force = refaz tudo)</span>
+        <span data-i18n="home.domain">Domain / URL</span>
+        <span class="hint-field" data-i18n="home.hint.analyze">One per line — up to 12. Without All = 1 report per site. All = 1 report with all of them (reuses cache; Force = redo everything)</span>
         <textarea id="url" name="url" placeholder="semrush.com&#10;ahrefs.com&#10;hubspot.com" required autocomplete="off"></textarea>
       </label>
       <div class="opts">
         <div>
-          <div class="filter-label">Mercado</div>
+          <div class="filter-label" data-i18n="home.market">Market</div>
           <div class="seg" style="margin-top:6px">
-            <label><input type="radio" name="market" id="marketUs" value="us" checked /> Sites US</label>
-            <label><input type="radio" name="market" id="marketBr" value="br" /> Sites BR</label>
+            <label><input type="radio" name="market" id="marketUs" value="us" checked /> <span data-i18n="home.sites_us">US sites</span></label>
+            <label><input type="radio" name="market" id="marketBr" value="br" /> <span data-i18n="home.sites_br">BR sites</span></label>
           </div>
         </div>
         <label class="check">
           <input id="compareAll" type="checkbox" />
-          All
-          <span class="hint">(mesmo relatório; reusa cache individual — Force refaz todas)</span>
+          <span data-i18n="home.all">All</span>
+          <span class="hint" data-i18n="home.all_hint">(same report; reuses individual cache — Force redoes all)</span>
         </label>
         <label class="check">
           <input id="siteOnly" type="checkbox" checked />
-          Modo sem pesquisar concorrentes
-          <span class="hint">(analisa só as empresas informadas)</span>
+          <span data-i18n="home.site_only">Don't find competitors</span>
+          <span class="hint" data-i18n="home.site_only_hint">(analyze only the companies you entered)</span>
         </label>
         <label class="check">
           <input id="googleAds" type="checkbox" checked />
@@ -273,27 +284,27 @@
         <label class="check">
           <input id="ytInfluencers" type="checkbox" checked />
           YouTube Influencers
-          <span class="hint">(busca nativa YouTube · 1ª página · ~1–2 min/empresa)</span>
+          <span class="hint" data-i18n="home.yt_hint">(native YouTube search · page 1 · ~1–2 min/company)</span>
         </label>
         <label class="check">
           <input id="igInfluencers" type="checkbox" checked />
           Instagram Influencers
-          <span class="hint">(Google search + download 1ª página · likes)</span>
+          <span class="hint" data-i18n="home.ig_hint">(Google search + download page 1 · likes)</span>
         </label>
         <label class="check">
           <input id="redditMentions" type="checkbox" checked />
           Reddit
-          <span class="hint">(site:reddit.com + comments 1ª página · Google total se disponível)</span>
+          <span class="hint" data-i18n="home.rd_hint">(site:reddit.com + comments page 1 · Google total if available)</span>
         </label>
         <label class="check">
           <input id="twitterProfile" type="checkbox" checked />
           Twitter / X
-          <span class="hint">(perfil + followers via Google / ScrapingBee)</span>
+          <span class="hint" data-i18n="home.tw_hint">(profile + followers via Google / ScrapingBee)</span>
         </label>
         <label class="check">
           <input id="linkedinProfile" type="checkbox" checked />
           LinkedIn Profile
-          <span class="hint">(company/profile followers via Google snippet)</span>
+          <span class="hint" data-i18n="home.li_hint">(company/profile followers via Google snippet)</span>
         </label>
         <label class="check">
           <input id="force" type="checkbox" />
@@ -307,37 +318,37 @@
 
     <form id="formCompetitors" class="panel" data-panel="competitors">
       <label>
-        Domain / URL
-        <span class="hint-field">Uma empresa por vez (ou várias linhas = jobs separados). Só briefing + discovery — sem SEO/Brand/Ads/social.</span>
+        <span data-i18n="home.domain">Domain / URL</span>
+        <span class="hint-field" data-i18n="home.hint.comp">One company at a time (or several lines = separate jobs). Briefing + discovery only — no SEO/Brand/Ads/social.</span>
         <textarea id="urlCompetitors" name="url" placeholder="semrush.com" required autocomplete="off"></textarea>
       </label>
       <div class="opts">
         <div>
-          <div class="filter-label">Mercado</div>
+          <div class="filter-label" data-i18n="home.market">Market</div>
           <div class="seg" style="margin-top:6px">
             <label><input type="radio" name="marketComp" id="marketCompUs" value="us" checked /> USA</label>
             <label><input type="radio" name="marketComp" id="marketCompBr" value="br" /> BR</label>
           </div>
         </div>
-        <p class="hint-field" style="margin:0">USA = Google US + Semrush db=us + prompt em inglês. BR = Google Brasil + Semrush db=br + prompt em português. Fontes: SEO SERP + LLM + Semrush (top 5). Citação quando o domínio aparece em mais de uma: seo,llm,semrush.</p>
+        <p class="hint-field" style="margin:0" data-i18n="home.comp_note">USA = Google US + Semrush db=us + English prompt. BR = Google Brazil + Semrush db=br + Portuguese prompt. Sources: SEO SERP + LLM + Semrush (top 5). Citation when the domain appears in more than one: seo,llm,semrush.</p>
         <label class="check">
           <input id="brandGrowth" type="checkbox" checked />
-          Crescimento da marca
-          <span class="hint">(DataForSEO · ago/2026 vs ago/2024)</span>
+          <span data-i18n="home.brand_growth">Brand growth</span>
+          <span class="hint" data-i18n="home.brand_growth_hint">(DataForSEO · Aug/2026 vs Aug/2024)</span>
         </label>
         <label class="check">
           <input id="similarwebAlto" type="checkbox" checked />
           SimilarWeb
-          <span class="hint">(só similaridade Alto + cliente)</span>
+          <span class="hint" data-i18n="home.sw_hint">(High similarity + client only)</span>
         </label>
         <label class="check">
           <input id="forceCompetitors" type="checkbox" />
           Force refresh
-          <span class="hint">(refaz briefing + lista de concorrentes)</span>
+          <span class="hint" data-i18n="home.force_hint">(redo briefing + competitor list)</span>
         </label>
       </div>
       <div class="row">
-        <button id="goCompetitors" type="submit">Achar concorrentes</button>
+        <button id="goCompetitors" type="submit" data-i18n="home.find">Find competitors</button>
       </div>
     </form>
 
@@ -351,20 +362,23 @@
     </div>
 
     <section class="history" id="history">
-      <h2>Runs anteriores</h2>
-      <p class="history-sub">Clique na empresa para abrir o relatório, refaça ou apague.</p>
-      <div class="tabs history-tabs" role="tablist" aria-label="Tipo de run">
-        <button type="button" class="tab on" id="histAnalyze">Análise <span class="num" id="histAnalyzeN"></span></button>
-        <button type="button" class="tab" id="histCompetitors">Concorrentes <span class="num" id="histCompetitorsN"></span></button>
+      <h2 data-i18n="home.hist">Previous runs</h2>
+      <p class="history-sub" data-i18n="home.hist_sub">Click the company to open the report, rerun or delete.</p>
+      <div class="tabs history-tabs" role="tablist" aria-label="Run type" data-i18n="home.hist_aria" data-i18n-attr="aria-label">
+        <button type="button" class="tab on" id="histAnalyze"><span data-i18n="home.tab.analyze">Analysis</span> <span class="num" id="histAnalyzeN"></span></button>
+        <button type="button" class="tab" id="histCompetitors"><span data-i18n="home.tab.comp">Competitors</span> <span class="num" id="histCompetitorsN"></span></button>
       </div>
-      <div id="historyBody"><p class="empty">Carregando…</p></div>
+      <div id="historyBody"><p class="empty" data-i18n="home.loading">Loading…</p></div>
     </section>
 
     <p class="foot" id="hello">Checking API keys…</p>
   </div>
 
+  <script src="/static/spy_i18n.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
+    const t = (k, a) => (window.SpyI18n ? window.SpyI18n.t(k, a) : k);
+    const loc = () => (window.SpyI18n ? window.SpyI18n.locale() : "en-US");
     const TOTAL = 10;
     let progressTotal = TOTAL;
     let activeTab = "analyze";
@@ -379,9 +393,7 @@
       $("tabCompetitors").classList.toggle("on", activeTab === "competitors");
       $("form").classList.toggle("on", activeTab === "analyze");
       $("formCompetitors").classList.toggle("on", activeTab === "competitors");
-      $("lede").textContent = activeTab === "competitors"
-        ? "Teste isolado: achar concorrentes (SEO + LLM + Semrush top 5). Escolha USA ou BR — SERP, Semrush e o idioma do briefing seguem o mercado."
-        : "Análise de marketing — SEO, Brand, Google Ads, Meta, LinkedIn, SimilarWeb, Instagram, YouTube, TikTok, Reddit, X, LinkedIn Profile. Mercado US ou BR.";
+      $("lede").textContent = t(activeTab === "competitors" ? "home.lede_comp" : "home.lede");
       setHistoryTab(activeTab);
     }
     $("tabAnalyze").addEventListener("click", () => setTab("analyze"));
@@ -413,7 +425,7 @@
       try {
         const d = new Date(iso);
         if (Number.isNaN(d.getTime())) return iso;
-        return d.toLocaleString("pt-BR", {
+        return d.toLocaleString(loc(), {
           day: "2-digit",
           month: "2-digit",
           year: "2-digit",
@@ -439,7 +451,7 @@
     function modeLabel(r) {
       const mkt = (r.market || "US").toString().toUpperCase();
       const parts = [mkt];
-      if (r.competitors_only) parts.push("concorrentes");
+      if (r.competitors_only) parts.push(t("home.mode.comp"));
       else if (r.compare_all) parts.push("All");
       return parts.join(" · ");
     }
@@ -462,13 +474,11 @@
       $("histCompetitorsN").textContent = comps.length ? `(${comps.length})` : "";
       const runs = historyTab === "competitors" ? comps : analyze;
       if (!allRuns.length) {
-        box.innerHTML = `<p class="empty">Nenhuma run ainda. Analise uma empresa acima.</p>`;
+        box.innerHTML = `<p class="empty">${t("home.empty")}</p>`;
         return;
       }
       if (!runs.length) {
-        box.innerHTML = historyTab === "competitors"
-          ? `<p class="empty">Nenhuma run de concorrentes ainda.</p>`
-          : `<p class="empty">Nenhuma run de análise ainda.</p>`;
+        box.innerHTML = `<p class="empty">${historyTab === "competitors" ? t("home.empty_comp") : t("home.empty_an")}</p>`;
         return;
       }
       const rows = runs.map((run) => {
@@ -479,11 +489,11 @@
           ? `<a class="company" href="${run.html_url}">${escapeHtml(company)}</a>`
           : `<span class="muted-row">${escapeHtml(company)}</span>`;
         const compsTag = hasCompetitors(run)
-          ? `<span class="tag-comps">Com concorrentes</span>`
+          ? `<span class="tag-comps">${t("home.with_comp")}</span>`
           : "";
         const companyCell = `<div class="company-cell">${companyLink}${compsTag}</div>`;
-        const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">Refazer</button>`;
-        const delBtn = `<button type="button" class="ghost sm danger" data-del="${escapeHtml(run.id)}" data-name="${escapeHtml(company)}">Apagar</button>`;
+        const redoBtn = `<button type="button" class="ghost sm" data-rerun="${escapeHtml(run.id)}">${t("home.rerun")}</button>`;
+        const delBtn = `<button type="button" class="ghost sm danger" data-del="${escapeHtml(run.id)}" data-name="${escapeHtml(company)}">${t("home.delete")}</button>`;
         const errHint = run.error ? ` title="${escapeHtml(shortError(run.error))}"` : "";
         return `<tr>
           <td>${companyCell}</td>
@@ -496,7 +506,7 @@
       }).join("");
       box.innerHTML = `<div class="table-wrap"><table>
         <thead><tr>
-          <th>Empresa</th><th>URL</th><th>Status</th><th>Modo</th><th>Quando</th><th></th>
+          <th>${t("home.th.company")}</th><th>${t("home.th.url")}</th><th>${t("home.th.status")}</th><th>${t("home.th.mode")}</th><th>${t("home.th.when")}</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
@@ -516,7 +526,7 @@
         allRuns = j.runs || [];
         renderHistory();
       } catch {
-        box.innerHTML = `<p class="empty">Não foi possível carregar o histórico.</p>`;
+        box.innerHTML = `<p class="empty">${t("home.load_err")}</p>`;
       }
     }
 
@@ -539,7 +549,7 @@
       $("log").textContent = "";
       $("status").classList.add("show");
       setBusy(true);
-      $("stepLabel").textContent = "Queuing job…";
+      $("stepLabel").textContent = t("home.queuing");
       $("bar").style.width = "2%";
       if (es) { es.close(); es = null; }
     }
@@ -547,8 +557,8 @@
     function attachDone(jobId, htmlUrl) {
       const url = htmlUrl || `/runs/${jobId}/report.html`;
       $("done").innerHTML = `
-        <a href="${url}">Open tables report</a>
-        <button type="button" class="ghost" id="redoBtn">Refazer</button>
+        <a href="${url}">${t("home.open")}</a>
+        <button type="button" class="ghost" id="redoBtn">${t("home.redo")}</button>
       `;
       const btn = $("redoBtn");
       if (btn) btn.addEventListener("click", () => rerun(jobId));
@@ -580,7 +590,7 @@
           }
           if (msg.type === "report_ready" && msg.html_url) {
             attachDone(job.job_id, msg.html_url);
-            $("stepLabel").textContent = msg.detail || "Relatório pronto — ainda enriquecendo";
+            $("stepLabel").textContent = msg.detail || t("home.ready_enrich");
           }
           if (msg.type === "finished" || (msg.type === "done" && msg.html_url)) {
             const url = msg.html_url || `/runs/${job.job_id}/report.html`;
@@ -645,9 +655,9 @@
         progressTotal = data.competitors_only ? 2 : TOTAL;
         const flags = [
           (data.market || selectedMarket()).toString().toUpperCase(),
-          data.competitors_only ? "concorrentes only" : "",
+          data.competitors_only ? t("home.mode.comp_only") : "",
           data.compare_all ? "All" : "",
-          data.competitors_only ? "" : (data.site_only ? "sem concorrentes" : "com concorrentes"),
+          data.competitors_only ? "" : (data.site_only ? t("home.mode.no_comp") : t("home.mode.with_comp")),
           data.include_google_ads ? "google-ads" : "no-google-ads",
           data.include_linkedin ? "linkedin" : "no-linkedin",
           data.include_youtube_influencers ? "yt-influencers" : "no-yt-influencers",
@@ -655,7 +665,7 @@
           data.include_reddit ? "reddit" : "no-reddit",
           data.include_twitter ? "twitter" : "no-twitter",
           data.include_linkedin_profile ? "li-profile" : "no-li-profile",
-          list.length > 1 ? `${list.length} empresas` : "",
+          list.length > 1 ? t("home.n_cos", { n: list.length }) : "",
         ].filter(Boolean).join(" · ");
         $("meta").textContent = list.map((j) => j.company || j.url).join(", ") + ` · ${flags}`;
 
@@ -663,7 +673,7 @@
         const results = [];
         for (let i = 0; i < list.length; i++) {
           const job = list[i];
-          $("stepLabel").textContent = `Empresa ${i + 1}/${list.length}: ${job.company || job.url}…`;
+          $("stepLabel").textContent = t("home.co_n", { i: i + 1, n: list.length, name: job.company || job.url });
           $("bar").style.width = `${Math.max(2, Math.round((i / list.length) * 100))}%`;
           const result = await watchJob(job);
           if (result && result.url) results.push({ company: job.company, url: result.url, id: job.job_id });
@@ -674,7 +684,7 @@
         if (links.length > 1) {
           $("done").innerHTML = links.map((l) =>
             `<a href="${l.url}">${escapeHtml(l.company || "Report")}</a>`
-          ).join("") + `<button type="button" class="ghost" id="redoBtn">Refazer última</button>`;
+          ).join("") + `<button type="button" class="ghost" id="redoBtn">${t("home.redo_last")}</button>`;
           const btn = $("redoBtn");
           if (btn) btn.addEventListener("click", () => rerun(links[links.length - 1].id));
         } else if (links.length === 1) {
@@ -694,11 +704,11 @@
     async function deleteRun(runId, name) {
       if (!runId) return;
       const label = name || runId;
-      if (!window.confirm(`Apagar o relatório de ${label}?\nIsso remove os arquivos desta run.`)) return;
+      if (!window.confirm(t("home.confirm_del", { name: label }))) return;
       try {
         const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Falha ao apagar");
+        if (!res.ok) throw new Error(data.error || t("home.del_fail"));
         allRuns = allRuns.filter((r) => r.id !== runId);
         renderHistory();
       } catch (err) {
@@ -709,11 +719,11 @@
     async function rerun(runId) {
       if (!runId) return;
       resetStatus();
-      $("stepLabel").textContent = "Refazendo run…";
+      $("stepLabel").textContent = t("home.redoing");
       try {
         const res = await fetch(`/api/rerun/${runId}`, { method: "POST" });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Falha ao refazer");
+        if (!res.ok) throw new Error(data.error || t("home.redo_fail"));
         const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
         $("meta").textContent = `Rerun · ${list[0].company || list[0].url} · force`;
         $("url").value = list[0].url || $("url").value;
@@ -789,6 +799,12 @@
         rerun(rerunId);
       }
     })();
+
+    document.addEventListener("spy-lang", () => {
+      if (window.SpyI18n) window.SpyI18n.apply(document);
+      $("lede").textContent = t(activeTab === "competitors" ? "home.lede_comp" : "home.lede");
+      renderHistory();
+    });
 
     refreshHello();
     loadHistory();

@@ -360,7 +360,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.59"
+REPORT_UI_VERSION = "0.4.60"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2334,11 +2334,18 @@ def _step_is_skipped(ch: dict[str, Any]) -> bool:
 
 def _step_status_label(ch: dict[str, Any]) -> str:
     if _step_is_skipped(ch):
-        return "Pulado"
+        return "Skipped"
     status = str(ch.get("status") or "").strip().lower()
     if status in ("n/d", "nd"):
-        return "n/d"
-    return "Feito"
+        return "n/a"
+    return "Done"
+
+
+def lang_switch_html() -> str:
+    return """<div class="ui-switch lang-switch" role="group" aria-label="Language">
+      <button type="button" data-lang-set="en">EN</button>
+      <button type="button" data-lang-set="pt">PT</button>
+    </div>"""
 
 
 def analysis_add_form_html(
@@ -2356,17 +2363,18 @@ def analysis_add_form_html(
     )
     n = len(rows) or 1
     left = max(0, 8 - n)
+    hint_key = "add.one" if left else "add.limit"
     hint = "One website per line" if left else "Limit of 8 companies reached"
     return f"""
     <form class="add-comp analysis-add" data-run="{_esc(run_id)}" data-domains="{_esc(domains)}" data-have="{n}" data-max="8">
-      <textarea name="urls" rows="1" placeholder="{_esc(hint)}"{" disabled" if not left else ""}></textarea>
-      <select name="similaridade" title="Similarity"{" disabled" if not left else ""}>
-        <option value="">Auto</option>
-        <option value="Alto">Alto</option>
-        <option value="Medio">Médio</option>
-        <option value="Baixo">Baixo</option>
+      <textarea name="urls" rows="1" placeholder="{_esc(hint)}" data-i18n-placeholder="{hint_key}"{" disabled" if not left else ""}></textarea>
+      <select name="similaridade" title="Similarity" data-i18n-title="add.sim"{" disabled" if not left else ""}>
+        <option value="" data-i18n="add.auto">Auto</option>
+        <option value="Alto" data-i18n="add.high">High</option>
+        <option value="Medio" data-i18n="add.med">Medium</option>
+        <option value="Baixo" data-i18n="add.low">Low</option>
       </select>
-      <button type="submit"{" disabled" if not left else ""}>Add websites</button>
+      <button type="submit" data-i18n="add.btn"{" disabled" if not left else ""}>Add websites</button>
       <span class="add-status"></span>
       <ul class="add-log" hidden></ul>
     </form>"""
@@ -2716,7 +2724,7 @@ def render_report_html(
     )
     comp_count = report.get("competitors_count") or max(0, len(comps) - 1)
     rerun = (
-        f'<a href="/?rerun={_esc(meta.get("id"))}">Refazer</a>' if meta.get("id") else ""
+        f'<a href="/?rerun={_esc(meta.get("id"))}" data-i18n="nav.rerun">Rerun</a>' if meta.get("id") else ""
     )
     cards = "".join(_card(k, body, SECTION_GROUPS.get(k, "overview")) for k, _, body in blocks)
     add_form = ""
@@ -2853,15 +2861,15 @@ def render_report_html(
     ui_toggle = ""
     if not competitors_only:
         ui_toggle = """
-      <div class="ui-switch" role="group" aria-label="Layout do relatório">
-        <span class="ui-switch-lab">Layout</span>
+      <div class="ui-switch" role="group" aria-label="Report layout">
+        <span class="ui-switch-lab" data-i18n="nav.layout">Layout</span>
         <button type="button" data-ui-set="v4">v4</button>
         <button type="button" data-ui-set="v5">v5</button>
         <button type="button" data-ui-set="v6" aria-pressed="true">v6</button>
       </div>"""
 
     return f"""<!DOCTYPE html>
-<html lang="en-US" data-ui="{'v1' if competitors_only else 'v6'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}{' data-has-v6="1"' if analysis_v6 else ''}>
+<html lang="en-US" data-lang="en" data-ui="{'v1' if competitors_only else 'v6'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}{' data-has-v6="1"' if analysis_v6 else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2874,17 +2882,19 @@ def render_report_html(
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
 {f'<link rel="stylesheet" href="/static/report_v5.css?v={_esc(ui_ver)}">' if analysis_v5 else ''}
 {f'<link rel="stylesheet" href="/static/report_v6.css?v={_esc(ui_ver)}">' if analysis_v6 else ''}
-<script>(function(){{try{{if(document.documentElement.getAttribute('data-tool')==='competitors')return;var s=localStorage.getItem('spy-ui');if(s==='v4'||s==='v5'||s==='v6')document.documentElement.setAttribute('data-ui',s);else document.documentElement.setAttribute('data-ui','v6');}}catch(e){{}}}})();</script>
+<script>(function(){{try{{var lang=localStorage.getItem('spy-lang');lang=(lang==='pt')?'pt':'en';document.documentElement.setAttribute('data-lang',lang);document.documentElement.setAttribute('lang',lang==='pt'?'pt-BR':'en-US');if(document.documentElement.getAttribute('data-tool')==='competitors')return;var s=localStorage.getItem('spy-ui');if(s==='v4'||s==='v5'||s==='v6')document.documentElement.setAttribute('data-ui',s);else document.documentElement.setAttribute('data-ui','v6');}}catch(e){{}}}})();</script>
+<script src="/static/spy_i18n.js?v={_esc(ui_ver)}"></script>
 </head>
 <body{body_cls}>
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand"><span class="logo">S</span>Spy USA<span class="crumb">/ {_esc(client)}</span></div>
     <div class="actions">
+      {lang_switch_html()}
       {ui_toggle}
-      <a href="/">New analysis</a>
+      <a href="/" data-i18n="nav.new">New analysis</a>
       {rerun}
-      <button type="button" class="primary" onclick="window.print()">Print / PDF</button>
+      <button type="button" class="primary" onclick="window.print()" data-i18n="nav.print">Print / PDF</button>
     </div>
   </div>
 </header>
