@@ -12,7 +12,7 @@
   var META = D.meta || {};
   var R = (D.rows || []).slice();
   var ME = {
-    n: META.client || "Spy USA",
+    n: META.client || "WinnerTracker",
     d: String(META.domain || "").toLowerCase(),
     visits: META.visits
   };

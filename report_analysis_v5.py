@@ -426,11 +426,12 @@ def build_v5_payload(
 
 
 def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
-    from report_html import _esc, analysis_add_form_html, lang_switch_html
+    from report_html import BRAND_NAME, _esc, analysis_add_form_html, brand_lockup_html, lang_switch_html
 
     data = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     meta = payload.get("meta") or {}
-    client = _esc(meta.get("client") or "Spy USA")
+
+    client = _esc(meta.get("client") or BRAND_NAME)
     add_form = analysis_add_form_html(
         str(meta.get("run_id") or ""),
         [
@@ -442,7 +443,7 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
     return f"""
 <div id="analysis-v5">
 <script type="application/json" id="spy-v5-data">{data}</script>
-<header class="top"><div class="wrap"><span class="logo">S</span><b>Spy USA</b>
+<header class="top"><div class="wrap">{brand_lockup_html()}
   <div class="acts">
     {lang_switch_html()}
     <div class="ui-switch" role="group" aria-label="Report layout">
@@ -451,7 +452,7 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
       <button type="button" data-ui-set="v5" aria-pressed="true">v5</button>
       <button type="button" data-ui-set="v6">v6</button>
     </div>
-    <a href="/" data-i18n="nav.new">New analysis</a>
+    <a href="/app" data-i18n="nav.new">New analysis</a>
     <button type="button" onclick="window.print()" data-i18n="nav.export">Export PDF</button>
   </div>
 </div></header>

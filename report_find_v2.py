@@ -9,17 +9,19 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 from report_html import (
+    BRAND_NAME,
     _briefing_nicho,
     _esc,
     _row_title,
     _sim_key,
     _vol_nums,
+    brand_lockup_html,
     build_competitor_table_rows,
     lang_switch_html,
 )
 
 PAL = ["#0F6B5C", "#4A6FA5", "#C2702E", "#7B5BB0", "#2E9C8A", "#B5476B", "#5B6470", "#8A6100"]
-MAX_PICK = 3
+MAX_PICK = 10
 _SRC_MAP = {
     "seo": "seo",
     "google": "seo",
@@ -148,7 +150,7 @@ def build_find_v2_payload(
 def build_find_v2(payload: dict[str, Any], *, ui_ver: str) -> str:
     data = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     meta = payload.get("meta") or {}
-    client = _esc(meta.get("client") or "Spy USA")
+    client = _esc(meta.get("client") or BRAND_NAME)
     switch = """
     <div class="ui-switch" role="group" aria-label="Report layout">
       <span class="ui-switch-lab" data-i18n="nav.layout">Layout</span>
@@ -158,11 +160,11 @@ def build_find_v2(payload: dict[str, Any], *, ui_ver: str) -> str:
     return f"""
 <div id="find-v2">
 <script type="application/json" id="spy-find-v2-data">{data}</script>
-<header class="top"><div class="wrap"><span class="logo">S</span><b>Spy USA</b>
+<header class="top"><div class="wrap">{brand_lockup_html()}
   <div class="acts">
     {lang_switch_html()}
     {switch}
-    <a href="/" data-i18n="nav.new">New analysis</a>
+    <a href="/app" data-i18n="nav.new">New analysis</a>
   </div>
 </div></header>
 <main class="wrap">

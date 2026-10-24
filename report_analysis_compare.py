@@ -968,6 +968,6 @@ def build_analysis_compare(
     {paid_html}
     {social_html}
     {exec_html}
-    <footer class="av2-foot">Spy USA{(' · run ' + _esc(run_id)) if run_id else ""}</footer>
+    <footer class="av2-foot">WinnerTracker{(' · run ' + _esc(run_id)) if run_id else ""}</footer>
   </main>
 </div>"""

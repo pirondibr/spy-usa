@@ -158,7 +158,7 @@
 
     var foot = $("v5-foot");
     if (foot) {
-      var bits = ["Spy USA"];
+      var bits = ["WinnerTracker"];
       if (META.run_id) bits.push("run " + META.run_id);
       if (META.duration || META.cost) bits.push([META.duration, META.cost ? t("foot.cost", { n: META.cost }) : ""].filter(Boolean).join(" · "));
       bits.push(t("foot.src"));

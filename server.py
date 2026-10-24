@@ -17,7 +17,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Optional
 
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
 from parse_input import ParsedInput, parse_company_list, slugify_client
 from competitor_edits import (
@@ -64,7 +64,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.62"
+APP_VERSION = "0.4.63"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -239,12 +239,14 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "url": job.parsed.url,
             "slug": job.parsed.slug,
             "status": job.status,
-            "market": "US",
+            "market": (getattr(job, "market", None) or "us").upper(),
             "site_only": job.site_only,
             "compare_all": bool(job.compare_all),
             "competitors_only": bool(getattr(job, "competitors_only", False)),
             "has_competitors": (not bool(getattr(job, "competitors_only", False)))
             and ((not bool(job.site_only)) or bool(job.compare_all)),
+            "peer_urls": list(job.parsed.competitors or []),
+            "updated_at": _now_iso(),
             "include_google_ads": job.include_google_ads,
             "include_linkedin": job.include_linkedin,
             "include_youtube_influencers": bool(job.include_youtube_influencers),
@@ -503,6 +505,23 @@ def _job_payload(job: Job) -> dict[str, Any]:
 
 @app.get("/")
 def index():
+    qs = request.query_string.decode() if request.query_string else ""
+    if any(request.args.get(k) for k in ("rerun", "redo", "url", "q", "tab", "site", "company")):
+        return redirect("/app" + (f"?{qs}" if qs else ""), code=302)
+    resp = send_from_directory(STATIC_DIR, "landing.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/app")
+def app_page():
+    resp = send_from_directory(STATIC_DIR, "app.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/classic")
+def classic_page():
     resp = send_from_directory(STATIC_DIR, "index.html")
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -1225,5 +1244,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8770"))
     for d in (RUNS_DIR,):
         d.mkdir(parents=True, exist_ok=True)
-    print(f"Spy USA -> http://127.0.0.1:{port}  market=US  v{APP_VERSION}")
+    print(f"WinnerTracker -> http://127.0.0.1:{port}  market=US  v{APP_VERSION}")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WinnerTracker — New analysis</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--ink:#0E1116;--ink2:#2A313B;--mut:#6B7480;--soft:#9AA3AE;--line:#ECEEF1;--bg:#FFFFFF;--tint:#F6F7F9;--band:#F1F3F5;--acc:#0F6B5C;
+  --hi:#16A34A;--mid:#EAB308;--lo:#E5484D;--hi-bg:#E9F7EE;--mid-bg:#FEF7DC;--lo-bg:#FDEEEE}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+button,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:8px}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+.top{border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:20}
+.top .wrap{display:flex;align-items:center;gap:20px;height:60px}
+.logo{display:inline-flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none}
+.mark{width:26px;height:26px;border-radius:8px;background:var(--ink);display:grid;place-items:center}
+.top nav{display:flex;gap:2px}
+.top nav a{font-size:14px;font-weight:500;color:var(--mut);text-decoration:none;padding:8px 12px;border-radius:8px}
+.top nav a:hover{background:var(--tint);color:var(--ink)}
+.top nav a[aria-current="page"]{color:var(--ink);background:var(--band);font-weight:600}
+.top .r{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:13.5px;color:var(--mut)}
+.top .r a{text-decoration:none}
+.top .r a:hover{color:var(--ink)}
+.av{width:30px;height:30px;border-radius:50%;background:#E6F3EF;color:var(--acc);display:grid;place-items:center;font-weight:700;font-size:13px}
+
+.head{padding:40px 0 4px}
+h1{margin:0;font-size:32px;letter-spacing:-.03em;line-height:1.15}
+.head p{margin:8px 0 0;color:var(--mut);font-size:15.5px}
+
+/* mode cards */
+.modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:26px 0 0}
+.mode{appearance:none;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:16px;padding:18px 20px;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;transition:border-color .15s,box-shadow .15s}
+.mode:hover{border-color:#C9CFD6}
+.mode[aria-pressed="true"]{border-color:var(--acc);box-shadow:0 0 0 3px rgba(15,107,92,.12)}
+.mode .ic{grid-row:span 2;width:40px;height:40px;border-radius:12px;background:var(--band);display:grid;place-items:center}
+.mode[aria-pressed="true"] .ic{background:var(--acc);color:#fff}
+.mode b{font-size:16.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mode .tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--acc);background:#E6F3EF;border-radius:5px;padding:1px 6px}
+.mode span.d{font-size:13.5px;color:var(--mut)}
+
+/* form panel */
+.panel{border:1px solid var(--line);border-radius:18px;margin-top:14px;overflow:hidden}
+.pb{padding:24px}
+.row{display:grid;grid-template-columns:200px minmax(0,1fr);gap:20px;padding:18px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0;padding-top:0}
+.row .lb b{display:block;font-size:14.5px}
+.row .lb span{display:block;font-size:13px;color:var(--mut);margin-top:2px}
+textarea,.inp{width:100%;border:1.5px solid #DADDE2;border-radius:12px;padding:12px 14px;font-size:15px;background:#fff;resize:vertical;line-height:1.5}
+textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px rgba(15,107,92,.12)}
+.fh{display:flex;justify-content:space-between;gap:12px;margin-top:6px;font-size:12.5px;color:var(--mut)}
+.fh .bad{color:#B42318}
+.parsed{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.parsed span{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;background:var(--tint);border-radius:999px;padding:3px 10px}
+.parsed span.you{background:#E6F3EF;color:var(--acc)}
+.parsed span.bad{background:var(--lo-bg);color:#B42318}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;background:var(--band);border-radius:12px;padding:4px}
+.seg button{appearance:none;border:0;background:none;padding:8px 14px;border-radius:9px;font-size:14px;font-weight:600;color:#3A424D;cursor:pointer}
+.seg button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(14,17,22,.12)}
+.hint{font-size:12.5px;color:var(--mut);margin-top:8px}
+.tgs{display:flex;flex-direction:column;gap:2px}
+.tg{display:flex;align-items:flex-start;gap:12px;padding:10px 0;cursor:pointer}
+.tg input{position:absolute;opacity:0;pointer-events:none}
+.sw{flex:none;width:36px;height:22px;border-radius:999px;background:#D5DAE0;position:relative;transition:background .15s;margin-top:1px}
+.sw:after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .15s}
+.tg input:checked + .sw{background:var(--acc)}
+.tg input:checked + .sw:after{transform:translateX(14px)}
+.tg input:focus-visible + .sw{outline:2px solid var(--acc);outline-offset:2px}
+.tg b{display:block;font-size:14.5px;font-weight:600}
+.tg small{display:block;font-size:13px;color:var(--mut)}
+
+/* channels */
+.chg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.chc{border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.chc h4{margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.chc h4 i{width:4px;height:13px;border-radius:2px;display:block}
+.chc h4.paid{color:#8F4E1C}.chc h4.org{color:#2F4F84}.chc h4.inf{color:#5A3F8E}
+.ck{display:flex;align-items:flex-start;gap:10px;padding:7px 0;cursor:pointer}
+.ck input{position:absolute;opacity:0;pointer-events:none}
+.box{flex:none;width:18px;height:18px;border-radius:5px;border:1.5px solid #C9CFD6;display:grid;place-items:center;background:#fff;margin-top:1px}
+.box svg{opacity:0}
+.ck input:checked + .box{background:var(--acc);border-color:var(--acc)}
+.ck input:checked + .box svg{opacity:1}
+.ck input:focus-visible + .box{outline:2px solid var(--acc);outline-offset:2px}
+.ck input:disabled + .box{background:var(--band);border-color:var(--band)}
+.ck input:disabled + .box svg{opacity:1}
+.ck input:disabled + .box svg path{stroke:#9AA3AE}
+.ck b{display:block;font-size:14px;font-weight:600}
+.ck small{display:block;font-size:12.5px;color:var(--mut)}
+.ck .t{font-weight:600;color:#8A6100}
+.chh{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;color:var(--mut)}
+.lnk{appearance:none;border:0;background:none;color:var(--acc);font-weight:600;font-size:13px;cursor:pointer;padding:2px}
+
+/* footer of panel */
+.pf{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:16px 24px;background:var(--tint);border-top:1px solid var(--line)}
+.est{font-size:13.5px;color:var(--mut)}
+.est b{color:var(--ink)}
+.go{margin-left:auto;appearance:none;border:0;background:var(--acc);color:#fff;font-weight:700;font-size:15px;border-radius:12px;padding:12px 22px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 6px 18px rgba(15,107,92,.22)}
+.go:hover{background:#0C5A4D}
+.go:disabled{background:#C9CFD6;box-shadow:none;cursor:not-allowed}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.msg{flex-basis:100%;font-size:13.5px;border-radius:10px;padding:10px 12px;background:#E6F3EF;color:#0C4F44}
+.msg:empty{display:none}
+.msg.err{background:var(--lo-bg);color:#B42318}
+
+/* runs */
+.sh{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:48px 0 14px}
+.sh h2{margin:0;font-size:22px;letter-spacing:-.02em}
+.sh p{margin:0;font-size:13.5px;color:var(--soft)}
+.rctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px}
+.rctl .inp{max-width:260px;padding:9px 12px;font-size:14px;border-radius:10px;margin-left:auto}
+.tb{width:100%;border-collapse:collapse}
+.tb th{background:var(--band);color:#1F2630;font-size:13px;font-weight:600;text-align:left;padding:10px 12px;white-space:nowrap}
+.tb th:first-child{border-radius:8px 0 0 8px}.tb th:last-child{border-radius:0 8px 8px 0}
+.tb td{padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tb tr.rr:hover td{background:var(--tint)}
+.co{display:flex;align-items:center;gap:12px;min-width:0}
+.co .a{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
+.co b{display:block;font-size:15px;line-height:1.25}
+.co .dm{display:block;font-size:12.5px;color:var(--soft)}
+.vs{font-size:13.5px;color:var(--ink2)}
+.vs small{display:block;font-size:12px;color:var(--soft)}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.badge.ok{background:var(--hi-bg);color:#15803D}
+.badge.ok:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--hi)}
+.badge.run{background:var(--mid-bg);color:#8A6100}
+.badge.run:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--mid)}
+.badge.err{background:var(--lo-bg);color:#B42318}
+.badge.err:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--lo)}
+.meta{font-size:13px;color:var(--mut);white-space:nowrap}
+.acts{display:flex;gap:4px;justify-content:flex-end}
+.acts a,.acts button{appearance:none;border:0;background:none;font-size:13.5px;font-weight:600;padding:7px 10px;border-radius:8px;cursor:pointer;text-decoration:none;color:var(--ink2);white-space:nowrap}
+.acts a.open{background:var(--ink);color:#fff}
+.acts a.open:hover{background:#2A313B}
+.acts button:hover{background:var(--band)}
+.acts .del{color:#B42318}
+.confirm{display:flex;align-items:center;gap:6px;font-size:13px;color:#B42318;justify-content:flex-end}
+.confirm button{font-size:13px}
+.empty{text-align:center;color:var(--soft);padding:32px}
+.note{font-size:12.5px;color:var(--soft);margin:12px 0 64px}
+.jobs{display:none;border:1px solid var(--line);border-radius:18px;margin:18px 0 0;padding:18px 20px;background:#fff}
+.jobs.show{display:block}
+.jobs .jh{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;margin-bottom:12px}
+.jobs .jh b{font-size:15px}
+.jobs .bar{height:6px;border-radius:99px;background:var(--band);overflow:hidden}
+.jobs .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+.jobs-step{margin:10px 0 0;font-size:13.5px;color:var(--ink2)}
+.jobs .log{max-height:160px;overflow:auto;font-size:12.5px;color:var(--mut);white-space:pre-wrap;margin-top:10px;background:var(--tint);border-radius:10px;padding:10px 12px}
+.jobs .log:empty{display:none}
+.jobs .err{margin:10px 0 0;font-size:13.5px;color:#B42318}
+.jobs .err:empty{display:none}
+.jobs-done{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.jobs-done:empty{display:none}
+.jobs-done a{display:inline-flex;align-items:center;padding:8px 12px;border-radius:10px;background:var(--ink);color:#fff;font-weight:600;font-size:13.5px;text-decoration:none}
+.jobs-done a:hover{background:#2A313B}
+
+@media (max-width:860px){.chg{grid-template-columns:1fr}.row{grid-template-columns:1fr;gap:10px}.tb .hm{display:none}}
+@media (max-width:560px){
+  .wrap{padding:0 16px}
+  .top nav a:not([aria-current]){display:none}
+  .top .r a{display:none}
+  h1{font-size:26px}
+  .modes{grid-template-columns:1fr}
+  .pb{padding:18px}
+  .pf{padding:14px 18px}
+  .go{width:100%;justify-content:center;margin-left:0}
+  .rctl .inp{max-width:none;margin-left:0}
+  .tb thead{display:none}
+  .tb,.tb tbody{display:block}
+  .tb tr.rr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;padding:14px 2px;border-bottom:1px solid var(--line)}
+  .tb tr.rr td{display:block;padding:0;border:0}
+  .tb tr.rr td:nth-child(1){grid-column:1}
+  .tb tr.rr td:nth-child(2){grid-column:1 / -1}
+  .tb tr.rr td:nth-child(3){grid-column:2;grid-row:1;align-self:center}
+  .tb tr.rr td.hm{display:none}
+  .tb tr.rr td:last-child{grid-column:1 / -1}
+  .acts{justify-content:flex-start}
+}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/" aria-label="WinnerTracker home"><span class="mark"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="5" cy="11" r="2.4" fill="#E5484D"/><circle cx="9.6" cy="8.6" r="3" fill="#EAB308"/><circle cx="11.4" cy="4.6" r="3.4" fill="#16A34A"/></svg></span>WinnerTracker</a>
+  <nav aria-label="App"><a href="/app" aria-current="page">New analysis</a><a href="#runs">Reports</a></nav>
+  <div class="r"><a href="/">winnertracker.com</a><span class="av" aria-hidden="true" title="Accounts coming later">WT</span></div>
+</div></header>
+
+<main class="wrap">
+  <section class="head">
+    <h1>What do you want to find out?</h1>
+    <p>Start by finding competitors, or jump straight to a full analysis if you already know who to compare.</p>
+    <div class="modes" role="group" aria-label="Tool">
+      <button type="button" class="mode" data-mode="find" aria-pressed="true">
+        <span class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13.2 13.2L17 17"/></svg></span>
+        <b>Find competitors <span class="tag">Start here</span></b>
+        <span class="d">Enter your site. We find ~25 competitors, grouped by similarity, and you pick up to 10 for the report.</span>
+      </button>
+      <button type="button" class="mode" data-mode="full" aria-pressed="false">
+        <span class="ic"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 16V9M8 16V4M13 16v-6M18 16H2"/></svg></span>
+        <b>Full analysis</b>
+        <span class="d">Ads, SEO, traffic, social and creators for up to 12 sites. About 3 minutes.</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- FIND -->
+  <form class="panel" id="f-find" novalidate>
+    <div class="pb">
+      <div class="row"><div class="lb"><b>Your website</b><span>One per line. Each one becomes its own search.</span></div>
+        <div><textarea id="find-sites" rows="2" placeholder="yourcompany.com" aria-describedby="find-help"></textarea>
+          <div class="fh" id="find-help"><span>We read the site, understand the niche, then search Google, AI and Semrush.</span><span id="find-count"></span></div>
+          <div class="parsed" id="find-parsed"></div></div></div>
+      <div class="row"><div class="lb"><b>Market</b><span>Where your customers are.</span></div>
+        <div><div class="seg" data-seg="find-market"><button type="button" data-v="us" aria-pressed="true">United States</button><button type="button" data-v="br" aria-pressed="false">Brazil</button></div>
+          <div class="hint" data-hint="find-market"></div></div></div>
+      <div class="row"><div class="lb"><b>Extras</b><span>Make the list easier to choose from.</span></div>
+        <div class="tgs">
+          <label class="tg"><input type="checkbox" id="opt-brand" checked><span class="sw"></span><span><b>Brand search growth</b><small>Searches for each brand this year vs 1 and 2 years ago (DataForSEO)</small></span></label>
+          <label class="tg"><input type="checkbox" id="opt-traffic" checked><span class="sw"></span><span><b>Check traffic</b><small>Monthly visits for you and the most similar competitors (SimilarWeb)</small></span></label>
+          <label class="tg"><input type="checkbox" id="opt-force-find"><span class="sw"></span><span><b>Start fresh</b><small>Ignore saved results and redo the briefing and the competitor list</small></span></label>
+        </div></div>
+    </div>
+    <div class="pf"><span class="est" id="find-est"></span><button type="submit" class="go" id="find-go">Find competitors →</button><div class="msg" id="find-msg" role="status" aria-live="polite"></div></div>
+  </form>
+
+  <!-- FULL -->
+  <form class="panel" id="f-full" novalidate hidden>
+    <div class="pb">
+      <div class="row"><div class="lb"><b>Sites to analyze</b><span>Yours first, then competitors. One per line, up to 12.</span></div>
+        <div><textarea id="full-sites" rows="4" placeholder="yourcompany.com&#10;competitor-one.com&#10;competitor-two.com" aria-describedby="full-help"></textarea>
+          <div class="fh" id="full-help"><span>Tip: pick them on the competitor list and they'll be filled in here.</span><span id="full-count"></span></div>
+          <div class="parsed" id="full-parsed"></div></div></div>
+      <div class="row"><div class="lb"><b>Market</b><span>Search, ads and traffic are read for this country.</span></div>
+        <div><div class="seg" data-seg="full-market"><button type="button" data-v="us" aria-pressed="true">United States</button><button type="button" data-v="br" aria-pressed="false">Brazil</button></div></div></div>
+      <div class="row"><div class="lb"><b>Report</b><span>How the results are delivered.</span></div>
+        <div><div class="seg" data-seg="full-report"><button type="button" data-v="one" aria-pressed="true">One report, all sites</button><button type="button" data-v="each" aria-pressed="false">One report per site</button></div>
+          <div class="hint" data-hint="full-report"></div>
+          <div class="tgs" style="margin-top:8px">
+            <label class="tg"><input type="checkbox" id="opt-only"><span class="sw"></span><span><b>Only the sites I entered</b><small>Don't look for extra competitors</small></span></label>
+            <label class="tg"><input type="checkbox" id="opt-force-full"><span class="sw"></span><span><b>Start fresh</b><small>Ignore saved data and collect everything again</small></span></label>
+          </div></div></div>
+      <div class="row"><div class="lb"><b>Channels</b><span>The core is always included. Turn extras on or off.</span></div>
+        <div><div class="chh"><span id="ch-count"></span><button type="button" class="lnk" id="ch-all">Select all</button></div><div class="chg" id="chg"></div></div></div>
+    </div>
+    <div class="pf"><span class="est" id="full-est"></span><button type="submit" class="go" id="full-go">Run analysis →</button><div class="msg" id="full-msg" role="status" aria-live="polite"></div></div>
+  </form>
+
+  <div class="jobs" id="jobs" aria-live="polite">
+    <div class="jh"><b id="jobs-title">Working…</b><span class="est" id="jobs-meta"></span></div>
+    <div class="bar"><i id="jobs-bar"></i></div>
+    <p class="jobs-step" id="jobs-step"></p>
+    <div class="log" id="jobs-log"></div>
+    <p class="err" id="jobs-err"></p>
+    <div class="jobs-done" id="jobs-done"></div>
+  </div>
+
+  <!-- RUNS -->
+  <div class="sh" id="runs"><h2>Your reports</h2><p>Open, run again or delete</p></div>
+  <div class="rctl">
+    <div class="seg" data-seg="runs"><button type="button" data-v="all" aria-pressed="true">All</button><button type="button" data-v="full" aria-pressed="false">Full analyses</button><button type="button" data-v="find" aria-pressed="false">Competitor searches</button></div>
+    <input class="inp" id="q" type="search" placeholder="Search by company or site" aria-label="Search reports">
+  </div>
+  <table class="tb" id="runs-tb"></table>
+  <p class="note" id="app-note">Reports stay on this device’s server until you delete them. Login comes later.</p>
+</main>
+
+<script src="/static/app.js?v=0.4.63"></script>
+</body>
+</html>

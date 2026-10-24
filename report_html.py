@@ -360,7 +360,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.62"
+REPORT_UI_VERSION = "0.4.63"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2341,6 +2341,19 @@ def _step_status_label(ch: dict[str, Any]) -> str:
     return "Done"
 
 
+BRAND_NAME = "WinnerTracker"
+BRAND_MARK_SVG = (
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    '<circle cx="5" cy="11" r="2.4" fill="#E5484D"/>'
+    '<circle cx="9.6" cy="8.6" r="3" fill="#EAB308"/>'
+    '<circle cx="11.4" cy="4.6" r="3.4" fill="#16A34A"/></svg>'
+)
+
+
+def brand_lockup_html() -> str:
+    return f'<span class="logo">{BRAND_MARK_SVG}</span><b>{BRAND_NAME}</b>'
+
+
 def lang_switch_html() -> str:
     return """<div class="ui-switch lang-switch" role="group" aria-label="Language">
       <button type="button" data-lang-set="en">EN</button>
@@ -2901,7 +2914,7 @@ def render_report_html(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Spy USA — {_esc(client)}</title>
+<title>WinnerTracker — {_esc(client)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/static/report_v2.css?v={_esc(ui_ver)}">
@@ -2917,11 +2930,11 @@ def render_report_html(
 <body{body_cls}>
 <header class="topbar">
   <div class="topbar-inner">
-    <div class="brand"><span class="logo">S</span>Spy USA<span class="crumb">/ {_esc(client)}</span></div>
+    <div class="brand"><span class="logo">{BRAND_MARK_SVG}</span>WinnerTracker<span class="crumb">/ {_esc(client)}</span></div>
     <div class="actions">
       {lang_switch_html()}
       {ui_toggle}
-      <a href="/" data-i18n="nav.new">New analysis</a>
+      <a href="/app" data-i18n="nav.new">New analysis</a>
       {rerun}
       <button type="button" class="primary" onclick="window.print()" data-i18n="nav.print">Print / PDF</button>
     </div>
@@ -2976,7 +2989,7 @@ def render_report_html(
 
     {cards}
     {f'<div class="card" id="sec-runlog" data-group="overview">{run_log_html}</div>' if run_log_html else ''}
-    <footer class="foot">Spy USA{(' · run ' + _esc(meta.get('id'))) if meta.get('id') else ''}</footer>
+    <footer class="foot">WinnerTracker{(' · run ' + _esc(meta.get('id'))) if meta.get('id') else ''}</footer>
   </main>
 </div>
 {analysis_v2}
@@ -3014,7 +3027,7 @@ body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI"
   backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px);border-bottom:1px solid var(--border)}
 .topbar-inner{max-width:1320px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;min-width:0;white-space:nowrap}
-.logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#4f46e5);color:#fff;
+.logo{width:28px;height:28px;border-radius:8px;background:#0B0F14;color:#fff;
   display:grid;place-items:center;font-size:14px;font-weight:800;flex-shrink:0}
 .crumb{color:var(--muted);font-weight:500;overflow:hidden;text-overflow:ellipsis}
 .actions{display:flex;gap:8px;flex-shrink:0;align-items:center}
