@@ -1,13 +1,30 @@
 (function () {
   var isComps = document.documentElement.getAttribute("data-tool") === "competitors";
-  var ui = isComps ? "v1" : "v4";
-  document.documentElement.setAttribute("data-ui", ui);
-  var card = document.getElementById("sec-competitors");
-  var slot = document.getElementById("lista");
-  if (!isComps && card && slot && card.parentElement !== slot) slot.appendChild(card);
-  try {
-    window.dispatchEvent(new CustomEvent("spy-ui", { detail: ui }));
-  } catch (e) {}
+  function applyUi(ui) {
+    if (isComps) ui = "v1";
+    document.documentElement.setAttribute("data-ui", ui);
+    document.querySelectorAll("[data-ui-set]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-ui-set") === ui ? "true" : "false");
+    });
+    var card = document.getElementById("sec-competitors");
+    var slot = document.getElementById("lista");
+    if (!isComps && card && slot && card.parentElement !== slot) slot.appendChild(card);
+    try {
+      window.dispatchEvent(new CustomEvent("spy-ui", { detail: ui }));
+    } catch (e) {}
+  }
+  var stored = null;
+  try { stored = localStorage.getItem("spy-ui"); } catch (e) {}
+  applyUi(isComps ? "v1" : stored === "v5" ? "v5" : "v4");
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-ui-set]");
+    if (!b || isComps) return;
+    var next = b.getAttribute("data-ui-set");
+    if (next !== "v4" && next !== "v5") return;
+    try { localStorage.setItem("spy-ui", next); } catch (err) {}
+    applyUi(next);
+    if (next === "v5") window.scrollTo(0, 0);
+  });
 })();
 
 (function () {

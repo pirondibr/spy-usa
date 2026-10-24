@@ -13,6 +13,7 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 from report_analysis_v2 import build_analysis_v2
+from report_analysis_v5 import build_analysis_v5, build_v5_payload
 
 
 def _esc(value: Any) -> str:
@@ -358,7 +359,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.53"
+REPORT_UI_VERSION = "0.4.54"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2741,6 +2742,7 @@ def render_report_html(
         )
     ui_ver = REPORT_UI_VERSION
     analysis_v2 = ""
+    analysis_v5 = ""
     body_cls = ""
     cmp_v1 = ""
     if not competitors_only:
@@ -2769,9 +2771,33 @@ def render_report_html(
                 root_id="cmp-v1",
                 variant="v3",
             )
+        try:
+            analysis_v5 = build_analysis_v5(
+                build_v5_payload(
+                    report,
+                    meta,
+                    briefing=briefing,
+                    client=str(client),
+                    site_host=site_host,
+                    run_id=run_id,
+                    market=market,
+                ),
+                ui_ver=ui_ver,
+            )
+        except Exception as e:
+            print(f"[V5] build skipped: {e}", flush=True)
+            analysis_v5 = ""
+
+    ui_toggle = ""
+    if not competitors_only:
+        ui_toggle = """
+      <div class="ui-switch" role="group" aria-label="Versão do relatório">
+        <button type="button" data-ui-set="v4" aria-pressed="true">v4</button>
+        <button type="button" data-ui-set="v5">v5</button>
+      </div>"""
 
     return f"""<!DOCTYPE html>
-<html lang="en-US" data-ui="{'v1' if competitors_only else 'v4'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}>
+<html lang="en-US" data-ui="{'v1' if competitors_only else 'v4'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2782,12 +2808,15 @@ def render_report_html(
 <style>{_REPORT_CSS}</style>
 <link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
+{f'<link rel="stylesheet" href="/static/report_v5.css?v={_esc(ui_ver)}">' if analysis_v5 else ''}
+<script>(function(){{try{{if(document.documentElement.getAttribute('data-tool')==='competitors')return;var s=localStorage.getItem('spy-ui');if(s==='v5')document.documentElement.setAttribute('data-ui','v5');}}catch(e){{}}}})();</script>
 </head>
 <body{body_cls}>
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand"><span class="logo">S</span>Spy USA<span class="crumb">/ {_esc(client)}</span></div>
     <div class="actions">
+      {ui_toggle}
       <a href="/">New analysis</a>
       {rerun}
       <button type="button" class="primary" onclick="window.print()">Print / PDF</button>
@@ -2847,8 +2876,9 @@ def render_report_html(
   </main>
 </div>
 {analysis_v2}
+{analysis_v5}
 <script>
-(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');document.documentElement.setAttribute('data-ui',tool==='competitors'?'v1':'v4');var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
+(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');var stored=null;try{{stored=localStorage.getItem('spy-ui');}}catch(e){{}}var ui=tool==='competitors'?'v1':(stored==='v5'?'v5':'v4');document.documentElement.setAttribute('data-ui',ui);document.querySelectorAll('[data-ui-set]').forEach(function(b){{b.setAttribute('aria-pressed',b.getAttribute('data-ui-set')===ui?'true':'false');}});var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
 </script>
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
@@ -2881,7 +2911,10 @@ body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI"
 .logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0f766e,#4f46e5);color:#fff;
   display:grid;place-items:center;font-size:14px;font-weight:800;flex-shrink:0}
 .crumb{color:var(--muted);font-weight:500;overflow:hidden;text-overflow:ellipsis}
-.actions{display:flex;gap:8px;flex-shrink:0}
+.actions{display:flex;gap:8px;flex-shrink:0;align-items:center}
+.ui-switch{display:inline-flex;gap:2px;background:#F1F5F9;border-radius:8px;padding:2px}
+.ui-switch button{appearance:none;border:0;background:none;padding:5px 10px;border-radius:6px;font:inherit;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer}
+.ui-switch button[aria-pressed="true"]{background:var(--text);color:#fff}
 .actions a,.actions button{border:1px solid var(--border);background:#fff;border-radius:9px;padding:7px 12px;font:inherit;
   font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;color:var(--text);transition:background .15s,border-color .15s}
 .actions a:hover,.actions button:hover{background:#f8fafc;border-color:#cbd5e1}

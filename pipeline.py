@@ -305,6 +305,8 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
             "top5": r.get("top5") or [],
             "top5_official": r.get("top5_official") or [],
             "top5_unofficial": r.get("top5_unofficial") or [],
+            "official_channel": r.get("official_channel"),
+            "query": r.get("query") or "",
             "url": r.get("search_url") or "",
             "usage": r.get("usage") or {},
             "error": r.get("error"),
