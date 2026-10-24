@@ -280,11 +280,23 @@
   function renderExec() {
     var steps = EX.steps || [];
     var log = EX.log || "";
+    var nLog = log ? log.split("\n").filter(function (l) { return l.trim(); }).length : 0;
+    var rowHtml = function (r) {
+      if (Array.isArray(r)) {
+        return "<tr><td>" + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td class="num">' + esc(r[3]) + "</td><td></td></tr>";
+      }
+      return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(r.status || "Feito") + "</td></tr>";
+    };
     $("pb-exec").innerHTML = '<div class="kv3"><div><span>Tempo total</span><b>' + esc(EX.duration || "—") + "</b></div><div><span>Custo estimado</span><b>" + esc(EX.cost || "—") + "</b></div><div><span>Empresas</span><b>" + esc(String(EX.companies || CO.length)) + "</b></div><div><span>Etapas</span><b>" + steps.length + "</b></div></div>" +
-      '<div class="mx"><table class="tb"><thead><tr><th>Etapa</th><th>Tempo</th><th>APIs</th><th>Custo est.</th></tr></thead><tbody>' +
-      (steps.length ? steps.map(function (r) { return "<tr><td>" + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td style="color:var(--mut)">' + esc(r[2]) + '</td><td class="num">' + esc(r[3]) + "</td></tr>"; }).join("") : '<tr><td colspan="4" class="none">Sem etapas.</td></tr>') +
-      "</tbody></table></div>" +
-      (log ? '<details class="logd"><summary>Log completo (' + log.split("\n").length + " linhas)</summary><pre>" + esc(log) + "</pre></details>" : "");
+      '<div class="ex-switch"><div class="ex-tabs" role="tablist" aria-label="Execução">' +
+      '<button type="button" data-ex="resumo" aria-pressed="true">Resumo</button>' +
+      '<button type="button" data-ex="log" aria-pressed="false">Log' + (nLog ? " · " + nLog : "") + "</button></div>" +
+      '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>Área</th><th>Tempo</th><th>Custo</th><th>Situação</th></tr></thead><tbody>' +
+      (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="4" class="none">Sem etapas.</td></tr>') +
+      '</tbody><tfoot><tr class="runlog-total"><th>Total</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + "</th><th></th></tr></tfoot></table></div>" +
+      (EX.rates ? '<p class="muted" style="margin-top:12px;font-size:12.5px;color:var(--soft)">' + esc(EX.rates) + "</p>" : "") +
+      "</div>" +
+      '<div class="ex-pane" data-ex-pane="log" hidden>' + (log ? "<pre>" + esc(log) + "</pre>" : '<div class="none">Log vazio para este run.</div>') + "</div></div>";
   }
 
   var tabCo = { yt: ME.k, ig: ME.k, rd: ME.k };

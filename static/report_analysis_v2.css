@@ -145,6 +145,13 @@ html[data-ui="v5"] header.topbar{display:none!important}
 #analysis-v2 .exec-body{padding:0 22px 22px;display:flex;flex-direction:column;gap:16px}
 #analysis-v2 .exec-body .tw{border:1px solid var(--line);border-radius:10px}
 #analysis-v2 details.raw summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--accent)}
+#analysis-v2 .ex-switch{display:flex;flex-direction:column;gap:14px}
+#analysis-v2 .ex-tabs{display:inline-flex;gap:4px;background:#F4F5F7;border-radius:10px;padding:4px;align-self:flex-start}
+#analysis-v2 .ex-tabs button{appearance:none;border:0;background:none;padding:7px 13px;border-radius:7px;font:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer}
+#analysis-v2 .ex-tabs button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,17,22,.1)}
+#analysis-v2 .ex-pane[hidden]{display:none}
+#analysis-v2 .ex-pane table tr.sk td{color:var(--muted)}
+#analysis-v2 .ex-pane tfoot th{background:#F8F9FA;border-top:1px solid var(--line);font-size:12.5px}
 #analysis-v2 pre{margin:10px 0 0;max-height:420px;overflow:auto;padding:14px 16px;background:var(--ink);color:#D7DCE2;border-radius:10px;font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
 #analysis-v2 .av2-foot{text-align:center;font-size:12px;color:var(--soft)}
 

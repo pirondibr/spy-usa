@@ -359,7 +359,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.55"
+REPORT_UI_VERSION = "0.4.56"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2326,65 +2326,94 @@ def _resolve_run_log(
     return None
 
 
+def _step_is_skipped(ch: dict[str, Any]) -> bool:
+    blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
+    return "skip" in blob or "pulado" in blob
+
+
+def _step_status_label(ch: dict[str, Any]) -> str:
+    if _step_is_skipped(ch):
+        return "Pulado"
+    status = str(ch.get("status") or "").strip().lower()
+    if status in ("n/d", "nd"):
+        return "n/d"
+    return "Feito"
+
+
+def exec_tabs_html(
+    *,
+    channels: list[dict[str, Any]],
+    totals: Optional[dict[str, Any]] = None,
+    log_text: str = "",
+    rates: str = "",
+) -> str:
+    """Resumo por área + log completo, em abas."""
+    totals = totals or {}
+    rows: list[str] = []
+    for ch in channels:
+        skipped = _step_is_skipped(ch)
+        st = _step_status_label(ch)
+        rows.append(
+            f'<tr class="{"sk" if skipped else ""}">'
+            f"<td>{_esc(ch.get('label') or ch.get('id') or '—')}</td>"
+            f'<td class="r num">{_esc(ch.get("sec_fmt") or "—")}</td>'
+            f'<td class="r num">{_esc(ch.get("cost_fmt") or "—")}</td>'
+            f'<td class="{"muted" if skipped else ""}">{_esc(st)}</td></tr>'
+        )
+    if not rows:
+        rows.append('<tr><td class="empty" colspan="4">Sem etapas neste run.</td></tr>')
+    n_log = len([ln for ln in (log_text or "").splitlines() if ln.strip()])
+    summary = f"""
+    <div class="tw"><table>
+      <thead><tr><th>Área</th><th class="r">Tempo</th><th class="r">Custo</th><th>Situação</th></tr></thead>
+      <tbody>{''.join(rows)}</tbody>
+      <tfoot>
+        <tr class="runlog-total">
+          <th>Total</th>
+          <th class="r num">{_esc(totals.get("sec_fmt") or "—")}</th>
+          <th class="r num">{_esc(totals.get("cost_fmt") or "—")}</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table></div>
+    {f'<p class="muted runlog-rates">{_esc(rates)}</p>' if rates else ""}
+    """
+    log_pane = (
+        f'<pre class="runlog-pre">{_esc(log_text)}</pre>'
+        if (log_text or "").strip()
+        else '<p class="muted">Log vazio para este run.</p>'
+    )
+    return f"""
+    <div class="ex-switch">
+      <div class="ex-tabs" role="tablist" aria-label="Execução">
+        <button type="button" data-ex="resumo" aria-pressed="true">Resumo</button>
+        <button type="button" data-ex="log" aria-pressed="false">Log{f" · {n_log}" if n_log else ""}</button>
+      </div>
+      <div class="ex-pane" data-ex-pane="resumo">{summary}</div>
+      <div class="ex-pane" data-ex-pane="log" hidden>{log_pane}</div>
+    </div>
+    """
+
+
 def _section_run_log(payload: Optional[dict[str, Any]]) -> str:
     if not payload:
         return ""
     channels = payload.get("channels") or []
     lines = payload.get("lines") or []
-    totals = payload.get("totals") or {}
-    rates = str(payload.get("rates_note") or "").strip()
-
-    rows_html: list[str] = []
-    for ch in channels:
-        rows_html.append(
-            "<tr>"
-            f"<td>{_esc(ch.get('label') or ch.get('id') or '—')}</td>"
-            f"<td class=\"num\">{_esc(ch.get('sec_fmt') or '—')}</td>"
-            f"<td>{_esc(ch.get('apis_fmt') or '—')}</td>"
-            f"<td class=\"num\">{_esc(ch.get('cost_fmt') or '—')}</td>"
-            f"<td class=\"muted\">{_esc(ch.get('cost_note') or ch.get('detail') or '')}</td>"
-            "</tr>"
-        )
-    if not rows_html:
-        rows_html.append('<tr><td class="empty" colspan="5">Sem dados de canal</td></tr>')
-
-    summary_table = f"""
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Canal</th><th class="num">Tempo</th><th>APIs</th>
-          <th class="num">Custo est.</th><th>Detalhe</th>
-        </tr></thead>
-        <tbody>{''.join(rows_html)}</tbody>
-        <tfoot>
-          <tr class="runlog-total">
-            <th>Total</th>
-            <th class="num">{_esc(totals.get('sec_fmt') or '—')}</th>
-            <th></th>
-            <th class="num">{_esc(totals.get('cost_fmt') or '—')}</th>
-            <th></th>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-    """
-
+    if not channels and not lines:
+        return ""
     log_text = "\n".join(str(x) for x in lines)
-    log_block = (
-        f'<pre class="runlog-pre">{_esc(log_text)}</pre>'
-        if log_text.strip()
-        else '<p class="muted">Log vazio para este run.</p>'
-    )
-    rates_html = f'<p class="muted runlog-rates">{_esc(rates)}</p>' if rates else ""
-
+    n = payload.get("line_count") or len(lines)
     return f"""
     <section>
       <h2>Log da execução</h2>
-      <p class="muted">Linhas capturadas durante o pipeline ({_esc(str(payload.get('line_count') or len(lines)))}).</p>
-      {log_block}
-      <h3 class="subhead">Resumo por canal — tempo e custo estimado</h3>
-      {summary_table}
-      {rates_html}
+      <p class="muted">Pipeline · {_esc(str(n))} linhas no log bruto.</p>
+      {exec_tabs_html(
+          channels=list(channels),
+          totals=payload.get("totals") or {},
+          log_text=log_text,
+          rates=str(payload.get("rates_note") or "").strip(),
+      )}
     </section>
     """
 
@@ -3207,6 +3236,12 @@ p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 1
   .card{padding:16px 14px}
   .hero-val{font-size:24px}
 }
+.ex-switch{display:flex;flex-direction:column;gap:14px}
+.ex-tabs{display:inline-flex;gap:4px;background:#F1F5F9;border-radius:10px;padding:4px;align-self:flex-start}
+.ex-tabs button{appearance:none;border:0;background:none;padding:7px 13px;border-radius:7px;font:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer}
+.ex-tabs button[aria-pressed="true"]{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(15,23,42,.08)}
+.ex-pane[hidden]{display:none}
+.ex-pane table tr.sk td{color:var(--muted)}
 @media print{
   .topbar,.toc,.ui-switch{display:none!important}
   .layout{display:block;padding:0}

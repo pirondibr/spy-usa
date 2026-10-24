@@ -26,6 +26,7 @@ def build_analysis_v2(
         _dfs_growth_pct,
         _esc,
         _resolve_run_log,
+        exec_tabs_html,
         _summary_channel_url,
         _summary_companies,
     )
@@ -624,21 +625,6 @@ def build_analysis_v2(
     channels = payload.get("channels") or []
     lines = payload.get("lines") or []
     totals = payload.get("totals") or {}
-    exec_rows = []
-    for ch in channels:
-        skipped = "pulado" in str(ch.get("detail") or ch.get("cost_note") or "").lower() or str(ch.get("sec_fmt") or "") in ("0.0s", "0s") and "skip" in str(ch.get("status") or "").lower()
-        detail = ch.get("cost_note") or ch.get("detail") or "—"
-        if skipped:
-            detail_html = badge("0", True)
-        else:
-            detail_html = f'<span class="muted">{_esc(detail)}</span>'
-        exec_rows.append(
-            f"<tr><td>{_esc(ch.get('label') or ch.get('id') or '—')}</td>"
-            f"<td class=\"r\">{_esc(ch.get('sec_fmt') or '—')}</td>"
-            f"<td class=\"muted\">{_esc(ch.get('apis_fmt') or '—')}</td>"
-            f"<td class=\"r\">{_esc(ch.get('cost_fmt') or '—')}</td>"
-            f"<td>{detail_html}</td></tr>"
-        )
     log_text = "\n".join(str(x) for x in lines)
     exec_html = ""
     if channels or lines:
@@ -646,12 +632,12 @@ def build_analysis_v2(
     <details class="exec" id="execucao">
       <summary><span><span class="t">Execução</span> <span class="s num">&nbsp;{_esc(totals.get("sec_fmt") or "")}{(' · custo est. ' + _esc(totals.get("cost_fmt"))) if totals.get("cost_fmt") else ''}{(' · ' + str(len(channels)) + ' etapas') if channels else ''}</span></span><span class="o">Detalhes</span></summary>
       <div class="exec-body">
-        <div class="tw"><table>
-          <thead><tr><th>Etapa</th><th class="r">Tempo</th><th>APIs</th><th class="r">Custo est.</th><th>Detalhe</th></tr></thead>
-          <tbody>{''.join(exec_rows) or '<tr><td colspan="5" class="muted">Sem etapas.</td></tr>'}</tbody>
-        </table></div>
-        {f'<div style="font-size:12.5px;color:var(--muted)">{_esc(payload.get("rates_note") or "")}</div>' if payload.get("rates_note") else ""}
-        {f'<details class="raw"><summary>Log completo ({len(lines)} linhas)</summary><pre>{_esc(log_text)}</pre></details>' if log_text.strip() else ""}
+        {exec_tabs_html(
+            channels=list(channels),
+            totals=totals,
+            log_text=log_text,
+            rates=str(payload.get("rates_note") or "").strip(),
+        )}
       </div>
     </details>"""
 

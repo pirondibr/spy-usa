@@ -359,12 +359,23 @@ def build_v5_payload(
     totals = log.get("totals") or {}
     steps = []
     for ch in log.get("channels") or []:
-        steps.append([
-            str(ch.get("label") or ch.get("id") or "—"),
-            str(ch.get("sec_fmt") or "—"),
-            str(ch.get("apis_fmt") or "—"),
-            str(ch.get("cost_fmt") or "—"),
-        ])
+        blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
+        skipped = "skip" in blob or "pulado" in blob
+        status = str(ch.get("status") or "").strip().lower()
+        if skipped:
+            sit = "Pulado"
+        elif status in ("n/d", "nd"):
+            sit = "n/d"
+        else:
+            sit = "Feito"
+        steps.append({
+            "label": str(ch.get("label") or ch.get("id") or "—"),
+            "time": str(ch.get("sec_fmt") or "—"),
+            "cost": str(ch.get("cost_fmt") or "—"),
+            "apis": str(ch.get("apis_fmt") or "—"),
+            "status": sit,
+            "skipped": skipped,
+        })
     lines = [str(x) for x in (log.get("lines") or [])]
 
     n_peers = max(0, len(companies) - 1)
@@ -415,6 +426,7 @@ def build_v5_payload(
             "companies": len(companies),
             "steps": steps,
             "log": "\n".join(lines),
+            "rates": str(log.get("rates_note") or ""),
         },
     }
 

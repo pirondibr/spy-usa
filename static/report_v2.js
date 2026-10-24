@@ -28,6 +28,22 @@
 })();
 
 (function () {
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-ex]");
+    if (!b) return;
+    var box = b.closest(".ex-switch");
+    if (!box) return;
+    var id = b.getAttribute("data-ex");
+    box.querySelectorAll("[data-ex]").forEach(function (x) {
+      x.setAttribute("aria-pressed", x.getAttribute("data-ex") === id ? "true" : "false");
+    });
+    box.querySelectorAll("[data-ex-pane]").forEach(function (p) {
+      p.hidden = p.getAttribute("data-ex-pane") !== id;
+    });
+  });
+})();
+
+(function () {
   var root = document.getElementById("analysis-v2");
   if (!root || !("IntersectionObserver" in window)) return;
   var links = [].slice.call(root.querySelectorAll(".anav a"));
