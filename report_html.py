@@ -359,7 +359,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.54"
+REPORT_UI_VERSION = "0.4.55"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2791,7 +2791,8 @@ def render_report_html(
     ui_toggle = ""
     if not competitors_only:
         ui_toggle = """
-      <div class="ui-switch" role="group" aria-label="Versão do relatório">
+      <div class="ui-switch" role="group" aria-label="Layout do relatório">
+        <span class="ui-switch-lab">Layout</span>
         <button type="button" data-ui-set="v4" aria-pressed="true">v4</button>
         <button type="button" data-ui-set="v5">v5</button>
       </div>"""
@@ -2912,8 +2913,9 @@ body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI"
   display:grid;place-items:center;font-size:14px;font-weight:800;flex-shrink:0}
 .crumb{color:var(--muted);font-weight:500;overflow:hidden;text-overflow:ellipsis}
 .actions{display:flex;gap:8px;flex-shrink:0;align-items:center}
-.ui-switch{display:inline-flex;gap:2px;background:#F1F5F9;border-radius:8px;padding:2px}
-.ui-switch button{appearance:none;border:0;background:none;padding:5px 10px;border-radius:6px;font:inherit;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer}
+.ui-switch{display:inline-flex!important;align-items:center;gap:2px;background:#F1F5F9;border:1px solid var(--border);border-radius:10px;padding:2px}
+.ui-switch-lab{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:0 6px 0 8px}
+.ui-switch button{appearance:none;border:0;background:none;padding:6px 12px;border-radius:8px;font:inherit;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer}
 .ui-switch button[aria-pressed="true"]{background:var(--text);color:#fff}
 .actions a,.actions button{border:1px solid var(--border);background:#fff;border-radius:9px;padding:7px 12px;font:inherit;
   font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;color:var(--text);transition:background .15s,border-color .15s}

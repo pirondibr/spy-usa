@@ -429,7 +429,8 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
 <script type="application/json" id="spy-v5-data">{data}</script>
 <header class="top"><div class="wrap"><span class="logo">S</span><b>Spy USA</b>
   <div class="acts">
-    <div class="ui-switch" role="group" aria-label="Versão do relatório">
+    <div class="ui-switch" role="group" aria-label="Layout do relatório">
+      <span class="ui-switch-lab">Layout</span>
       <button type="button" data-ui-set="v4">v4</button>
       <button type="button" data-ui-set="v5" aria-pressed="true">v5</button>
     </div>

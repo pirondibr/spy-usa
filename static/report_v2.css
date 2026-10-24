@@ -1,5 +1,5 @@
 /* Competitors table v2 — toggled with html[data-ui=v1|v2] */
-.ui-switch,.ui-ver{display:none!important}
+.ui-ver{display:none!important}
 
 #comp-v2{display:none}
 html[data-ui="v1"] #comp-v1,
