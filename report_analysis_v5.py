@@ -454,6 +454,7 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
       <span class="ui-switch-lab">Layout</span>
       <button type="button" data-ui-set="v4">v4</button>
       <button type="button" data-ui-set="v5" aria-pressed="true">v5</button>
+      <button type="button" data-ui-set="v6">v6</button>
     </div>
     <a href="/">Nova análise</a>
     <button type="button" onclick="window.print()">Exportar PDF</button>

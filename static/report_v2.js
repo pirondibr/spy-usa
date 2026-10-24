@@ -15,15 +15,15 @@
   }
   var stored = null;
   try { stored = localStorage.getItem("spy-ui"); } catch (e) {}
-  applyUi(isComps ? "v1" : stored === "v5" ? "v5" : "v4");
+  applyUi(isComps ? "v1" : stored === "v6" || stored === "v5" || stored === "v4" ? stored : "v6");
   document.addEventListener("click", function (e) {
     var b = e.target.closest("[data-ui-set]");
     if (!b || isComps) return;
     var next = b.getAttribute("data-ui-set");
-    if (next !== "v4" && next !== "v5") return;
+    if (next !== "v4" && next !== "v5" && next !== "v6") return;
     try { localStorage.setItem("spy-ui", next); } catch (err) {}
     applyUi(next);
-    if (next === "v5") window.scrollTo(0, 0);
+    if (next === "v5" || next === "v6") window.scrollTo(0, 0);
   });
 })();
 

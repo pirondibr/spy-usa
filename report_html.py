@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 from report_analysis_v2 import build_analysis_v2
 from report_analysis_v5 import build_analysis_v5, build_v5_payload
+from report_analysis_v6 import build_analysis_v6
 
 
 def _esc(value: Any) -> str:
@@ -359,7 +360,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.57"
+REPORT_UI_VERSION = "0.4.58"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2803,6 +2804,7 @@ def render_report_html(
     ui_ver = REPORT_UI_VERSION
     analysis_v2 = ""
     analysis_v5 = ""
+    analysis_v6 = ""
     body_cls = ""
     cmp_v1 = ""
     if not competitors_only:
@@ -2832,33 +2834,34 @@ def render_report_html(
                 variant="v3",
             )
         try:
-            analysis_v5 = build_analysis_v5(
-                build_v5_payload(
-                    report,
-                    meta,
-                    briefing=briefing,
-                    client=str(client),
-                    site_host=site_host,
-                    run_id=run_id,
-                    market=market,
-                ),
-                ui_ver=ui_ver,
+            v5_payload = build_v5_payload(
+                report,
+                meta,
+                briefing=briefing,
+                client=str(client),
+                site_host=site_host,
+                run_id=run_id,
+                market=market,
             )
+            analysis_v5 = build_analysis_v5(v5_payload, ui_ver=ui_ver)
+            analysis_v6 = build_analysis_v6(v5_payload, ui_ver=ui_ver)
         except Exception as e:
-            print(f"[V5] build skipped: {e}", flush=True)
+            print(f"[V5/V6] build skipped: {e}", flush=True)
             analysis_v5 = ""
+            analysis_v6 = ""
 
     ui_toggle = ""
     if not competitors_only:
         ui_toggle = """
       <div class="ui-switch" role="group" aria-label="Layout do relatório">
         <span class="ui-switch-lab">Layout</span>
-        <button type="button" data-ui-set="v4" aria-pressed="true">v4</button>
+        <button type="button" data-ui-set="v4">v4</button>
         <button type="button" data-ui-set="v5">v5</button>
+        <button type="button" data-ui-set="v6" aria-pressed="true">v6</button>
       </div>"""
 
     return f"""<!DOCTYPE html>
-<html lang="en-US" data-ui="{'v1' if competitors_only else 'v4'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}>
+<html lang="en-US" data-ui="{'v1' if competitors_only else 'v6'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}{' data-has-v6="1"' if analysis_v6 else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2870,7 +2873,8 @@ def render_report_html(
 <link rel="stylesheet" href="/static/report_analysis_v2.css?v={_esc(ui_ver)}">
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
 {f'<link rel="stylesheet" href="/static/report_v5.css?v={_esc(ui_ver)}">' if analysis_v5 else ''}
-<script>(function(){{try{{if(document.documentElement.getAttribute('data-tool')==='competitors')return;var s=localStorage.getItem('spy-ui');if(s==='v5')document.documentElement.setAttribute('data-ui','v5');}}catch(e){{}}}})();</script>
+{f'<link rel="stylesheet" href="/static/report_v6.css?v={_esc(ui_ver)}">' if analysis_v6 else ''}
+<script>(function(){{try{{if(document.documentElement.getAttribute('data-tool')==='competitors')return;var s=localStorage.getItem('spy-ui');if(s==='v4'||s==='v5'||s==='v6')document.documentElement.setAttribute('data-ui',s);else document.documentElement.setAttribute('data-ui','v6');}}catch(e){{}}}})();</script>
 </head>
 <body{body_cls}>
 <header class="topbar">
@@ -2938,8 +2942,9 @@ def render_report_html(
 </div>
 {analysis_v2}
 {analysis_v5}
+{analysis_v6}
 <script>
-(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');var stored=null;try{{stored=localStorage.getItem('spy-ui');}}catch(e){{}}var ui=tool==='competitors'?'v1':(stored==='v5'?'v5':'v4');document.documentElement.setAttribute('data-ui',ui);document.querySelectorAll('[data-ui-set]').forEach(function(b){{b.setAttribute('aria-pressed',b.getAttribute('data-ui-set')===ui?'true':'false');}});var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
+(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');var stored=null;try{{stored=localStorage.getItem('spy-ui');}}catch(e){{}}var ui=tool==='competitors'?'v1':(stored==='v4'||stored==='v5'||stored==='v6'?stored:'v6');document.documentElement.setAttribute('data-ui',ui);document.querySelectorAll('[data-ui-set]').forEach(function(b){{b.setAttribute('aria-pressed',b.getAttribute('data-ui-set')===ui?'true':'false');}});var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
 </script>
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>
