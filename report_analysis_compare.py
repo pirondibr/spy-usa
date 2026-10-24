@@ -74,6 +74,7 @@ def build_analysis_compare(
         _esc,
         _fmt_vol,
         _resolve_run_log,
+        analysis_add_form_html,
         exec_tabs_html,
         _row_for_company,
         _summary_channel_url,
@@ -907,9 +908,11 @@ def build_analysis_compare(
             f'{f"<span>{_esc(host)}</span>" if host else ""}{you}'
         )
         if url:
-            chips.append(f'<a class="cochip" href="{_esc(url)}" target="_blank" rel="noopener">{inner}</a>')
+            chips.append(
+                f'<a class="cochip" href="{_esc(url)}" target="_blank" rel="noopener" data-domain="{_esc(host)}">{inner}</a>'
+            )
         else:
-            chips.append(f'<span class="cochip">{inner}</span>')
+            chips.append(f'<span class="cochip" data-domain="{_esc(host)}">{inner}</span>')
     snap = ""
     for company, _c in palette:
         row = _row_for_company(section("similarweb"), company) or {}
@@ -957,6 +960,7 @@ def build_analysis_compare(
         {f'<div><dt>Run</dt><dd class="num">{_esc(run_id)}</dd></div>' if run_id else ""}
       </dl>
     </section>
+    {analysis_add_form_html(run_id, [c for c, _ in palette])}
     <section class="sec" id="lista"></section>
     {cmp_html}
     {summary_html}

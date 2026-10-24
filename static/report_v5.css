@@ -20,3 +20,11 @@ html[data-ui="v5"]{--ink:#0E1116;--ink2:#2A313B;--mut:#6B7480;--soft:#9AA3AE;--l
 #analysis-v5 .ex-pane table tr.sk td{color:var(--soft)}
 #analysis-v5 .ex-pane tfoot th{border-top:1px solid var(--line);font-size:12.5px}
 #analysis-v5 .ex-pane pre{margin:0;max-height:420px;overflow:auto;padding:14px 16px;background:#0E1116;color:#D7DCE2;border-radius:10px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+#analysis-v5 .analysis-add{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0 0}
+#analysis-v5 .analysis-add textarea{flex:1;min-width:220px;height:38px;min-height:38px;max-height:38px;resize:none;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;line-height:1.2;background:#fff}
+#analysis-v5 .analysis-add select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;background:#fff}
+#analysis-v5 .analysis-add button{border:0;background:var(--ink);color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
+#analysis-v5 .analysis-add button:disabled{opacity:.55;cursor:default}
+#analysis-v5 .analysis-add .add-status{font-size:13px;color:var(--soft)}
+#analysis-v5 .analysis-add .add-log{list-style:none;margin:0;padding:0;width:100%;max-height:160px;overflow:auto;font-size:12.5px}
+#analysis-v5 .analysis-add .add-log[hidden]{display:none}

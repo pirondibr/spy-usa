@@ -432,10 +432,19 @@ def build_v5_payload(
 
 
 def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
-    from report_html import _esc
+    from report_html import _esc, analysis_add_form_html
 
     data = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
-    client = _esc((payload.get("meta") or {}).get("client") or "Spy USA")
+    meta = payload.get("meta") or {}
+    client = _esc(meta.get("client") or "Spy USA")
+    add_form = analysis_add_form_html(
+        str(meta.get("run_id") or ""),
+        [
+            {"name": c.get("name"), "domain": c.get("dom")}
+            for c in (payload.get("companies") or [])
+            if isinstance(c, dict)
+        ],
+    )
     return f"""
 <div id="analysis-v5">
 <script type="application/json" id="spy-v5-data">{data}</script>
@@ -455,6 +464,7 @@ def build_analysis_v5(payload: dict[str, Any], *, ui_ver: str) -> str:
     <div class="eyebrow" id="v5-eyebrow"></div>
     <h1 id="v5-title">{client}</h1>
     <div class="cos" id="cos"></div>
+    {add_form}
     <ul class="ins" id="ins"></ul>
   </section>
   <section class="sec">

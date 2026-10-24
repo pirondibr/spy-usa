@@ -899,6 +899,14 @@ def _save_report(
 
     market = _normalize_market(market)
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    existing_meta = run_dir / "meta.json"
+    if existing_meta.exists():
+        try:
+            old = json.loads(existing_meta.read_text(encoding="utf-8"))
+            if old.get("created_at"):
+                created_at = str(old["created_at"])
+        except Exception:
+            pass
     meta = {
         "id": run_id,
         "slug": parsed.slug,

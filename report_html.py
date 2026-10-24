@@ -359,7 +359,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.56"
+REPORT_UI_VERSION = "0.4.57"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2338,6 +2338,37 @@ def _step_status_label(ch: dict[str, Any]) -> str:
     if status in ("n/d", "nd"):
         return "n/d"
     return "Feito"
+
+
+def analysis_add_form_html(
+    run_id: str,
+    companies: Optional[list[dict[str, Any]]] = None,
+) -> str:
+    """Same add-websites control as find-competitors, for analysis reports."""
+    if not run_id:
+        return ""
+    rows = companies or []
+    domains = ",".join(
+        str(c.get("domain") or "").strip().lower()
+        for c in rows
+        if str(c.get("domain") or "").strip()
+    )
+    n = len(rows) or 1
+    left = max(0, 8 - n)
+    hint = "One website per line" if left else "Limit of 8 companies reached"
+    return f"""
+    <form class="add-comp analysis-add" data-run="{_esc(run_id)}" data-domains="{_esc(domains)}" data-have="{n}" data-max="8">
+      <textarea name="urls" rows="1" placeholder="{_esc(hint)}"{" disabled" if not left else ""}></textarea>
+      <select name="similaridade" title="Similarity"{" disabled" if not left else ""}>
+        <option value="">Auto</option>
+        <option value="Alto">Alto</option>
+        <option value="Medio">Médio</option>
+        <option value="Baixo">Baixo</option>
+      </select>
+      <button type="submit"{" disabled" if not left else ""}>Add websites</button>
+      <span class="add-status"></span>
+      <ul class="add-log" hidden></ul>
+    </form>"""
 
 
 def exec_tabs_html(

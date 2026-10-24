@@ -72,7 +72,7 @@
   var eye = $("v5-eyebrow");
   if (eye) eye.textContent = META.eyebrow || "";
   $("cos").innerHTML = CO.map(function (c) {
-    return "<span>" + coDot(c) + esc(c.name) + (c.me ? ' <span class="you">você</span>' : ' <span style="color:var(--soft)">' + esc(c.dom) + "</span>") + "</span>";
+    return '<span data-domain="' + esc(c.dom || "") + '">' + coDot(c) + esc(c.name) + (c.me ? ' <span class="you">você</span>' : ' <span style="color:var(--soft)">' + esc(c.dom) + "</span>") + "</span>";
   }).join("");
 
   (function insights() {

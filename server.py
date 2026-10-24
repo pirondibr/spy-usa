@@ -19,12 +19,17 @@ from typing import Any, Optional
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from parse_input import ParsedInput, parse_company_list
+from parse_input import ParsedInput, parse_company_list, slugify_client
 from competitor_edits import (
+    ANALYSIS_MAX_COMPANIES,
+    _abs_url,
+    _domain_of,
     add_competitor,
+    collect_analysis_company_urls,
     delete_competitors,
     fetch_missing_similarweb,
     fetch_semrush_brand_extra,
+    normalize_similarity,
     parse_site_list,
     set_brand_view,
     set_competitor_similarity,
@@ -59,7 +64,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.56"
+APP_VERSION = "0.4.57"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -285,6 +290,8 @@ class Job:
     competitors_only: bool = False
     include_brand_growth: bool = False
     include_similarweb_alto: bool = False
+    append_similarity: str = ""
+    new_peer_urls: list[str] = field(default_factory=list)
     queue: Queue = field(default_factory=Queue)
     status: str = "pending"
     current_step: str = ""
@@ -368,6 +375,12 @@ def _worker(job: Job) -> None:
             include_brand_growth=bool(job.include_brand_growth),
             include_similarweb_alto=bool(job.include_similarweb_alto),
         )
+        if job.append_similarity and job.new_peer_urls:
+            for href in job.new_peer_urls:
+                try:
+                    set_competitor_similarity(job.job_id, href, job.append_similarity)
+                except Exception as e:
+                    emit(job, "log", line=f"[ADD] similarity {href}: {e}")
         job.report = report
         job.html_url = f"/runs/{job.job_id}/report.html"
         job.status = "done"
@@ -1081,6 +1094,85 @@ def run_delete_competitors(run_id: str):
         return jsonify({"error": str(e)}), 400
 
 
+def _start_analysis_append(run_id: str, urls: list[str], similaridade: str = "") -> dict[str, Any]:
+    """Queue a compare_all refresh that fetches only the new sites and merges them in."""
+    meta = _read_run_meta(run_id) or {}
+    report = load_saved_report(run_id, RUNS_DIR) or {}
+    if meta.get("competitors_only") or report.get("competitors_only"):
+        raise ValueError("This run is a find-competitors report")
+    primary, peers = collect_analysis_company_urls(report, meta)
+    if not primary:
+        raise ValueError("This report has no primary URL to compare against")
+    live = jobs.get(run_id)
+    if live and live.status in ("pending", "running"):
+        raise ValueError("This report is already adding a website")
+
+    have = {_domain_of(primary), *(_domain_of(p) for p in peers)}
+    have.discard("")
+    fresh: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    for href in urls:
+        dom = _domain_of(href)
+        if not dom:
+            skipped.append({"url": href, "reason": "invalid"})
+            continue
+        if dom in have:
+            skipped.append({"url": href, "domain": dom, "reason": "already"})
+            continue
+        if 1 + len(peers) + len(fresh) >= ANALYSIS_MAX_COMPANIES:
+            skipped.append({"url": href, "domain": dom, "reason": "limit"})
+            continue
+        have.add(dom)
+        fresh.append(_abs_url(href))
+    if not fresh:
+        return {
+            "ok": True,
+            "async": False,
+            "added": [],
+            "skipped": skipped,
+            "html_url": f"/runs/{run_id}/report.html",
+        }
+
+    parsed = ParsedInput(
+        company=str(meta.get("company") or report.get("client") or slugify_client(primary)),
+        url=primary,
+        slug=str(meta.get("slug") or slugify_client(primary)),
+        competitors=peers + fresh,
+    )
+    job = Job(
+        job_id=run_id,
+        parsed=parsed,
+        force=False,
+        site_only=True,
+        compare_all=True,
+        competitors_only=False,
+        include_google_ads=bool(meta.get("include_google_ads", True)),
+        include_linkedin=bool(meta.get("include_linkedin", True)),
+        include_youtube_influencers=bool(meta.get("include_youtube_influencers", False)),
+        include_instagram_influencers=bool(meta.get("include_instagram_influencers", False)),
+        include_reddit=bool(meta.get("include_reddit", False)),
+        include_twitter=bool(meta.get("include_twitter", False)),
+        include_linkedin_profile=bool(meta.get("include_linkedin_profile", False)),
+        market=_normalize_market(meta.get("market") or report.get("market") or "us"),
+        include_brand_growth=bool(meta.get("include_brand_growth")),
+        include_similarweb_alto=bool(meta.get("include_similarweb_alto")),
+        created_at=str(meta.get("created_at") or _now_iso()),
+        html_url=f"/runs/{run_id}/report.html",
+        append_similarity=normalize_similarity(similaridade),
+        new_peer_urls=fresh,
+    )
+    _enqueue_job(job)
+    return {
+        "ok": True,
+        "async": True,
+        "job_id": run_id,
+        "stream": f"/api/jobs/{run_id}/stream",
+        "added": [{"url": u, "domain": _domain_of(u)} for u in fresh],
+        "skipped": skipped,
+        "html_url": f"/runs/{run_id}/report.html",
+    }
+
+
 @app.post("/api/runs/<run_id>/competitors/add")
 def run_add_competitor(run_id: str):
     body = request.get_json(silent=True) or {}
@@ -1091,7 +1183,12 @@ def run_add_competitor(run_id: str):
     sites = parse_site_list(raw)
     if not sites:
         return jsonify({"error": "A valid website URL is required"}), 400
+    meta = _read_run_meta(run_id) or {}
+    report = load_saved_report(run_id, RUNS_DIR) or {}
+    analysis = not (meta.get("competitors_only") or report.get("competitors_only"))
     try:
+        if analysis:
+            return jsonify(_start_analysis_append(run_id, sites, sim))
         if len(sites) == 1:
             return jsonify(add_competitor(run_id, sites[0], sim))
         added, skipped, errors = [], [], []

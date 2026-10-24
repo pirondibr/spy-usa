@@ -26,6 +26,7 @@ def build_analysis_v2(
         _dfs_growth_pct,
         _esc,
         _resolve_run_log,
+        analysis_add_form_html,
         exec_tabs_html,
         _summary_channel_url,
         _summary_companies,
@@ -690,6 +691,7 @@ def build_analysis_v2(
         {f'<div><dt>Run</dt><dd class="num">{_esc(run_id)}</dd></div>' if run_id else ""}
       </dl>
     </section>
+    {analysis_add_form_html(run_id, companies or [{"name": client, "domain": site_host, "is_client": True}])}
     {cmp_html}
     {summary_html}
     {busca_html}

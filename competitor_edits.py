@@ -212,6 +212,40 @@ def set_brand_view(run_id: str, domain: str, view: str) -> dict[str, Any]:
 _SITE_SPLIT = re.compile(r"[\s,;|]+")
 
 
+ANALYSIS_MAX_COMPANIES = 8
+
+
+def collect_analysis_company_urls(
+    report: dict[str, Any],
+    meta: Optional[dict[str, Any]] = None,
+) -> tuple[str, list[str]]:
+    """Primary URL + peer URLs already on an analysis report."""
+    meta = meta or {}
+    briefing = report.get("briefing") if isinstance(report.get("briefing"), dict) else {}
+    primary = _abs_url(str(meta.get("url") or briefing.get("url") or "").strip())
+    seen: set[str] = set()
+    prim_dom = _domain_of(primary)
+    if prim_dom:
+        seen.add(prim_dom)
+    peers: list[str] = []
+
+    def _push(raw: Any) -> None:
+        href = _abs_url(str(raw or ""))
+        dom = _domain_of(href)
+        if not dom or dom in seen:
+            return
+        seen.add(dom)
+        peers.append(href)
+
+    for raw in meta.get("peer_urls") or []:
+        _push(raw)
+    for row in _rows_of(report):
+        if not isinstance(row, dict) or row.get("is_client"):
+            continue
+        _push(row.get("url") or row.get("domain") or "")
+    return primary, peers
+
+
 def parse_site_list(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         parts = [str(x or "") for x in value]

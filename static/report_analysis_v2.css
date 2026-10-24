@@ -278,3 +278,14 @@ html[data-ui="v5"] header.topbar{display:none!important}
   #analysis-v2 .cb li,#analysis-v2 .cb.paid li{grid-template-columns:96px 1fr 50px}
   #analysis-v2 .cb .x,#analysis-v2 .cb .lk{display:none}
 }
+#analysis-v2 .analysis-add{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0;padding:12px 0 0}
+#analysis-v2 .analysis-add textarea{flex:1;min-width:220px;height:38px;min-height:38px;max-height:38px;resize:none;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;line-height:1.2;background:#fff}
+#analysis-v2 .analysis-add select{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;background:#fff}
+#analysis-v2 .analysis-add button{border:0;background:#0f172a;color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
+#analysis-v2 .analysis-add button:disabled{opacity:.55;cursor:default}
+#analysis-v2 .analysis-add .add-status{font-size:13px;color:var(--muted)}
+#analysis-v2 .analysis-add .add-log{list-style:none;margin:0;padding:0;width:100%;max-height:160px;overflow:auto;font-size:12.5px;color:var(--ink2)}
+#analysis-v2 .analysis-add .add-log[hidden]{display:none}
+#analysis-v2 .analysis-add .add-log li{padding:3px 0}
+#analysis-v2 .analysis-add .add-log .ok{color:var(--up)}
+#analysis-v2 .analysis-add .add-log .err{color:var(--down)}

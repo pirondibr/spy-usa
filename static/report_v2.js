@@ -799,3 +799,173 @@
 
   render();
 })();
+
+(function () {
+  var forms = document.querySelectorAll("form.analysis-add");
+  if (!forms.length) return;
+  function postJson(path, payload) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok || d.error) throw new Error(d.error || "HTTP " + r.status);
+        return d;
+      });
+    });
+  }
+  function hostOf(item) {
+    var host = String(item || "").trim();
+    if (!host || host.charAt(0) === "#") return "";
+    host = host.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase();
+    host = host.replace(/:\d+$/, "");
+    if (!host || host.indexOf(".") < 0) return "";
+    return host;
+  }
+  function existingDomains(form) {
+    var have = {};
+    String(form.getAttribute("data-domains") || "")
+      .split(",")
+      .forEach(function (d) {
+        d = d.trim().toLowerCase();
+        if (d) have[d] = 1;
+      });
+    document.querySelectorAll("[data-domain]").forEach(function (el) {
+      var d = String(el.getAttribute("data-domain") || "").toLowerCase();
+      if (d) have[d] = 1;
+    });
+    return have;
+  }
+  function analyzeSites(form, text) {
+    var parts = String(text || "").split(/[\s,;|]+/);
+    var have = existingDomains(form);
+    var seen = {},
+      fresh = [];
+    var raw = 0,
+      repeatInPaste = 0,
+      already = 0;
+    parts.forEach(function (item) {
+      var host = hostOf(item);
+      if (!host) return;
+      raw++;
+      if (seen[host]) {
+        repeatInPaste++;
+        return;
+      }
+      seen[host] = 1;
+      if (have[host]) {
+        already++;
+        return;
+      }
+      fresh.push({ domain: host, url: "https://" + host });
+    });
+    return { raw: raw, fresh: fresh, repeatInPaste: repeatInPaste, already: already };
+  }
+  function describeClean(info) {
+    var bits = [];
+    if (info.repeatInPaste) bits.push(info.repeatInPaste + " duplicate" + (info.repeatInPaste > 1 ? "s" : "") + " in paste");
+    if (info.already) bits.push(info.already + " already in the report");
+    if (!bits.length) return "";
+    return "Removed from list: " + bits.join(" · ") + ". " + info.fresh.length + " left.";
+  }
+  function watchStream(form, stream, st, log) {
+    if (!stream || typeof EventSource === "undefined") {
+      if (st) st.textContent = "Started. Reloading when ready…";
+      setTimeout(function () { location.reload(); }, 4000);
+      return;
+    }
+    var es = new EventSource(stream);
+    es.onmessage = function (ev) {
+      var msg = {};
+      try { msg = JSON.parse(ev.data || "{}"); } catch (e) { return; }
+      if (msg.type === "log" && msg.line && log) {
+        var li = document.createElement("li");
+        li.className = "run";
+        li.textContent = String(msg.line);
+        log.appendChild(li);
+        log.scrollTop = log.scrollHeight;
+      }
+      if (msg.type === "step" && st) {
+        st.textContent = msg.detail || msg.step_id || "Working…";
+      }
+      if (msg.type === "finished" || msg.type === "eof") {
+        es.close();
+        if (st) st.textContent = "Done. Reloading…";
+        location.reload();
+      }
+      if (msg.type === "error") {
+        es.close();
+        if (st) st.textContent = msg.message || "Failed";
+        form.querySelectorAll("textarea, select, button").forEach(function (el) { el.disabled = false; });
+      }
+    };
+    es.onerror = function () {
+      if (st && /Reloading/.test(st.textContent || "")) return;
+    };
+  }
+  forms.forEach(function (form) {
+    var runId = form.getAttribute("data-run") || "";
+    var area = form.querySelector("[name=urls]");
+    var btn = form.querySelector('button[type="submit"]');
+    var st = form.querySelector(".add-status");
+    var log = form.querySelector(".add-log");
+    if (!runId || !area || !btn) return;
+    area.addEventListener("paste", function () {
+      setTimeout(function () {
+        var info = analyzeSites(form, area.value);
+        area.value = info.fresh.map(function (s) { return s.domain; }).join("\n");
+        if (st) st.textContent = describeClean(info) || (info.fresh.length ? info.fresh.length + " new sites." : "");
+        btn.textContent = info.fresh.length > 1 ? "Add " + info.fresh.length + " websites" : "Add websites";
+      }, 0);
+    });
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var info = analyzeSites(form, area.value);
+      area.value = info.fresh.map(function (s) { return s.domain; }).join("\n");
+      var sites = info.fresh;
+      var have = parseInt(form.getAttribute("data-have") || "1", 10) || 1;
+      var max = parseInt(form.getAttribute("data-max") || "8", 10) || 8;
+      if (have + sites.length > max) {
+        if (st) st.textContent = "Limit is " + max + " companies (" + have + " already here).";
+        return;
+      }
+      if (!sites.length) {
+        if (st) st.textContent = describeClean(info) || "Paste one or more valid sites.";
+        return;
+      }
+      var sim = (form.querySelector("[name=similaridade]") || {}).value || "";
+      btn.disabled = true;
+      area.disabled = true;
+      if (log) {
+        log.innerHTML = "";
+        log.hidden = false;
+        sites.forEach(function (s) {
+          var li = document.createElement("li");
+          li.className = "run";
+          li.textContent = s.domain + " — analyzing…";
+          log.appendChild(li);
+        });
+      }
+      if (st) st.textContent = "Adding " + sites.length + " site" + (sites.length > 1 ? "s" : "") + " to this report…";
+      postJson("/api/runs/" + runId + "/competitors/add", {
+        urls: sites.map(function (s) { return s.url; }),
+        similaridade: sim,
+      })
+        .then(function (d) {
+          if (d && d.async && d.stream) {
+            if (st) st.textContent = "Fetching channels for the new site" + (sites.length > 1 ? "s" : "") + "…";
+            watchStream(form, d.stream, st, log);
+            return;
+          }
+          if (st) st.textContent = "Added. Reloading…";
+          location.reload();
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          area.disabled = false;
+          if (st) st.textContent = err.message || String(err);
+        });
+    });
+  });
+})();
