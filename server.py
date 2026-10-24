@@ -64,7 +64,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.63"
+APP_VERSION = "0.4.64"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -503,13 +503,26 @@ def _job_payload(job: Job) -> dict[str, Any]:
     }
 
 
+def _landing_ui() -> str:
+    raw = (
+        request.args.get("ui")
+        or request.args.get("landing")
+        or request.cookies.get("wt-landing")
+        or "v2"
+    )
+    return "v1" if str(raw).strip().lower() in ("v1", "1") else "v2"
+
+
 @app.get("/")
 def index():
     qs = request.query_string.decode() if request.query_string else ""
     if any(request.args.get(k) for k in ("rerun", "redo", "url", "q", "tab", "site", "company")):
         return redirect("/app" + (f"?{qs}" if qs else ""), code=302)
-    resp = send_from_directory(STATIC_DIR, "landing.html")
+    ui = _landing_ui()
+    name = "landing-v2.html" if ui == "v2" else "landing.html"
+    resp = send_from_directory(STATIC_DIR, name)
     resp.headers["Cache-Control"] = "no-store"
+    resp.set_cookie("wt-landing", ui, max_age=60 * 60 * 24 * 365, samesite="Lax")
     return resp
 
 

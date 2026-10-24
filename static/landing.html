@@ -42,6 +42,9 @@ h1,h2,h3{letter-spacing:-.035em;margin:0}
 .nav nav a:hover{color:var(--ink);background:var(--tint)}
 .nav .r{margin-left:auto;display:flex;gap:8px;align-items:center}
 .nav .btn{padding:10px 16px;font-size:14px}
+.land-switch{display:inline-flex;align-items:center;gap:2px;background:var(--tint);border-radius:10px;padding:3px}
+.land-switch button{appearance:none;border:0;background:none;padding:6px 10px;border-radius:8px;font-size:13px;font-weight:700;color:var(--mut);cursor:pointer}
+.land-switch button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(14,17,22,.12)}
 
 /* hero */
 .hero{position:relative;overflow:hidden;padding:72px 0 88px;background:radial-gradient(900px 500px at 85% -10%,rgba(127,212,193,.22),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(74,111,165,.10),transparent 60%)}
@@ -272,7 +275,7 @@ footer a:hover{color:var(--ink)}
 <header class="nav" id="nav"><div class="wrap">
   <a href="/" class="logo" aria-label="WinnerTracker home"><span class="mark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="5" cy="11" r="2.4" fill="#E5484D"/><circle cx="9.6" cy="8.6" r="3" fill="#EAB308"/><circle cx="11.4" cy="4.6" r="3.4" fill="#16A34A"/></svg></span>WinnerTracker</a>
   <nav aria-label="Main"><a href="#how">How it works</a><a href="#what">What you get</a><a href="#who">Who it's for</a><a href="#faq">FAQ</a></nav>
-  <div class="r"><a class="btn sec sec-link" href="/app">Open the app</a><a class="btn pri" href="/app">Analyze competitors</a></div>
+  <div class="r"><div class="land-switch" role="group" aria-label="Landing layout"><button type="button" data-land-set="v1" aria-pressed="true">v1</button><button type="button" data-land-set="v2">v2</button></div><a class="btn sec sec-link" href="/app">Open the app</a><a class="btn pri" href="/app">Analyze competitors</a></div>
 </div></header>
 
 <main>
@@ -473,6 +476,12 @@ setTimeout(() => grow(document.querySelector('.hero')), 250);
 // safety net: never leave content hidden
 setTimeout(() => document.querySelectorAll('.rv:not(.in)').forEach(el => { el.classList.add('in'); grow(el); }), 4000);
 document.querySelectorAll('.feat .fv').forEach(el => { const o = new IntersectionObserver(es => { if (es[0].isIntersecting) { grow(el); o.disconnect(); } }); o.observe(el); });
+document.querySelectorAll('[data-land-set]').forEach(b => b.addEventListener('click', () => {
+  const v = b.getAttribute('data-land-set');
+  try { localStorage.setItem('wt-landing', v); } catch (e) {}
+  if (new URLSearchParams(location.search).get('ui') === v) return;
+  location.href = '/?ui=' + encodeURIComponent(v);
+}));
 </script>
 </body>
 </html>
