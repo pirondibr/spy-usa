@@ -271,7 +271,7 @@
     ["paid", "org", "inf"].forEach(function (g) {
       var chs = rows.filter(function (ch) { return ch.g === g; });
       if (!chs.length) return;
-      h += '<tr class="gr"><td colspan="' + (CO.length + 1) + '"><span class="gm g-' + g + '"></span>' + GR[g] + "</td></tr>";
+      h += '<tr class="gr"><td colspan="' + (CO.length + 1) + '"><span class="gl gl-' + g + '"><span class="gm g-' + g + '"></span>' + GR[g] + "</span></td></tr>";
       chs.forEach(function (ch) {
         var empty = free.indexOf(ch) >= 0;
         h += "<tr" + (empty ? ' class="er"' : "") + '><td class="cl"><b>' + esc(ch.l) + "</b><span>" + esc(ch.u) + (empty ? " · <em>ninguém</em>" : "") + "</span></td>" +
