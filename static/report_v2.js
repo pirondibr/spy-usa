@@ -1,7 +1,7 @@
 (function () {
   var isComps = document.documentElement.getAttribute("data-tool") === "competitors";
   function applyUi(ui) {
-    if (isComps) ui = "v1";
+    if (isComps) ui = ui === "v1" ? "v1" : "v2";
     document.documentElement.setAttribute("data-ui", ui);
     document.querySelectorAll("[data-ui-set]").forEach(function (b) {
       b.setAttribute("aria-pressed", b.getAttribute("data-ui-set") === ui ? "true" : "false");
@@ -14,12 +14,20 @@
     } catch (e) {}
   }
   var stored = null;
-  try { stored = localStorage.getItem("spy-ui"); } catch (e) {}
-  applyUi(isComps ? "v1" : stored === "v6" || stored === "v5" || stored === "v4" ? stored : "v6");
+  try { stored = localStorage.getItem(isComps ? "spy-cmp-ui" : "spy-ui"); } catch (e) {}
+  var hasFind = document.documentElement.hasAttribute("data-has-find-v2");
+  applyUi(isComps ? (hasFind ? (stored === "v1" ? "v1" : "v2") : "v1") : (stored === "v6" || stored === "v5" || stored === "v4" ? stored : "v6"));
   document.addEventListener("click", function (e) {
     var b = e.target.closest("[data-ui-set]");
-    if (!b || isComps) return;
+    if (!b) return;
     var next = b.getAttribute("data-ui-set");
+    if (isComps) {
+      if (!hasFind || (next !== "v1" && next !== "v2")) return;
+      try { localStorage.setItem("spy-cmp-ui", next); } catch (err) {}
+      applyUi(next);
+      if (next === "v2") window.scrollTo(0, 0);
+      return;
+    }
     if (next !== "v4" && next !== "v5" && next !== "v6") return;
     try { localStorage.setItem("spy-ui", next); } catch (err) {}
     applyUi(next);

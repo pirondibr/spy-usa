@@ -360,7 +360,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.60"
+REPORT_UI_VERSION = "0.4.61"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2858,8 +2858,36 @@ def render_report_html(
             analysis_v5 = ""
             analysis_v6 = ""
 
+    find_v2 = ""
+    if competitors_only:
+        try:
+            from report_find_v2 import build_find_v2, build_find_v2_payload
+
+            find_v2 = build_find_v2(
+                build_find_v2_payload(
+                    report,
+                    meta=meta,
+                    briefing=briefing,
+                    client=str(client),
+                    site_host=site_host,
+                    run_id=run_id,
+                    market=market,
+                ),
+                ui_ver=ui_ver,
+            )
+        except Exception as e:
+            print(f"[FIND-V2] build skipped: {e}", flush=True)
+            find_v2 = ""
+
     ui_toggle = ""
-    if not competitors_only:
+    if competitors_only and find_v2:
+        ui_toggle = """
+      <div class="ui-switch" role="group" aria-label="Report layout">
+        <span class="ui-switch-lab" data-i18n="nav.layout">Layout</span>
+        <button type="button" data-ui-set="v1">v1</button>
+        <button type="button" data-ui-set="v2" aria-pressed="true">v2</button>
+      </div>"""
+    elif not competitors_only:
         ui_toggle = """
       <div class="ui-switch" role="group" aria-label="Report layout">
         <span class="ui-switch-lab" data-i18n="nav.layout">Layout</span>
@@ -2869,7 +2897,7 @@ def render_report_html(
       </div>"""
 
     return f"""<!DOCTYPE html>
-<html lang="en-US" data-lang="en" data-ui="{'v1' if competitors_only else 'v6'}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}{' data-has-v6="1"' if analysis_v6 else ''}>
+<html lang="en-US" data-lang="en" data-ui="{'v2' if find_v2 else ('v1' if competitors_only else 'v6')}"{' data-tool="competitors"' if competitors_only else ''}{' data-has-v3="1"' if with_competitors else ''}{' data-has-v5="1"' if analysis_v5 else ''}{' data-has-v6="1"' if analysis_v6 else ''}{' data-has-find-v2="1"' if find_v2 else ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2882,7 +2910,8 @@ def render_report_html(
 <link rel="stylesheet" href="/static/report_cmp.css?v={_esc(ui_ver)}">
 {f'<link rel="stylesheet" href="/static/report_v5.css?v={_esc(ui_ver)}">' if analysis_v5 else ''}
 {f'<link rel="stylesheet" href="/static/report_v6.css?v={_esc(ui_ver)}">' if analysis_v6 else ''}
-<script>(function(){{try{{var lang=localStorage.getItem('spy-lang');lang=(lang==='pt')?'pt':'en';document.documentElement.setAttribute('data-lang',lang);document.documentElement.setAttribute('lang',lang==='pt'?'pt-BR':'en-US');if(document.documentElement.getAttribute('data-tool')==='competitors')return;var s=localStorage.getItem('spy-ui');if(s==='v4'||s==='v5'||s==='v6')document.documentElement.setAttribute('data-ui',s);else document.documentElement.setAttribute('data-ui','v6');}}catch(e){{}}}})();</script>
+{f'<link rel="stylesheet" href="/static/report_find_v2.css?v={_esc(ui_ver)}">' if find_v2 else ''}
+<script>(function(){{try{{var lang=localStorage.getItem('spy-lang');lang=(lang==='pt')?'pt':'en';document.documentElement.setAttribute('data-lang',lang);document.documentElement.setAttribute('lang',lang==='pt'?'pt-BR':'en-US');if(document.documentElement.getAttribute('data-tool')==='competitors'){{if(!document.documentElement.hasAttribute('data-has-find-v2')){{document.documentElement.setAttribute('data-ui','v1');return;}}var c=localStorage.getItem('spy-cmp-ui');document.documentElement.setAttribute('data-ui',c==='v1'?'v1':'v2');return;}}var s=localStorage.getItem('spy-ui');if(s==='v4'||s==='v5'||s==='v6')document.documentElement.setAttribute('data-ui',s);else document.documentElement.setAttribute('data-ui','v6');}}catch(e){{}}}})();</script>
 <script src="/static/spy_i18n.js?v={_esc(ui_ver)}"></script>
 </head>
 <body{body_cls}>
@@ -2953,8 +2982,9 @@ def render_report_html(
 {analysis_v2}
 {analysis_v5}
 {analysis_v6}
+{find_v2}
 <script>
-(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');var stored=null;try{{stored=localStorage.getItem('spy-ui');}}catch(e){{}}var ui=tool==='competitors'?'v1':(stored==='v4'||stored==='v5'||stored==='v6'?stored:'v6');document.documentElement.setAttribute('data-ui',ui);document.querySelectorAll('[data-ui-set]').forEach(function(b){{b.setAttribute('aria-pressed',b.getAttribute('data-ui-set')===ui?'true':'false');}});var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
+(function(){{try{{var tool=document.documentElement.getAttribute('data-tool');var stored=null;try{{stored=tool==='competitors'?localStorage.getItem('spy-cmp-ui'):localStorage.getItem('spy-ui');}}catch(e){{}}var hasFind=document.documentElement.hasAttribute('data-has-find-v2');var ui=tool==='competitors'?(hasFind?(stored==='v1'?'v1':'v2'):'v1'):(stored==='v4'||stored==='v5'||stored==='v6'?stored:'v6');document.documentElement.setAttribute('data-ui',ui);document.querySelectorAll('[data-ui-set]').forEach(function(b){{b.setAttribute('aria-pressed',b.getAttribute('data-ui-set')===ui?'true':'false');}});var card=document.getElementById('sec-competitors');var slot=document.getElementById('lista');if(card&&slot&&tool!=='competitors')slot.appendChild(card);}}catch(e){{}}}})();
 </script>
 <script>{_REPORT_JS}</script>
 <script src="/static/report_v2.js?v={_esc(ui_ver)}"></script>

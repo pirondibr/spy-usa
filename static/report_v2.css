@@ -2,12 +2,10 @@
 .ui-ver{display:none!important}
 
 #comp-v2{display:none}
-html[data-ui="v1"] #comp-v1,
-html[data-tool="competitors"] #comp-v1{display:block!important}
-html[data-ui="v1"] #comp-v2,
-html[data-tool="competitors"] #comp-v2{display:none!important}
-html[data-ui="v2"] #comp-v1{display:none!important}
-html[data-ui="v2"] #comp-v2{display:block}
+html[data-ui="v1"] #comp-v1{display:block!important}
+html[data-ui="v1"] #comp-v2{display:none!important}
+html[data-ui="v2"]:not([data-tool="competitors"]) #comp-v1{display:none!important}
+html[data-ui="v2"]:not([data-tool="competitors"]) #comp-v2{display:block}
 html[data-ui="v3"] #comp-v1,
 html[data-ui="v4"] #comp-v1{display:none!important}
 html[data-ui="v3"] #comp-v2,
