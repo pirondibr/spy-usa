@@ -186,7 +186,7 @@ def build_find_v2(payload: dict[str, Any], *, ui_ver: str) -> str:
     <span class="seglab" data-i18n="find.sort">Sort by</span>
     <div class="seg" id="find-fSort"></div>
   </div>
-  <div style="overflow-x:auto"><table class="tb" id="find-list"></table></div>
+  <div class="bw"><table class="tb" id="find-list"></table></div>
   <p class="note" id="find-note" data-i18n="find.note"></p>
 </main>
 <div class="bar"><div class="wrap">
