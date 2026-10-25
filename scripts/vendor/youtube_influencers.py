@@ -385,6 +385,32 @@ def _parse_views_blob(*parts: Any) -> Optional[int]:
     return int(n * mult)
 
 
+def _has_youtube_views(items: list[dict[str, Any]]) -> bool:
+    for it in items or []:
+        url = str(it.get("url") or "").lower()
+        if "youtube.com" not in url and "youtu.be" not in url:
+            continue
+        if "/watch" not in url and "/shorts/" not in url and "youtu.be/" not in url:
+            continue
+        raw = it.get("views")
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+            return True
+        blob = " ".join(
+            str(it.get(k) or "")
+            for k in (
+                "breadcrumb",
+                "snippet",
+                "description",
+                "extended_snippet",
+                "pre_snippet",
+                "title",
+            )
+        )
+        if _parse_views_blob(blob):
+            return True
+    return False
+
+
 def google_youtube_search(query: str, *, market: str = "us") -> dict[str, Any]:
     """Page-1 Google for YouTube videos when native YouTube scrape fails."""
     t0 = time.time()
@@ -395,6 +421,7 @@ def google_youtube_search(query: str, *, market: str = "us") -> dict[str, Any]:
             query,
             market=market,
             include_domains="youtube.com",
+            accept=_has_youtube_views,
         )
     except Exception as e:
         return {
