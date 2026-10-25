@@ -1360,8 +1360,9 @@ def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str,
         '"tiktok":"https://www.tiktok.com/@handle"}\n\n'
         "Rules:\n"
         "- Only the company's own official account, never a fan page, article, or a single video/post.\n"
-        "- Use an empty string when you are not confident.\n"
-        "- Prefer the handle that matches the brand name.\n"
+        "- Use an empty string when you are not sure of the exact handle. Do not guess a similar handle "
+        "(underscores, extra words, or a close spelling).\n"
+        "- Prefer the handle that matches the brand name on the official website.\n"
     )
     try:
         r = requests.post(
@@ -1451,53 +1452,83 @@ def social_links_from_homepage(url: str, company_name: str = "") -> dict[str, st
     return out
 
 
-def discover_official_socials(company_name: str, site_url: str, domain: str = "") -> dict[str, str]:
-    """Official YT / IG / TikTok: Gemini first, then homepage, then Google."""
+def _social_url_key(platform: str, url: str) -> str:
+    return (_validate_social_url(platform, url) or "").lower().rstrip("/")
+
+
+def _followers_for_platform(platform: str, url: str) -> int | None:
+    if platform == "instagram":
+        return parse_instagram_followers(url)
+    if platform == "youtube":
+        return parse_youtube_followers(url)
+    if platform == "tiktok":
+        return parse_tiktok_followers(url)
+    return None
+
+
+def discover_official_socials(
+    company_name: str, site_url: str, domain: str = "",
+) -> tuple[dict[str, str], dict[str, int | None]]:
+    """Official YT / IG / TikTok: gather Gemini + website + Google, then keep the biggest profile."""
     label = (company_name or social_search_label(site_url) or domain or "").strip()
     out = {"instagram": "", "youtube": "", "tiktok": ""}
     src = {k: "" for k in out}
+    counts: dict[str, int | None] = {}
+    candidates: dict[str, list[tuple[str, str]]] = {k: [] for k in out}
+
+    def _add(platform: str, url: str, source: str) -> None:
+        clean = _validate_social_url(platform, url)
+        if not clean:
+            return
+        key = _social_url_key(platform, clean)
+        if any(_social_url_key(platform, existing) == key for existing, _ in candidates[platform]):
+            return
+        candidates[platform].append((clean, source))
 
     llm = _llm_official_socials(label, site_url, domain)
     for key_name in out:
-        url = _validate_social_url(key_name, llm.get(key_name) or "")
-        if url:
-            out[key_name] = url
-            src[key_name] = "gemini"
+        _add(key_name, llm.get(key_name) or "", "gemini")
     print(
-        f"[SOCIAL] gemini {label}: yt={out['youtube'] or '—'} "
-        f"ig={out['instagram'] or '—'} tt={out['tiktok'] or '—'}",
+        f"[SOCIAL] gemini {label}: yt={llm.get('youtube') or '—'} "
+        f"ig={llm.get('instagram') or '—'} tt={llm.get('tiktok') or '—'}",
         flush=True,
     )
 
-    missing = [k for k, v in out.items() if not v]
-    if missing and site_url:
+    if site_url:
         web = social_links_from_homepage(site_url, label)
-        for key_name in missing:
-            url = _validate_social_url(key_name, web.get(key_name) or "")
-            if url:
-                out[key_name] = url
-                src[key_name] = "website"
+        for key_name in out:
+            _add(key_name, web.get(key_name) or "", "website")
         print(
-            f"[SOCIAL] website {label}: yt={out['youtube'] or '—'} "
-            f"ig={out['instagram'] or '—'} tt={out['tiktok'] or '—'}",
+            f"[SOCIAL] website {label}: yt={web.get('youtube') or '—'} "
+            f"ig={web.get('instagram') or '—'} tt={web.get('tiktok') or '—'}",
             flush=True,
         )
 
-    missing = [k for k, v in out.items() if not v]
-    if missing and label:
-        for key_name in missing:
-            url = search_social_profile_google(key_name, label, site_url)
-            if url:
-                out[key_name] = url
-                src[key_name] = "google"
-        print(
-            f"[SOCIAL] google {label}: yt={out['youtube'] or '—'} "
-            f"ig={out['instagram'] or '—'} tt={out['tiktok'] or '—'}",
-            flush=True,
-        )
+    for key_name in out:
+        if candidates[key_name]:
+            continue
+        _add(key_name, search_social_profile_google(key_name, label, site_url), "google")
+
+    for key_name, cands in candidates.items():
+        if not cands:
+            continue
+        if len(cands) == 1:
+            out[key_name], src[key_name] = cands[0]
+            continue
+        best_url, best_src, best_n = cands[0][0], cands[0][1], -1
+        best_count: int | None = None
+        for url, source in cands:
+            n = _followers_for_platform(key_name, url)
+            n_i = -1 if n is None else int(n)
+            print(f"[SOCIAL] candidate {key_name} {url} src={source} followers={n}", flush=True)
+            if n_i > best_n:
+                best_url, best_src, best_n, best_count = url, source, n_i, n
+        out[key_name] = best_url
+        src[key_name] = best_src
+        counts[key_name] = best_count
 
     print(f"[SOCIAL] official {label} sources={src}", flush=True)
-    return out
+    return out, counts
 
 
 def _fetch_via_scrapingbee(url: str, render_js: bool = False) -> str:
@@ -1770,11 +1801,17 @@ def build_metric_rows(
                 or social_search_label(base_url)
                 or dom
             )
-            socials = discover_official_socials(str(social_name), base_url, dom)
+            socials, pre_counts = discover_official_socials(str(social_name), base_url, dom)
             t_links = time.time()
-            instagram_followers = parse_instagram_followers(socials["instagram"]) if socials["instagram"] else None
-            youtube_followers = parse_youtube_followers(socials["youtube"]) if socials["youtube"] else None
-            tiktok_followers = parse_tiktok_followers(socials["tiktok"]) if socials["tiktok"] else None
+            instagram_followers = pre_counts.get("instagram")
+            youtube_followers = pre_counts.get("youtube")
+            tiktok_followers = pre_counts.get("tiktok")
+            if instagram_followers is None and socials["instagram"]:
+                instagram_followers = parse_instagram_followers(socials["instagram"])
+            if youtube_followers is None and socials["youtube"]:
+                youtube_followers = parse_youtube_followers(socials["youtube"])
+            if tiktok_followers is None and socials["tiktok"]:
+                tiktok_followers = parse_tiktok_followers(socials["tiktok"])
             print(
                 f"[SOCIAL] ({i}/{n}) {dom} links={time.time() - t0:.1f}s "
                 f"followers_extra={time.time() - t_links:.1f}s total={time.time() - t0:.1f}s "
@@ -1978,16 +2015,13 @@ def _merge_preserved_channels(
             row["linkedin_ads"] = prev.get("linkedin_ads")
             row["linkedin_ads_url"] = prev.get("linkedin_search_url") or row.get("linkedin_ads_url") or ""
         if keep_social:
-            if not row.get("instagram_url") and prev.get("instagram_url"):
-                row["instagram_url"] = prev.get("instagram_url") or ""
-                row["instagram_followers"] = prev.get("instagram_followers")
-            if not row.get("youtube_url") and prev.get("youtube_url"):
-                row["youtube_url"] = prev.get("youtube_url") or ""
-                row["youtube_followers"] = prev.get("youtube_followers")
-            # TikTok: nunca coletamos no chatbot (script ainda nao existe)
-            if prev.get("tiktok_url"):
-                row["tiktok_url"] = prev.get("tiktok_url") or ""
-                row["tiktok_followers"] = prev.get("tiktok_followers")
+            for prefix in ("instagram", "youtube", "tiktok"):
+                url_k = f"{prefix}_url"
+                fol_k = f"{prefix}_followers"
+                if not row.get(url_k) and prev.get(url_k):
+                    row[url_k] = prev.get(url_k) or ""
+                if row.get(fol_k) in (None, "", "—") and prev.get(fol_k) not in (None, "", "—"):
+                    row[fol_k] = prev.get(fol_k)
 
 
 def filtered_sheet(rows: list[list[str]], keep_domains: set[str], include_client: bool = False) -> list[list[str]]:
