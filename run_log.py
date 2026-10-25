@@ -36,6 +36,7 @@ STEP_LABELS = {
     "youtube_influencers": "YouTube Influencers",
     "instagram_influencers": "Instagram Influencers",
     "tiktok_influencers": "TikTok Influencers",
+    "twitter_influencers": "X Influencers",
     "reddit": "Reddit",
     "twitter": "Twitter / X",
     "linkedin_profile": "LinkedIn Profile",
@@ -64,6 +65,7 @@ CHANNEL_APIS = {
     "youtube_influencers": ["ScrapingBee"],
     "instagram_influencers": ["TinyFish"],
     "tiktok_influencers": ["Apify"],
+    "twitter_influencers": ["Apify"],
     "reddit": ["TinyFish", "ScrapingBee"],
     "twitter": ["TinyFish", "ScrapingBee"],
     "linkedin_profile": ["TinyFish", "ScrapingBee", "DataForSEO", "OpenRouter"],
@@ -125,7 +127,7 @@ def _apify_domain_count(ch: dict[str, Any]) -> Optional[int]:
 
 def _is_apify_step(ch: dict[str, Any]) -> bool:
     sid = str(ch.get("id") or "")
-    if sid == "tiktok_influencers":
+    if sid in ("tiktok_influencers", "twitter_influencers"):
         return False
     if sid in ("similarweb", "similarweb_alto"):
         return True
@@ -318,6 +320,7 @@ def _credits_from_logs(lines: list[str]) -> dict[str, float]:
         (re.compile(r"\[YT-INF|youtube.?influencers", re.I), "youtube_influencers"),
         (re.compile(r"\[IG-INF|instagram.?influencers", re.I), "instagram_influencers"),
         (re.compile(r"\[TT-INF|tiktok.?influencers", re.I), "tiktok_influencers"),
+        (re.compile(r"\[X-INF|twitter.?influencers|x.?influencers", re.I), "twitter_influencers"),
         (re.compile(r"\[REDDIT", re.I), "reddit"),
         (re.compile(r"\[TW\b|twitter", re.I), "twitter"),
         (re.compile(r"\[LI\b|linkedin.?profile", re.I), "linkedin_profile"),

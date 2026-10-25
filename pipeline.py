@@ -37,6 +37,7 @@ SCRIPT_SOCIAL = FINAL_DIR / "5f - social ig yt.py"
 SCRIPT_YT_INFLUENCERS = FINAL_DIR / "5i - youtube influencers.py"
 SCRIPT_IG_INFLUENCERS = FINAL_DIR / "5j - instagram influencers.py"
 SCRIPT_TT_INFLUENCERS = FINAL_DIR / "5n - tiktok influencers.py"
+SCRIPT_X_INFLUENCERS = FINAL_DIR / "5o - twitter influencers.py"
 SCRIPT_REDDIT = FINAL_DIR / "5k - reddit mentions.py"
 SCRIPT_TWITTER = FINAL_DIR / "5l - twitter profile.py"
 SCRIPT_LI_PROFILE = FINAL_DIR / "5m - linkedin profile.py"
@@ -72,9 +73,10 @@ STEP_DEFS = [
     {"id": "youtube_influencers", "label": "YouTube Influencers", "index": 12, "eta_live": 90},
     {"id": "instagram_influencers", "label": "Instagram Influencers", "index": 13, "eta_live": 60},
     {"id": "tiktok_influencers", "label": "TikTok Influencers", "index": 14, "eta_live": 40},
-    {"id": "reddit", "label": "Reddit", "index": 15, "eta_live": 45},
-    {"id": "twitter", "label": "Twitter / X", "index": 16, "eta_live": 40},
-    {"id": "linkedin_profile", "label": "LinkedIn Profile", "index": 17, "eta_live": 20},
+    {"id": "twitter_influencers", "label": "X Influencers", "index": 15, "eta_live": 40},
+    {"id": "reddit", "label": "Reddit", "index": 16, "eta_live": 45},
+    {"id": "twitter", "label": "Twitter / X", "index": 17, "eta_live": 40},
+    {"id": "linkedin_profile", "label": "LinkedIn Profile", "index": 18, "eta_live": 20},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
 
@@ -489,6 +491,92 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
         ),
         "analysis_title": "TikTok Influencers",
         "pro_hook": "Na versão Pro mapeamos creators e formatos que geram views no TikTok do nicho.",
+    }
+    return report
+
+
+def _load_twitter_influencers(slug: str) -> Optional[dict]:
+    path = METRICAS_DIR / slug / f"twitter-influencers-{slug}.json"
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _x_inf_json_missing(slug: str) -> bool:
+    return _load_twitter_influencers(slug) is None
+
+
+def _attach_twitter_influencers(report: dict, slug: str) -> dict:
+    data = _load_twitter_influencers(slug)
+    if not data:
+        return report
+    rows_out: list[dict] = []
+    for r in data.get("rows") or []:
+        off = int(r.get("views_official") or 0)
+        unoff = int(r.get("views_unofficial") or 0)
+        confirmed_n = int(r.get("confirmed_count") or r.get("about_count") or 0)
+        probable_n = int(r.get("probable_count") or 0)
+        unrelated_n = int(r.get("unrelated_count") or 0)
+        rows_out.append({
+            "name": r.get("name") or r.get("domain"),
+            "domain": r.get("domain"),
+            "is_client": bool(r.get("is_client")),
+            "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
+            "traffic": unoff,
+            "traffic_fmt": _fmt_views(unoff),
+            "views_official": off,
+            "views_official_fmt": _fmt_views(off),
+            "views_unofficial": unoff,
+            "views_unofficial_fmt": _fmt_views(unoff),
+            "views_confirmed": int(r.get("views_confirmed") or (off + unoff)),
+            "views_confirmed_fmt": _fmt_views(int(r.get("views_confirmed") or (off + unoff))),
+            "views_probable": int(r.get("views_probable") or 0),
+            "views_probable_fmt": _fmt_views(int(r.get("views_probable") or 0)),
+            "about_count": confirmed_n,
+            "page_count": r.get("page_count") or 0,
+            "confirmed_count": confirmed_n,
+            "probable_count": probable_n,
+            "unrelated_count": unrelated_n,
+            "top5": r.get("top5") or [],
+            "top5_official": r.get("top5_official") or [],
+            "top5_unofficial": r.get("top5_unofficial") or [],
+            "top5_probable": r.get("top5_probable") or [],
+            "videos_confirmed": r.get("videos_confirmed") or [],
+            "videos_probable": r.get("videos_probable") or [],
+            "videos_unrelated": r.get("videos_unrelated") or [],
+            "official_channel": r.get("official_channel"),
+            "brand": r.get("brand") or {},
+            "query": r.get("query") or "",
+            "url": r.get("search_url") or "",
+            "usage": r.get("usage") or {},
+            "error": r.get("error"),
+        })
+    client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
+    usage = data.get("usage_total") or {}
+    amb = bool((client.get("brand") or {}).get("ambiguous"))
+    report["twitter_influencers"] = {
+        "source": data.get("source") or "apify_tweet",
+        "market": data.get("market") or "US",
+        "leader": client.get("name") if client else "—",
+        "total_traffic_fmt": client.get("views_unofficial_fmt") if client else "—",
+        "unit": "confirmed other-author likes (≥50)",
+        "rows": rows_out,
+        "usage_total": usage,
+        "insight": (
+            f"X Apify «{client.get('query') or client.get('name') or '—'}»: "
+            f"{client.get('confirmed_count') or 0} confirmed · "
+            f"{client.get('probable_count') or 0} probable · "
+            f"{client.get('unrelated_count') or 0} discarded · "
+            f"other {_fmt_views(client.get('views_unofficial'))} likes"
+            f"{' · ambiguous brand (review probable)' if amb else ''}."
+        ),
+        "analysis_title": "X Influencers",
+        "pro_hook": "Na versão Pro mapeamos creators e formatos que geram likes no X do nicho.",
     }
     return report
 
@@ -1080,6 +1168,7 @@ def _save_report(
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
     include_tiktok_influencers: bool = False,
+    include_twitter_influencers: bool = False,
     include_reddit: bool = False,
     include_twitter: bool = False,
     include_linkedin_profile: bool = False,
@@ -1124,6 +1213,7 @@ def _save_report(
         "include_youtube_influencers": bool(include_youtube_influencers),
         "include_instagram_influencers": bool(include_instagram_influencers),
         "include_tiktok_influencers": bool(include_tiktok_influencers),
+        "include_twitter_influencers": bool(include_twitter_influencers),
         "include_reddit": bool(include_reddit),
         "include_twitter": bool(include_twitter),
         "include_linkedin_profile": bool(include_linkedin_profile),
@@ -1151,6 +1241,7 @@ def _attach_all_sidecars(report: dict, slug: str) -> dict:
     report = _attach_youtube_influencers(report, slug)
     report = _attach_instagram_influencers(report, slug)
     report = _attach_tiktok_influencers(report, slug)
+    report = _attach_twitter_influencers(report, slug)
     report = _attach_reddit(report, slug)
     report = _attach_twitter(report, slug)
     report = _attach_linkedin_profile(report, slug)
@@ -1169,6 +1260,7 @@ def _run_compare_all_pipeline(
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
     include_tiktok_influencers: bool = False,
+    include_twitter_influencers: bool = False,
     include_reddit: bool = False,
     include_twitter: bool = False,
     include_linkedin_profile: bool = False,
@@ -1204,6 +1296,7 @@ def _run_compare_all_pipeline(
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
         include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
         include_reddit=include_reddit,
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
@@ -1259,6 +1352,7 @@ def _run_compare_all_pipeline(
                 include_youtube_influencers=include_youtube_influencers,
                 include_instagram_influencers=include_instagram_influencers,
                 include_tiktok_influencers=include_tiktok_influencers,
+            include_twitter_influencers=include_twitter_influencers,
                 include_reddit=include_reddit,
                 include_twitter=include_twitter,
                 include_linkedin_profile=include_linkedin_profile,
@@ -1325,6 +1419,25 @@ def _run_compare_all_pipeline(
                     )
                 except Exception as e:
                     emit("log", line=f"[ALL] WARN TikTok refresh {c_slug}: {e}")
+            if include_twitter_influencers and _x_inf_json_missing(c_slug):
+                emit(
+                    "log",
+                    line=f"[ALL] ({i + 1}/{len(companies)}) X Apify {c_name} ({c_slug})",
+                )
+                _emit_progress(
+                    emit, set_step, "twitter_influencers", "running",
+                    f"All: X Apify {c_name} ({i + 1}/{len(companies)})",
+                )
+                try:
+                    _run_script(
+                        [sys.executable, str(SCRIPT_X_INFLUENCERS), c_slug],
+                        FINAL_DIR,
+                        lambda line: emit("log", line=line),
+                        timeout_sec=240,
+                        env={"SPY_SITE_ONLY": "1", "SPY_MARKET": market, "SPY_COMPARE_ALL": "1"},
+                    )
+                except Exception as e:
+                    emit("log", line=f"[ALL] WARN X influencers refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
 
@@ -1366,6 +1479,7 @@ def _run_compare_all_pipeline(
         "youtube_influencers": not include_youtube_influencers,
         "instagram_influencers": not include_instagram_influencers,
         "tiktok_influencers": not include_tiktok_influencers,
+        "twitter_influencers": not include_twitter_influencers,
         "reddit": not include_reddit,
         "twitter": not include_twitter,
         "linkedin_profile": not include_linkedin_profile,
@@ -1374,6 +1488,7 @@ def _run_compare_all_pipeline(
         "seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta",
         "linkedin", "instagram", "youtube", "tiktok",
         "youtube_influencers", "instagram_influencers", "tiktok_influencers",
+        "twitter_influencers",
         "reddit", "twitter", "linkedin_profile",
     ):
         has = bool((report.get(sid) or {}).get("rows"))
@@ -1405,6 +1520,7 @@ def _run_compare_all_pipeline(
             include_youtube_influencers=include_youtube_influencers,
             include_instagram_influencers=include_instagram_influencers,
             include_tiktok_influencers=include_tiktok_influencers,
+            include_twitter_influencers=include_twitter_influencers,
             include_reddit=include_reddit,
             include_twitter=include_twitter,
             include_linkedin_profile=include_linkedin_profile,
@@ -1660,6 +1776,7 @@ def run_competitors_only_pipeline(
             include_youtube_influencers=False,
             include_instagram_influencers=False,
             include_tiktok_influencers=False,
+            include_twitter_influencers=False,
             include_reddit=False,
             include_twitter=False,
             include_linkedin_profile=False,
@@ -1803,6 +1920,7 @@ def run_pipeline(
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
     include_tiktok_influencers: bool = False,
+    include_twitter_influencers: bool = False,
     include_reddit: bool = False,
     include_twitter: bool = False,
     include_linkedin_profile: bool = False,
@@ -1843,6 +1961,7 @@ def run_pipeline(
             include_youtube_influencers=include_youtube_influencers,
             include_instagram_influencers=include_instagram_influencers,
             include_tiktok_influencers=include_tiktok_influencers,
+            include_twitter_influencers=include_twitter_influencers,
             include_reddit=include_reddit,
             include_twitter=include_twitter,
             include_linkedin_profile=include_linkedin_profile,
@@ -1884,6 +2003,7 @@ def run_pipeline(
             include_youtube_influencers=include_youtube_influencers,
             include_instagram_influencers=include_instagram_influencers,
             include_tiktok_influencers=include_tiktok_influencers,
+            include_twitter_influencers=include_twitter_influencers,
             include_reddit=include_reddit,
             include_twitter=include_twitter,
             include_linkedin_profile=include_linkedin_profile,
@@ -1936,6 +2056,7 @@ def run_pipeline(
             "seo", "brand", "brand_dfs", "similarweb", "google_ads", "meta",
             "linkedin", "instagram", "youtube", "tiktok",
             "youtube_influencers", "instagram_influencers", "tiktok_influencers",
+        "twitter_influencers",
             "reddit", "twitter", "linkedin_profile",
         ):
             _emit_progress(emit, set_step, sid, "done", "Cached")
@@ -1944,6 +2065,7 @@ def run_pipeline(
         report = _attach_youtube_influencers(report, slug)
         report = _attach_instagram_influencers(report, slug)
         report = _attach_tiktok_influencers(report, slug)
+        report = _attach_twitter_influencers(report, slug)
         report = _attach_reddit(report, slug)
         report = _attach_twitter(report, slug)
         report = _attach_linkedin_profile(report, slug)
@@ -1966,6 +2088,7 @@ def run_pipeline(
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
         include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
         include_reddit=include_reddit,
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
@@ -2222,6 +2345,32 @@ def run_pipeline(
             })
     else:
         _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped")
+
+    if include_twitter_influencers:
+        _apify_x = (
+            os.environ.get("APIFY_TOKEN")
+            or os.environ.get("APIFY_API_TOKEN")
+            or os.environ.get("APIFY_API_KEY")
+            or ""
+        ).strip()
+        if not _apify_x:
+            emit("log", line="[X-INF] Skipped: APIFY_TOKEN missing")
+            _emit_progress(emit, set_step, "twitter_influencers", "done", "Skipped (no Apify key)")
+        else:
+            extras.append({
+                "tag": "X-INF",
+                "step": "twitter_influencers",
+                "section": "twitter_influencers",
+                "script": SCRIPT_X_INFLUENCERS,
+                "timeout": 240,
+                "kind": "json",
+                "priority": 48,
+                "running": "X Influencers (Apify min_faves:50)…",
+                "done": "X Influencers ready",
+                "attach": _attach_twitter_influencers,
+            })
+    else:
+        _emit_progress(emit, set_step, "twitter_influencers", "done", "Skipped")
 
     if include_reddit:
         if not _tf:

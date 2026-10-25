@@ -78,6 +78,7 @@ CHAN = {
     "yt_inf": "youtube_influencers",
     "ig_inf": "instagram_influencers",
     "tt_inf": "tiktok_influencers",
+    "x_inf": "twitter_influencers",
 }
 
 

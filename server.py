@@ -64,7 +64,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.4.86"
+APP_VERSION = "0.4.87"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -106,6 +106,7 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "include_youtube_influencers": bool(getattr(job, "include_youtube_influencers", False)),
         "include_instagram_influencers": bool(getattr(job, "include_instagram_influencers", False)),
         "include_tiktok_influencers": bool(getattr(job, "include_tiktok_influencers", False)),
+        "include_twitter_influencers": bool(getattr(job, "include_twitter_influencers", False)),
         "include_reddit": bool(getattr(job, "include_reddit", False)),
         "include_twitter": bool(getattr(job, "include_twitter", False)),
         "include_linkedin_profile": bool(getattr(job, "include_linkedin_profile", False)),
@@ -253,6 +254,7 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "include_youtube_influencers": bool(job.include_youtube_influencers),
             "include_instagram_influencers": bool(job.include_instagram_influencers),
             "include_tiktok_influencers": bool(getattr(job, "include_tiktok_influencers", False)),
+        "include_twitter_influencers": bool(getattr(job, "include_twitter_influencers", False)),
             "include_reddit": bool(getattr(job, "include_reddit", False)),
             "include_twitter": bool(getattr(job, "include_twitter", False)),
             "include_linkedin_profile": bool(getattr(job, "include_linkedin_profile", False)),
@@ -287,6 +289,7 @@ class Job:
     include_youtube_influencers: bool = False
     include_instagram_influencers: bool = False
     include_tiktok_influencers: bool = False
+    include_twitter_influencers: bool = False
     include_reddit: bool = False
     include_twitter: bool = False
     include_linkedin_profile: bool = False
@@ -372,6 +375,7 @@ def _worker(job: Job) -> None:
             include_youtube_influencers=bool(job.include_youtube_influencers),
             include_instagram_influencers=bool(job.include_instagram_influencers),
             include_tiktok_influencers=bool(getattr(job, "include_tiktok_influencers", False)),
+            include_twitter_influencers=bool(getattr(job, "include_twitter_influencers", False)),
             include_reddit=bool(job.include_reddit),
             include_twitter=bool(job.include_twitter),
             include_linkedin_profile=bool(job.include_linkedin_profile),
@@ -440,6 +444,9 @@ def _flags_from_body(body: dict) -> tuple:
     include_tiktok_influencers = _flag(
         body, "include_tiktok_influencers", "tiktok_influencers", default=False
     )
+    include_twitter_influencers = _flag(
+        body, "include_twitter_influencers", "twitter_influencers", "x_influencers", default=False
+    )
     include_reddit = _flag(body, "include_reddit", "reddit", default=False)
     include_twitter = _flag(body, "include_twitter", "twitter", "twitter_profile", default=False)
     include_linkedin_profile = _flag(
@@ -473,6 +480,7 @@ def _flags_from_body(body: dict) -> tuple:
         include_youtube_influencers,
         include_instagram_influencers,
         include_tiktok_influencers,
+        include_twitter_influencers,
         include_reddit,
         include_twitter,
         include_linkedin_profile,
@@ -501,6 +509,7 @@ def _job_payload(job: Job) -> dict[str, Any]:
         "include_youtube_influencers": bool(job.include_youtube_influencers),
         "include_instagram_influencers": bool(job.include_instagram_influencers),
         "include_tiktok_influencers": bool(getattr(job, "include_tiktok_influencers", False)),
+        "include_twitter_influencers": bool(getattr(job, "include_twitter_influencers", False)),
         "include_reddit": bool(job.include_reddit),
         "include_twitter": bool(job.include_twitter),
         "include_linkedin_profile": bool(job.include_linkedin_profile),
@@ -600,6 +609,7 @@ def _start_jobs_from_raw(
     include_youtube_influencers: bool = False,
     include_instagram_influencers: bool = False,
     include_tiktok_influencers: bool = False,
+    include_twitter_influencers: bool = False,
     include_reddit: bool = False,
     include_twitter: bool = False,
     include_linkedin_profile: bool = False,
@@ -645,6 +655,7 @@ def _start_jobs_from_raw(
             include_youtube_influencers=include_youtube_influencers,
             include_instagram_influencers=include_instagram_influencers,
             include_tiktok_influencers=include_tiktok_influencers,
+            include_twitter_influencers=include_twitter_influencers,
             include_reddit=include_reddit,
             include_twitter=include_twitter,
             include_linkedin_profile=include_linkedin_profile,
@@ -676,6 +687,7 @@ def analyze():
         include_youtube_influencers,
         include_instagram_influencers,
         include_tiktok_influencers,
+        include_twitter_influencers,
         include_reddit,
         include_twitter,
         include_linkedin_profile,
@@ -699,6 +711,7 @@ def analyze():
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
         include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
         include_reddit=include_reddit,
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
@@ -729,6 +742,7 @@ def analyze():
         "include_youtube_influencers": include_youtube_influencers,
         "include_instagram_influencers": include_instagram_influencers,
         "include_tiktok_influencers": include_tiktok_influencers,
+        "include_twitter_influencers": include_twitter_influencers,
         "include_reddit": include_reddit,
         "include_twitter": include_twitter,
         "include_linkedin_profile": include_linkedin_profile,
@@ -750,6 +764,7 @@ def rerun(run_id: str):
     include_youtube_influencers = False
     include_instagram_influencers = False
     include_tiktok_influencers = False
+    include_twitter_influencers = False
     include_reddit = False
     include_twitter = False
     include_linkedin_profile = False
@@ -767,6 +782,7 @@ def rerun(run_id: str):
         include_youtube_influencers = bool(meta.get("include_youtube_influencers", False))
         include_instagram_influencers = bool(meta.get("include_instagram_influencers", False))
         include_tiktok_influencers = bool(meta.get("include_tiktok_influencers", False))
+        include_twitter_influencers = bool(meta.get("include_twitter_influencers", False))
         include_reddit = bool(meta.get("include_reddit", False))
         include_twitter = bool(meta.get("include_twitter", False))
         include_linkedin_profile = bool(meta.get("include_linkedin_profile", False))
@@ -784,6 +800,7 @@ def rerun(run_id: str):
         include_youtube_influencers = bool(job_mem.include_youtube_influencers)
         include_instagram_influencers = bool(job_mem.include_instagram_influencers)
         include_tiktok_influencers = bool(getattr(job_mem, "include_tiktok_influencers", False))
+        include_twitter_influencers = bool(getattr(job_mem, "include_twitter_influencers", False))
         include_reddit = bool(getattr(job_mem, "include_reddit", False))
         include_twitter = bool(getattr(job_mem, "include_twitter", False))
         include_linkedin_profile = bool(getattr(job_mem, "include_linkedin_profile", False))
@@ -814,6 +831,7 @@ def rerun(run_id: str):
         include_youtube_influencers=include_youtube_influencers,
         include_instagram_influencers=include_instagram_influencers,
         include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
         include_reddit=include_reddit,
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
@@ -869,6 +887,7 @@ def job_status(job_id: str):
         "include_youtube_influencers": bool(job.include_youtube_influencers),
         "include_instagram_influencers": bool(job.include_instagram_influencers),
         "include_tiktok_influencers": bool(getattr(job, "include_tiktok_influencers", False)),
+        "include_twitter_influencers": bool(getattr(job, "include_twitter_influencers", False)),
         "include_reddit": bool(job.include_reddit),
         "include_twitter": bool(job.include_twitter),
         "include_linkedin_profile": bool(job.include_linkedin_profile),
@@ -1202,6 +1221,7 @@ def _start_analysis_append(run_id: str, urls: list[str], similaridade: str = "")
         include_youtube_influencers=bool(meta.get("include_youtube_influencers", False)),
         include_instagram_influencers=bool(meta.get("include_instagram_influencers", False)),
         include_tiktok_influencers=bool(meta.get("include_tiktok_influencers", False)),
+        include_twitter_influencers=bool(meta.get("include_twitter_influencers", False)),
         include_reddit=bool(meta.get("include_reddit", False)),
         include_twitter=bool(meta.get("include_twitter", False)),
         include_linkedin_profile=bool(meta.get("include_linkedin_profile", False)),

@@ -10,6 +10,7 @@ HTML tables only (no chatbot). Adapted from [radar-agent-demo](https://github.co
 - ScrapingBee `country_code=us|br`
 - SimilarWeb via Apify Actor (`APIFY_TOKEN`, actor `NRzGu7xR83tudau6J`)
 - TikTok influencers via Apify (`APIFY_TOKEN`, actor `apidojo/tiktok-scraper`)
+- X influencers via Apify (`APIFY_TOKEN`, actor `apidojo/tweet-scraper`, `min_faves:50`)
 - Mode **All**: N empresas informadas entram juntas nas tabelas e no resumo
 
 ## Local

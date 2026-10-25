@@ -108,6 +108,7 @@ SECTION_GROUPS = {
     "instagram": "social",
     "instagram_influencers": "social",
     "tiktok_influencers": "social",
+    "twitter_influencers": "social",
     "tiktok": "social",
     "reddit": "social",
     "twitter": "social",
@@ -361,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.86"
+REPORT_UI_VERSION = "0.4.87"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -823,6 +824,7 @@ _SCORE_BANDS: dict[str, tuple[float, float]] = {
     "youtube_influencers": (10_000, 50_000),
     "instagram_influencers": (10_000, 50_000),
     "tiktok_influencers": (10_000, 50_000),
+    "twitter_influencers": (1_000, 10_000),
 }
 
 
@@ -885,7 +887,7 @@ def _channel_metric_value(
     else:
         row = row or {}
 
-    if key in ("youtube_influencers", "tiktok_influencers"):
+    if key in ("youtube_influencers", "tiktok_influencers", "twitter_influencers"):
         # Influencers = other creators. Official profile stays on organic.
         n = _coerce_number(row.get("views_unofficial"))
         if n is not None:
@@ -1029,6 +1031,7 @@ def _summary_channel_url(
     if key in (
         "youtube", "instagram", "tiktok",
         "youtube_influencers", "instagram_influencers", "tiktok_influencers",
+        "twitter_influencers",
         "reddit", "twitter", "linkedin_profile",
     ):
         return site
@@ -1059,6 +1062,7 @@ _SUMMARY_LINK_LABELS = {
     "instagram_influencers": "Profile",
     "tiktok": "Profile",
     "tiktok_influencers": "Search",
+    "twitter_influencers": "Search",
     "brand_dataforseo": "Semrush",
     "reddit": "Search",
     "twitter": "Profile",
@@ -1079,6 +1083,7 @@ _SUMMARY_CHANNELS_V1: list[tuple[str, str, str]] = [
     ("Instagram", "instagram", "count"),
     ("Instagram Influencers", "instagram_influencers", "seo"),
     ("TikTok Influencers", "tiktok_influencers", "seo"),
+    ("X Influencers", "twitter_influencers", "seo"),
     ("TikTok", "tiktok", "count"),
     ("Reddit", "reddit", "seo"),
     ("Twitter / X", "twitter", "seo"),
@@ -1125,6 +1130,7 @@ _SUMMARY_BLOCKS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
             ("YouTube Influencers", "youtube_influencers", "seo"),
             ("Instagram Influencers", "instagram_influencers", "seo"),
             ("TikTok Influencers", "tiktok_influencers", "seo"),
+            ("X Influencers", "twitter_influencers", "seo"),
         ],
     ),
 ]
@@ -2134,6 +2140,94 @@ def _section_tiktok_influencers(section: Optional[dict[str, Any]]) -> str:
     """
 
 
+def _section_twitter_influencers(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = [
+        "#", "Company", "Confirmed likes", "Official", "Other",
+        "Confirmed #", "Probable", "Discarded", "Top confirmed", "Top probable", "Search",
+    ]
+
+    def _top_links_cell(items: list, *, probable: bool = False) -> str:
+        def _meta(t: dict) -> str:
+            bits = [f"{_compact_num(t.get('likes') if t.get('likes') is not None else t.get('views'))} likes"]
+            if t.get("shares") not in (None, ""):
+                bits.append(f"{_compact_num(t.get('shares'))} RT")
+            if t.get("channel_name") or t.get("handle"):
+                bits.append(str(t.get("channel_name") or ("@" + str(t.get("handle")))))
+            if t.get("label") == "probable" or probable:
+                bits.append("revisar")
+            return " · ".join(bits)
+
+        return _top_list(items, lambda t: t.get("title") or "post", _meta)
+
+    table_rows: list[list[str]] = []
+    video_blocks: list[str] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        if (r.get("brand") or {}).get("ambiguous"):
+            name += ' <span class="review-badge">ambiguous</span>'
+        top_conf = list(r.get("top5") or r.get("videos_confirmed") or [])
+        if not top_conf:
+            top_conf = list(r.get("top5_official") or []) + list(r.get("top5_unofficial") or [])
+        top_prob = list(r.get("top5_probable") or [])
+        table_rows.append([
+            str(i),
+            name,
+            _esc(r.get("views_confirmed_fmt") or r.get("traffic_fmt") or "0"),
+            _esc(r.get("views_official_fmt") or "0"),
+            _esc(r.get("views_unofficial_fmt") or "0"),
+            _esc(str(r.get("confirmed_count") or r.get("about_count") or 0)),
+            _esc(str(r.get("probable_count") or 0)),
+            _esc(str(r.get("unrelated_count") or 0)),
+            _top_links_cell(top_conf),
+            _top_links_cell(top_prob, probable=True),
+            _link_cell(r.get("search_url") or r.get("url"), "X"),
+        ])
+        discarded = list(r.get("videos_unrelated") or [])
+        if discarded:
+            items = "".join(
+                f"<li>{_esc(d.get('title') or 'post')} "
+                f"<span class=meta>{_compact_num(d.get('likes') if d.get('likes') is not None else d.get('views'))} likes · "
+                f"{_esc(d.get('handle') or '')}</span></li>"
+                for d in discarded[:12]
+            )
+            video_blocks.append(
+                f'<details class="discarded"><summary>Ver descartados · '
+                f'{_esc(r.get("name") or "")} ({len(discarded)})</summary>'
+                f'<ol class="toplist">{items}</ol></details>'
+            )
+    usage = section.get("usage_total") or {}
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = (
+        f"confirmed other-author likes · Apify «brand min_faves:50» · "
+        f"{_esc(str(section.get('source') or usage.get('source') or 'apify_tweet'))} "
+        f"· leader {_esc(section.get('leader') or '—')}"
+    )
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "X Influencers"
+    limits = (
+        '<p class="muted">O actor exige no mínimo 50 tweets por busca (~US$ 0,02). '
+        "Mostramos os mais curtidos depois do filtro de marca. "
+        "Posts só com hashtag viram probable.</p>"
+    )
+    return f"""
+    <section>
+      <h2>X Influencers</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {''.join(video_blocks)}
+      {limits}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
 def _dfs_growth_pct(new: Any, old: Any) -> Optional[float]:
     """Growth % with 0/missing baseline treated as 100 (display volume stays 0)."""
     if new is None:
@@ -2790,6 +2884,8 @@ def render_report_html(
             "TikTok", report.get("tiktok"), "count", link_label="Profile")),
         ("tiktok_influencers", "TikTok Influencers",
          _section_tiktok_influencers(report.get("tiktok_influencers"))),
+        ("twitter_influencers", "X Influencers",
+         _section_twitter_influencers(report.get("twitter_influencers"))),
         ("reddit", "Reddit", _section_reddit(report.get("reddit"))),
         ("twitter", "Twitter / X", _section_twitter(report.get("twitter"))),
         ("linkedin_profile", "LinkedIn Profile",
