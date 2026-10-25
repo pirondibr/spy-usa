@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.89"
+REPORT_UI_VERSION = "0.4.90"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1002,9 +1002,6 @@ def _summary_channel_url(
     """URL do cliente para o resumo (biblioteca / Semrush / perfil / site)."""
     row = row or {}
     url = str(row.get("url") or section.get("url") or "").strip()
-    if url and url not in ("—", "-", "n/a", "None"):
-        return url
-
     domain = str(row.get("domain") or section.get("client_domain") or "").strip()
     name = str(row.get("name") or "").strip()
     site = str(row.get("site_url") or "").strip()
@@ -1013,7 +1010,12 @@ def _summary_channel_url(
     mkt = "BR" if str(market).upper() in ("BR", "BRAZIL", "BRASIL") else "US"
     semrush_db = "br" if mkt == "BR" else "us"
     meta_country = "BR" if mkt == "BR" else "US"
-    google_region = "BR" if mkt == "BR" else "US"
+
+    if key == "google_ads" and domain:
+        return f"https://adstransparency.google.com/?region=anywhere&domain={quote(domain)}"
+
+    if url and url not in ("—", "-", "n/a", "None"):
+        return url
 
     if key in ("seo", "brand") and domain:
         return (
@@ -1043,8 +1045,6 @@ def _summary_channel_url(
             "https://www.facebook.com/ads/library/?active_status=active&ad_type=all"
             f"&country={meta_country}"
         )
-    if key == "google_ads" and domain:
-        return f"https://adstransparency.google.com/?region={google_region}&domain={quote(domain)}"
     if key == "similarweb":
         return site or (f"https://{domain}/" if domain else "")
     if key in (
@@ -2885,7 +2885,7 @@ def render_report_html(
     # Mesma ordem do resumo (agrupado): Paid → Search & traffic → Social
     blocks: list[tuple[str, str, str]] = [
         ("google_ads", "Google Ads", _section_rank(
-            f"Google Ads Library ({market})", report.get("google_ads"), "meta", link_label="Library")),
+            f"Google Ads Library (anywhere)", report.get("google_ads"), "meta", link_label="Library")),
         ("meta", "Meta Ads", _section_rank(
             f"Meta Ads ({market})", report.get("meta"), "meta", link_label="Library")),
         ("linkedin", "LinkedIn Ads", _section_rank(

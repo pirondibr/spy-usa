@@ -33,7 +33,7 @@ if MARKET == "br":
     HTML_LANG = "pt-BR"
     CURRENCY_PREFIX = "R$"
     DEFAULT_TLD = ".com.br"
-    GOOGLE_ADS_REGION = "BR"
+    GOOGLE_ADS_REGION = "anywhere"
 else:
     SEMRUSH_DB = "us"
     LOCATION_CODE = 2840  # United States
@@ -46,7 +46,7 @@ else:
     HTML_LANG = "en-US"
     CURRENCY_PREFIX = "$"
     DEFAULT_TLD = ".com"
-    GOOGLE_ADS_REGION = "US"
+    GOOGLE_ADS_REGION = "anywhere"
 
 # Estimated spend per active ad (local currency) for ranking tables
 META_ADS_COST_PER_AD = 80 if MARKET == "us" else 250
@@ -71,7 +71,7 @@ def market_config(market: str | None = None) -> dict:
             "market_label": "Brazil (br)",
             "market_short": "BR",
             "currency_prefix": "R$",
-            "google_ads_region": "BR",
+            "google_ads_region": "anywhere",
         }
     return {
         "market": "us",
@@ -83,5 +83,5 @@ def market_config(market: str | None = None) -> dict:
         "market_label": "United States (us)",
         "market_short": "US",
         "currency_prefix": "$",
-        "google_ads_region": "US",
+        "google_ads_region": "anywhere",
     }

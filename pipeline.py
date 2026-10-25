@@ -64,7 +64,7 @@ STEP_DEFS = [
     {"id": "brand", "label": "Brand search Semrush (US)", "index": 3, "eta_live": 30},
     {"id": "brand_dfs", "label": "Brand DataForSEO (US)", "index": 4, "eta_live": 40},
     {"id": "similarweb", "label": "SimilarWeb Traffic", "index": 5, "eta_live": 60},
-    {"id": "google_ads", "label": "Google Ads Library (US)", "index": 6, "eta_live": 180},
+    {"id": "google_ads", "label": "Google Ads Library (anywhere)", "index": 6, "eta_live": 180},
     {"id": "meta", "label": "Meta Ads (US)", "index": 7, "eta_live": 180},
     {"id": "linkedin", "label": "LinkedIn Ads Library (US)", "index": 8, "eta_live": 240},
     {"id": "instagram", "label": "Instagram", "index": 9, "eta_live": 120},
@@ -2240,7 +2240,7 @@ def run_pipeline(
             "timeout": 420,
             "kind": "xlsx",
             "priority": 25,
-            "running": "Google Ads Transparency (US)...",
+            "running": "Google Ads Transparency (domain, anywhere)...",
             "done": "Google Ads ready",
         })
     else:

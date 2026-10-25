@@ -6,7 +6,7 @@ Fluxo MVP:
 2. Pega top 5 concorrentes com similaridade Alto
 3. Reaproveita SEO/Trafego do XLSX nacional
 4. Busca Meta Ads via ScrapingBee + GraphQL da Ad Library
-5. Busca Google Ads direto na library pelo nome da empresa
+5. Busca Google Ads na Transparency por dominio (region=anywhere)
 6. Busca LinkedIn Ads via ScrapingBee (accountOwner na Ad Library)
 7. Extrai links sociais da homepage e tenta ler seguidores
 8. Gera XLSX + HTML com aba "Metricas Canais"
@@ -1151,41 +1151,15 @@ def load_meta_map(competitors: list[dict]) -> dict[str, dict]:
 
 
 def lookup_google_ads(company_name: str) -> dict:
+    vendor = FINAL_DIR / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    from google_ads_library import lookup_google_ads as _lookup_domain
+
     domain = normalize_domain(company_name)
     if not domain:
         domain = normalize_domain(root_url(company_name))
-    # Transparency geo: DataForSEO location code for active SPY_MARKET
-    geo = int(LOCATION_BRAZIL) if "LOCATION_BRAZIL" in globals() else 2840
-    data = {
-        "f.req": (
-            '{"2":40,"3":{"8":['
-            + str(geo)
-            + '],"12":{"1":"'
-            + domain
-            + '","2":true}},"7":{"1":1,"2":0,"3":'
-            + str(geo)
-            + "}}"
-        ),
-    }
-    params = {
-        "url": "https://adstransparency.google.com/anji/_/rpc/SearchService/SearchCreatives",
-        "api_key": SCRAPINGBEE_API_KEY,
-        "authuser": "0",
-    }
-    try:
-        r = requests.post("https://app.scrapingbee.com/api/v1/", params=params, data=data, timeout=60)
-        r.raise_for_status()
-        js = r.json()
-    except Exception:
-        return {"google_ads": None, "google_ads_url": ""}
-    ads_count = parse_int(js.get("5"))
-    profile_id = ""
-    try:
-        profile_id = str(js["1"][0]["1"])
-    except Exception:
-        profile_id = ""
-    profile_url = f"https://adstransparency.google.com/advertiser/{profile_id}" if profile_id else ""
-    return {"google_ads": ads_count, "google_ads_url": profile_url}
+    return _lookup_domain(domain or company_name)
 
 
 def load_google_ads_map(competitors: list[dict]) -> dict[str, dict]:
@@ -2195,7 +2169,7 @@ def write_metrics_xlsx(
     ws.append(["Top concorrentes", str(len(competitors))])
     ws.append(["Fonte nacional", str(national_xlsx)])
     ws.append(["Meta Ads", "Keyword search: Ctrl+F name hits (official) / total results (unofficial)"])
-    ws.append(["Google Ads", "Busca direta por empresa na Google Ads Transparency"])
+    ws.append(["Google Ads", "Transparency domain search, region=anywhere"])
     ws.append(["LinkedIn Ads", "Keyword search: Ctrl+F name hits / H1 ads total (ScrapingBee)"])
     ws.append(["Data", datetime.now().strftime("%d/%m/%Y %H:%M")])
     ws.column_dimensions["A"].width = 26

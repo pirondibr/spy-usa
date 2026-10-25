@@ -54,13 +54,10 @@ def _clean_domain(domain: str) -> str:
 
 
 def _google_transparency_url(domain: str, existing: str = "") -> str:
-    if (existing or "").strip():
-        return existing.strip()
     dom = _clean_domain(domain)
     if not dom:
-        return ""
-    region = str(_mkt().get("google_ads_region") or "US")
-    return f"https://adstransparency.google.com/?region={region}&domain={dom}"
+        return (existing or "").strip()
+    return f"https://adstransparency.google.com/?region=anywhere&domain={dom}"
 
 
 def _meta_ads_library_url(domain: str, name: str = "", existing: str = "") -> str:
