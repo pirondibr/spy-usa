@@ -107,22 +107,21 @@ def build_find_v2_payload(
     if not domain:
         domain = site_host or _host(str(briefing.get("url") or meta.get("url") or ""))
     rows: list[dict[str, Any]] = []
+    you_row: Optional[dict[str, Any]] = None
     for i, c in enumerate(comps):
-        if c.get("is_client"):
-            continue
         dom = str(c.get("domain") or "").strip().lower()
         if not dom:
             continue
+        is_you = bool(c.get("is_client"))
         lvl = _lvl(c)
         motivo = str(c.get("motivo") or "").strip()
         off = ""
-        if lvl == 1 and motivo and motivo not in ("—", "-", "n/a"):
+        if (not is_you) and lvl == 1 and motivo and motivo not in ("—", "-", "n/a"):
             off = motivo
-        title = _row_title(c)
-        rows.append({
+        item = {
             "n": str(c.get("name") or dom),
             "d": dom,
-            "t": title,
+            "t": _row_title(c),
             "lvl": lvl,
             "v": _visits(c),
             "b": _brand(c),
@@ -131,8 +130,31 @@ def build_find_v2_payload(
             "niche": str(c.get("nicho") or "").strip(),
             "off": off,
             "added": bool(c.get("manual")),
-            "color": PAL[i % len(PAL)],
-        })
+            "you": is_you,
+            "color": "#0E1116" if is_you else PAL[i % len(PAL)],
+        }
+        if is_you:
+            you_row = item
+        else:
+            rows.append(item)
+    if you_row is None and domain:
+        you_row = {
+            "n": client,
+            "d": domain,
+            "t": "",
+            "lvl": 3,
+            "v": _visits(me_row) if me_row else None,
+            "b": _brand(me_row) if me_row else None,
+            "since": _since_year(me_row) if me_row else None,
+            "src": ["briefing"],
+            "niche": _briefing_nicho(briefing),
+            "off": "",
+            "added": False,
+            "you": True,
+            "color": "#0E1116",
+        }
+    if you_row:
+        rows = [you_row] + rows
     return {
         "meta": {
             "client": client,

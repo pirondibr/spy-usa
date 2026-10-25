@@ -167,6 +167,10 @@ html[data-tool="competitors"][data-ui="v2"]{--ink:#0E1116;--ink2:#2A313B;--mut:#
 #find-v2 .hv small{display:block}
 
 #find-v2 .bw{overflow-x:auto}
+#find-v2 .tb tr.you{cursor:default;background:#F6F7F9}
+#find-v2 .tb tr.you:hover td{background:#F6F7F9}
+#find-v2 .you-mark{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--ink);border-radius:5px;padding:2px 6px;vertical-align:2px}
+#find-v2 .you-lock{width:20px;height:20px;border-radius:6px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:9px;line-height:1}
 
 @media (max-width:860px){#find-v2 .tb .hm{display:none}}
 @media (max-width:560px){
@@ -194,6 +198,7 @@ html[data-tool="competitors"][data-ui="v2"]{--ink:#0E1116;--ink2:#2A313B;--mut:#
   #find-v2 .tb tr.c{display:grid;grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"k n t" "k v b" "k m m";gap:8px 10px;align-items:center;padding:12px 4px;border-bottom:1px solid var(--line)}
   #find-v2 .tb tr.c td{display:block;padding:0;border:0;background:none !important}
   #find-v2 .tb tr.c.on{background:#F4F9F7}
+  #find-v2 .tb tr.you{background:#F6F7F9}
   #find-v2 .tb tr.c td:nth-child(1){grid-area:k;align-self:start;padding-top:6px}
   #find-v2 .tb tr.c td:nth-child(2){grid-area:n}
   #find-v2 .tb tr.c td:nth-child(3){grid-area:v}
