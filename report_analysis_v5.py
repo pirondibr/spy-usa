@@ -23,6 +23,7 @@ CH_META = (
     ("rd", "org", "Reddit", "comments", 0),
     ("ytv", "inf", "YouTube", "video views", 0),
     ("igl", "inf", "Instagram", "likes", 0),
+    ("ttv", "inf", "TikTok", "video views", 0),
 )
 CH_TO_CMP = {
     "google": "google",
@@ -37,6 +38,7 @@ CH_TO_CMP = {
     "rd": "rd",
     "ytv": "yt_inf",
     "igl": "ig_inf",
+    "ttv": "tt_inf",
 }
 
 
@@ -82,8 +84,8 @@ def _yt_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out.append({
             "title": str(t.get("title") or "vídeo"),
             "url": str(t.get("url") or ""),
-            "channel": str(t.get("channel_name") or ""),
-            "age": str(t.get("upload_age") or ""),
+            "channel": str(t.get("channel_name") or t.get("handle") or ""),
+            "age": str(t.get("upload_age") or t.get("age") or ""),
             "views": views,
             "views_fmt": _compact_num(views) if views is not None else str(t.get("views_fmt") or "—"),
         })
@@ -167,12 +169,18 @@ def build_v5_payload(
         for gkey, _lab, _cls, subs in GROUPS:
             vals = [scores.get(mk) for mk, _ in subs if scores.get(mk) is not None]
             cat[gkey] = max(vals) if vals else None
+        yt_prof = _row_for_company(section("youtube"), company) or {}
+        ig_prof = _row_for_company(section("instagram"), company) or {}
+        tt_prof = _row_for_company(section("tiktok"), company) or {}
         companies.append({
             "k": k,
             "name": crow.get("name") or company.get("name") or "—",
             "dom": crow.get("dom") or company.get("domain") or "",
             "color": crow.get("color") or colors[i],
             "me": bool(crow.get("me") or company.get("is_client")),
+            "yt_url": str(yt_prof.get("url") or ""),
+            "ig_url": str(ig_prof.get("url") or ""),
+            "tt_url": str(tt_prof.get("url") or ""),
             "visits": _num(crow.get("visits")) or 0,
             "vg": float(crow.get("vg") or 0),
             "months": months,
@@ -280,9 +288,8 @@ def build_v5_payload(
         ch_url = ""
         if isinstance(oc, dict):
             ch_url = str(oc.get("url") or "")
-        if not ch_url and top_off:
-            # no dedicated field on older rows — leave empty rather than guess
-            ch_url = ""
+        if not ch_url:
+            ch_url = str(co.get("yt_url") or "")
         q = str(row.get("query") or company.get("name") or "").strip()
         search = str(row.get("search_url") or row.get("url") or "")
         if not search and q:
@@ -327,7 +334,7 @@ def build_v5_payload(
             "followers": prow.get("followers_fmt") or prow.get("value_fmt") or None,
             "p": _ig_items(own, handle=handle),
             "inf_posts": _ig_items(infs, handle=handle),
-            "profile": str(prow.get("url") or row.get("url") or (f"https://www.instagram.com/{handle}/" if handle else "")),
+            "profile": str(prow.get("url") or row.get("url") or co.get("ig_url") or (f"https://www.instagram.com/{handle}/" if handle else "")),
             "w": str(row.get("note") or prow.get("note") or ""),
         }
 
@@ -352,6 +359,49 @@ def build_v5_payload(
             "g": str(row.get("total_results_fmt") or "—"),
             "search": str(row.get("search_url") or row.get("url") or ""),
             "l": posts,
+            "w": str(row.get("note") or ""),
+        }
+
+    # tiktok (official profile + Google SERP influencers)
+    tiktok: dict[str, Any] = {}
+    tt_sec = section("tiktok")
+    tt_inf = section("tiktok_influencers")
+    for company, co in zip(raw_cos, companies):
+        row = _row_for_company(tt_inf, company) or {}
+        prow = _row_for_company(tt_sec, company) or {}
+        top_off = list(row.get("top5_official") or [])
+        top_unoff = list(row.get("top5_unofficial") or [])
+        if not top_off and not top_unoff:
+            for t in row.get("top5") or []:
+                (top_off if t.get("is_official") else top_unoff).append(t)
+        oc = row.get("official_channel") or {}
+        profile = ""
+        if isinstance(oc, dict):
+            profile = str(oc.get("url") or "")
+        if not profile:
+            profile = str(prow.get("url") or co.get("tt_url") or "")
+        handle = ""
+        if profile:
+            import re as _re
+            m = _re.search(r"tiktok\.com/@([^/?#]+)", profile, flags=_re.I)
+            handle = (m.group(1) if m else "").lstrip("@")
+        q = str(row.get("query") or company.get("name") or "").strip()
+        search = str(row.get("url") or row.get("search_url") or "")
+        if not search and q:
+            from urllib.parse import quote_plus
+            search = f"https://www.google.com/search?q={quote_plus(q)}&hl=en&gl=US"
+        tiktok[co["k"]] = {
+            "followers": prow.get("value_fmt") or prow.get("followers_fmt") or None,
+            "h": handle or None,
+            "profile": profile,
+            "views": _compact_num((_num(row.get("views_official")) or 0) + (_num(row.get("views_unofficial")) or 0)),
+            "off": _compact_num(_num(row.get("views_official")) or 0),
+            "oth": _compact_num(_num(row.get("views_unofficial")) or 0),
+            "n": int(row.get("about_count") or 0),
+            "q": q,
+            "search": search,
+            "o": _yt_items(top_off),
+            "x": _yt_items(top_unoff),
             "w": str(row.get("note") or ""),
         }
 
@@ -419,6 +469,7 @@ def build_v5_payload(
         "ads_lib": ads_lib,
         "youtube": youtube,
         "instagram": instagram,
+        "tiktok": tiktok,
         "reddit": reddit,
         "exec": {
             "duration": str(totals.get("sec_fmt") or "—"),

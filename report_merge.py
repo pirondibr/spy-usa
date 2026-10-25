@@ -23,6 +23,7 @@ CHANNEL_KEYS = (
     "instagram",
     "instagram_influencers",
     "tiktok",
+    "tiktok_influencers",
     "reddit",
     "twitter",
     "linkedin_profile",

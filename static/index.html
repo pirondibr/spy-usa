@@ -292,6 +292,11 @@
           <span class="hint" data-i18n="home.ig_hint">(Google search + download page 1 · likes)</span>
         </label>
         <label class="check">
+          <input id="ttInfluencers" type="checkbox" checked />
+          TikTok Influencers
+          <span class="hint" data-i18n="home.tt_hint">(Google site:tiktok.com · page 1 · views from SERP only)</span>
+        </label>
+        <label class="check">
           <input id="redditMentions" type="checkbox" checked />
           Reddit
           <span class="hint" data-i18n="home.rd_hint">(site:reddit.com + comments page 1 · Google total if available)</span>
@@ -662,6 +667,7 @@
           data.include_linkedin ? "linkedin" : "no-linkedin",
           data.include_youtube_influencers ? "yt-influencers" : "no-yt-influencers",
           data.include_instagram_influencers ? "ig-influencers" : "no-ig-influencers",
+          data.include_tiktok_influencers ? "tt-influencers" : "no-tt-influencers",
           data.include_reddit ? "reddit" : "no-reddit",
           data.include_twitter ? "twitter" : "no-twitter",
           data.include_linkedin_profile ? "li-profile" : "no-li-profile",
@@ -756,6 +762,7 @@
         include_linkedin: false,
         include_youtube_influencers: false,
         include_instagram_influencers: false,
+        include_tiktok_influencers: false,
         include_reddit: false,
         include_twitter: false,
         include_linkedin_profile: false,
@@ -777,6 +784,7 @@
         include_linkedin: $("linkedinAds").checked,
         include_youtube_influencers: $("ytInfluencers").checked,
         include_instagram_influencers: $("igInfluencers").checked,
+        include_tiktok_influencers: $("ttInfluencers").checked,
         include_reddit: $("redditMentions").checked,
         include_twitter: $("twitterProfile").checked,
         include_linkedin_profile: $("linkedinProfile").checked,

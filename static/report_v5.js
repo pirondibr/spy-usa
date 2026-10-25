@@ -22,6 +22,7 @@
   var LIB = D.ads_lib || {};
   var YT = D.youtube || {};
   var IG = D.instagram || {};
+  var TT = D.tiktok || {};
   var RD = D.reddit || {};
   var EX = D.exec || {};
   var META = D.meta || {};
@@ -97,7 +98,7 @@
   var sel = ME.k;
   var flt = "all";
   var rkSel = "visits";
-  var tabCo = { yt: ME.k, ig: ME.k, rd: ME.k };
+  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, rd: ME.k };
   var FIXED = ["perfil", "canais"];
   var open = null;
   try { open = localStorage.getItem("spy-min-tab"); } catch (e) {}
@@ -112,6 +113,7 @@
       { id: "ads", t: t("p.ads"), d: t("p.ads_d5"), grp: "det" },
       { id: "yt", t: t("p.yt"), d: t("p.yt_d"), grp: "det" },
       { id: "ig", t: t("p.ig"), d: t("p.ig_d"), grp: "det" },
+      { id: "tt", t: t("p.tt"), d: t("p.tt_d"), grp: "det" },
       { id: "rd", t: t("p.rd"), d: t("p.rd_d"), grp: "det" },
       { id: "exec", t: t("p.exec"), d: t("p.exec_d"), grp: "det" },
     ];
@@ -288,8 +290,11 @@
       }).join("") + "</ol><div class=\"verdict\">" + verdict + "</div>";
   }
 
-  function nmCell(c) {
-    return '<td><span class="nm">' + coDot(c) + esc(c.name) + (c.me ? you() : "") + "</span></td>";
+  function nmCell(c, href) {
+    var name = href
+      ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(c.name) + "</a>"
+      : esc(c.name);
+    return '<td><span class="nm">' + coDot(c) + name + (c.me ? you() : "") + "</span></td>";
   }
 
   function renderTrafego() {
@@ -372,7 +377,7 @@
     $("pb-yt").innerHTML = '<div class="mx"><table class="tb"><thead><tr><th>' + t("yt.company") + "</th><th>" + t("yt.views") + "</th><th>" + t("yt.off") + "</th><th>" + t("yt.oth") + "</th><th>" + t("yt.videos") + "</th><th>" + t("yt.d30") + "</th><th>" + t("yt.m6") + "</th><th>" + t("yt.y1") + "</th></tr></thead><tbody>" +
       CO.map(function (k) {
         var z = YT[k.k] || { views: "0", off: "0", oth: "0", n: 0, d30: "0", m6: "0", y1: "0" };
-        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="yt:' + k.k + '">' + nmCell(k) + '<td class="num"><b>' + esc(z.views) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td class="num">' + esc(z.off) + '</td><td class="num">' + esc(z.oth) + '</td><td class="num">' + esc(String(z.n || 0)) + '</td><td class="num">' + esc(z.d30) + '</td><td class="num">' + esc(z.m6) + '</td><td class="num">' + esc(z.y1) + "</td></tr>";
+        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="yt:' + k.k + '">' + nmCell(k, z.ch || k.yt_url) + '<td class="num"><b>' + esc(z.views) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td class="num">' + esc(z.off) + '</td><td class="num">' + esc(z.oth) + '</td><td class="num">' + esc(String(z.n || 0)) + '</td><td class="num">' + esc(z.d30) + '</td><td class="num">' + esc(z.m6) + '</td><td class="num">' + esc(z.y1) + "</td></tr>";
       }).join("") + "</tbody></table></div>" +
       '<div class="det-h"><span>' + t("yt.page") + "</span>" + coSeg("yt") + "</div>" +
       warnBox(y.w) +
@@ -387,7 +392,7 @@
     $("pb-ig").innerHTML = '<div class="mx"><table class="tb"><thead><tr><th>' + t("ig.company") + "</th><th>" + t("ig.followers") + "</th><th>" + t("ig.likes") + "</th><th>" + t("ig.own") + "</th><th>" + t("ig.inf") + "</th><th>" + t("ig.infp") + "</th></tr></thead><tbody>" +
       CO.map(function (k) {
         var z = IG[k.k] || { likes: "0", own: 0, inf: 0, infp: 0 };
-        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="ig:' + k.k + '">' + nmCell(k) + '<td class="num" style="color:var(--soft)">' + esc(z.followers || t("nc")) + '</td><td class="num"><b>' + esc(z.likes) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td class="num">' + esc(String(z.own || 0)) + '</td><td class="num">' + esc(String(z.inf || 0)) + '</td><td class="num">' + esc(String(z.infp || 0)) + "</td></tr>";
+        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="ig:' + k.k + '">' + nmCell(k, z.profile || k.ig_url) + '<td class="num" style="color:var(--soft)">' + esc(z.followers || t("nc")) + '</td><td class="num"><b>' + esc(z.likes) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td class="num">' + esc(String(z.own || 0)) + '</td><td class="num">' + esc(String(z.inf || 0)) + '</td><td class="num">' + esc(String(z.infp || 0)) + "</td></tr>";
       }).join("") + "</tbody></table></div>" +
       '<div class="det-h"><span>' + t("ig.posts_of") + "</span>" + coSeg("ig") + "</div>" + warnBox(g.w) +
       '<div class="two"><div><div class="sub-h">' + t("ig.own_h") + " " + (g.h ? "<span>@" + esc(g.h) + "</span>" : "") + "</div>" +
@@ -403,6 +408,29 @@
       }).join("") + "</ol>" : '<div class="none">' + t("ig.empty_inf") + "</div>") +
       "</div></div>" +
       '<div class="note">' + (g.profile || g.h ? '<a class="lnk" href="' + esc(g.profile || ("https://www.instagram.com/" + g.h + "/")) + '" target="_blank" rel="noopener">' + t("ig.profile") + (g.h ? " @" + esc(g.h) : "") + " ↗</a>" : "") + "<span>" + t("ig.note") + "</span></div>";
+  }
+
+  function renderTT() {
+    var c = CO.find(function (x) { return x.k === tabCo.tt; }) || ME;
+    var y = TT[c.k] || { o: [], x: [], views: "0", off: "0", oth: "0", n: 0 };
+    var list = function (arr, empty) {
+      arr = arr || [];
+      if (!arr.length) return '<div class="none">' + empty + "</div>";
+      return '<ol class="vl">' + arr.map(function (it) {
+        var href = it.url ? '<a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.title) + "</a>" : "<span>" + esc(it.title) + "</span>";
+        return "<li>" + href + '<span class="vm">' + esc(it.channel || "") + (it.age ? " · " + esc(it.age) : "") + '</span><span class="vv num">' + esc(it.views_fmt || fmt(it.views)) + "</span></li>";
+      }).join("") + "</ol>";
+    };
+    $("pb-tt").innerHTML = '<div class="mx"><table class="tb"><thead><tr><th>' + t("tt.company") + "</th><th>" + t("tt.followers") + "</th><th>" + t("tt.views") + "</th><th>" + t("tt.off") + "</th><th>" + t("tt.oth") + "</th><th>" + t("tt.posts") + "</th></tr></thead><tbody>" +
+      CO.map(function (k) {
+        var z = TT[k.k] || { views: "0", off: "0", oth: "0", n: 0 };
+        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="tt:' + k.k + '">' + nmCell(k, z.profile || k.tt_url) + '<td class="num" style="color:var(--soft)">' + esc(z.followers || t("nc")) + '</td><td class="num"><b>' + esc(z.views) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td class="num">' + esc(z.off) + '</td><td class="num">' + esc(z.oth) + '</td><td class="num">' + esc(String(z.n || 0)) + "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      '<div class="det-h"><span>' + t("tt.page") + "</span>" + coSeg("tt") + "</div>" +
+      warnBox(y.w) +
+      '<div class="two"><div><div class="sub-h">' + t("tt.off_h") + " <span>" + esc(y.off) + " views</span></div>" + list(y.o, t("tt.empty_off")) + "</div>" +
+      "<div><div class=\"sub-h\">" + t("tt.oth_h") + " <span>" + esc(y.oth) + " views</span></div>" + list(y.x, t("tt.empty_oth")) + "</div></div>" +
+      '<div class="note">' + (y.search ? '<a class="lnk" href="' + esc(y.search) + '" target="_blank" rel="noopener">' + t("tt.search") + "</a>" : "") + (y.profile || y.h ? '<a class="lnk" href="' + esc(y.profile || ("https://www.tiktok.com/@" + y.h)) + '" target="_blank" rel="noopener">' + t("tt.ch") + (y.h ? " @" + esc(y.h) : "") + "</a>" : "") + "<span>" + t("tt.note") + "</span></div>";
   }
 
   function renderRD() {
@@ -455,6 +483,7 @@
     renderOrigem();
     renderYT();
     renderIG();
+    renderTT();
     renderRD();
     renderExec();
   }
@@ -472,7 +501,7 @@
       if (tc && root.contains(tc)) {
         var parts = tc.dataset.tco.split(":");
         tabCo[parts[0]] = parts[1];
-        ({ yt: renderYT, ig: renderIG, rd: renderRD })[parts[0]]();
+        ({ yt: renderYT, ig: renderIG, tt: renderTT, rd: renderRD })[parts[0]]();
         return;
       }
       var fl = e.target.closest("[data-flt]");

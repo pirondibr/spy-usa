@@ -259,6 +259,7 @@
         include_linkedin: false,
         include_youtube_influencers: true,
         include_instagram_influencers: true,
+        include_tiktok_influencers: true,
         include_reddit: true,
         include_twitter: true,
         include_linkedin_profile: true

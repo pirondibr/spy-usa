@@ -14,7 +14,7 @@ SCORE_LVL = {"high": 3, "medium": 2, "low": 1, "0": 0}
 GROUPS = (
     ("paid", "Mídia paga", "g-paid", (("google", "Google"), ("meta", "Meta"), ("li_ads", "LinkedIn"))),
     ("org", "Orgânico", "g-org", (("seo", "SEO"), ("x", "X"), ("ig", "Insta"), ("li", "LinkedIn"), ("yt", "YouTube"), ("tt", "TikTok"), ("rd", "Reddit"))),
-    ("inf", "Influenciadores", "g-inf", (("yt_inf", "YouTube"), ("ig_inf", "Insta"))),
+    ("inf", "Influenciadores", "g-inf", (("yt_inf", "YouTube"), ("ig_inf", "Insta"), ("tt_inf", "TikTok"))),
 )
 LBL = ("Sem presença", "Baixo", "Médio", "Alto")
 FULL = {
@@ -25,6 +25,7 @@ FULL = {
     "li_ads": "LinkedIn",
     "yt": "YouTube",
     "yt_inf": "YouTube",
+    "tt_inf": "TikTok",
     "tt": "TikTok",
     "rd": "Reddit",
     "seo": "SEO",
@@ -59,6 +60,7 @@ UNIT = {
     "rd": "coment.",
     "yt_inf": "views",
     "ig_inf": "curtidas",
+    "tt_inf": "views",
 }
 
 # mock key → report channel key
@@ -75,6 +77,7 @@ CHAN = {
     "rd": "reddit",
     "yt_inf": "youtube_influencers",
     "ig_inf": "instagram_influencers",
+    "tt_inf": "tiktok_influencers",
 }
 
 

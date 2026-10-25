@@ -2,13 +2,13 @@
   var GROUPS = [
     { k: "paid", label: "Mídia paga", cls: "g-paid", subs: [["google", "Google"], ["meta", "Meta"], ["li_ads", "LinkedIn"]] },
     { k: "org", label: "Orgânico", cls: "g-org", subs: [["seo", "SEO"], ["x", "X"], ["ig", "Insta"], ["li", "LinkedIn"], ["yt", "YouTube"], ["tt", "TikTok"], ["rd", "Reddit"]] },
-    { k: "inf", label: "Influenciadores", cls: "g-inf", subs: [["yt_inf", "YouTube"], ["ig_inf", "Insta"]] },
+    { k: "inf", label: "Influenciadores", cls: "g-inf", subs: [["yt_inf", "YouTube"], ["ig_inf", "Insta"], ["tt_inf", "TikTok"]] },
   ];
   var LBL = ["Sem presença", "Baixo", "Médio", "Alto"];
   var UNIT = {
     google: "anúncios", meta: "anúncios", li_ads: "anúncios", seo: "visitas",
     x: "seguidores", ig: "seguidores", li: "seguidores", yt: "inscritos",
-    tt: "seguidores", rd: "coment.", yt_inf: "views", ig_inf: "curtidas",
+    tt: "seguidores", rd: "coment.", yt_inf: "views", ig_inf: "curtidas", tt_inf: "views",
   };
   var FULL = {
     x: "X", ig: "Instagram", ig_inf: "Instagram", li: "LinkedIn", li_ads: "LinkedIn",

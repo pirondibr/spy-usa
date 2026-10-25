@@ -35,10 +35,11 @@
     { g: "inf", t: "Creators", items: [
       { k: "ytc", n: "YouTube creators", d: "Videos about the brand, page 1", time: "+1–2 min per site" },
       { k: "igc", n: "Instagram creators", d: "Posts about the brand, by likes" },
+      { k: "ttc", n: "TikTok creators", d: "Google site:tiktok.com, page 1, views from SERP" },
       { k: "social", n: "Own social profiles", d: "Instagram, YouTube and TikTok", core: 1 },
     ] },
   ];
-  const on = new Set(["google", "linkedin", "x", "li", "reddit", "ytc", "igc"]);
+  const on = new Set(["google", "linkedin", "x", "li", "reddit", "ytc", "igc", "ttc"]);
 
   function renderCh() {
     $("chg").innerHTML = CH.map((grp) => `<div class="chc"><h4 class="${grp.g}"><i style="background:${{ paid: "#C2702E", org: "#4A6FA5", inf: "#7B5BB0" }[grp.g]}"></i>${grp.t}</h4>${grp.items.map((it) =>
@@ -408,6 +409,7 @@
       include_linkedin: false,
       include_youtube_influencers: false,
       include_instagram_influencers: false,
+      include_tiktok_influencers: false,
       include_reddit: false,
       include_twitter: false,
       include_linkedin_profile: false,
@@ -430,6 +432,7 @@
       include_linkedin: on.has("linkedin"),
       include_youtube_influencers: on.has("ytc"),
       include_instagram_influencers: on.has("igc"),
+      include_tiktok_influencers: on.has("ttc"),
       include_reddit: on.has("reddit"),
       include_twitter: on.has("x"),
       include_linkedin_profile: on.has("li"),

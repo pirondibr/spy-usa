@@ -107,6 +107,7 @@ SECTION_GROUPS = {
     "youtube_influencers": "social",
     "instagram": "social",
     "instagram_influencers": "social",
+    "tiktok_influencers": "social",
     "tiktok": "social",
     "reddit": "social",
     "twitter": "social",
@@ -360,7 +361,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.69"
+REPORT_UI_VERSION = "0.4.70"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -821,6 +822,7 @@ _SCORE_BANDS: dict[str, tuple[float, float]] = {
     "reddit": (50, 200),
     "youtube_influencers": (10_000, 50_000),
     "instagram_influencers": (10_000, 50_000),
+    "tiktok_influencers": (10_000, 50_000),
 }
 
 
@@ -1017,7 +1019,7 @@ def _summary_channel_url(
         return site or (f"https://{domain}/" if domain else "")
     if key in (
         "youtube", "instagram", "tiktok",
-        "youtube_influencers", "instagram_influencers",
+        "youtube_influencers", "instagram_influencers", "tiktok_influencers",
         "reddit", "twitter", "linkedin_profile",
     ):
         return site
@@ -1066,6 +1068,7 @@ _SUMMARY_CHANNELS_V1: list[tuple[str, str, str]] = [
     ("YouTube Influencers", "youtube_influencers", "seo"),
     ("Instagram", "instagram", "count"),
     ("Instagram Influencers", "instagram_influencers", "seo"),
+    ("TikTok Influencers", "tiktok_influencers", "seo"),
     ("TikTok", "tiktok", "count"),
     ("Reddit", "reddit", "seo"),
     ("Twitter / X", "twitter", "seo"),
@@ -1111,6 +1114,7 @@ _SUMMARY_BLOCKS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         [
             ("YouTube Influencers", "youtube_influencers", "seo"),
             ("Instagram Influencers", "instagram_influencers", "seo"),
+            ("TikTok Influencers", "tiktok_influencers", "seo"),
         ],
     ),
 ]
