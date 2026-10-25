@@ -54,6 +54,54 @@
   };
   var num = function (n) { return Number(n).toLocaleString(loc()); };
   var dec1 = function (n) { return Number(n).toFixed(1).replace(".", dec()); };
+  var gOf = function (a, b) {
+    a = Number(a); b = Number(b);
+    if (!isFinite(a) || !isFinite(b) || b === 0) return null;
+    return (a - b) / b * 100;
+  };
+  var pctTxt = function (p) {
+    return (p > 0 ? "+" : "−") + Math.abs(Math.round(p)).toLocaleString(loc()) + "%";
+  };
+  function brandBest(c) {
+    var series = c.brand || [];
+    if (!series.length) return null;
+    var now = series[series.length - 1];
+    var opts = [];
+    for (var i = 1; i <= 3; i++) {
+      var idx = series.length - 1 - i;
+      if (idx < 0) break;
+      var g = gOf(now, series[idx]);
+      if (g != null) opts.push({ g: g, y: i });
+    }
+    if (!opts.length) return now ? { g: Infinity, y: null, now: now } : null;
+    opts.sort(function (x, z) { return z.g - x.g; });
+    return { g: opts[0].g, y: opts[0].y, now: now };
+  }
+  function brandCell(c) {
+    var series = c.brand || [];
+    var labs = c.brand_labels || D.brand_labels || [];
+    if (!series.length || !series.some(function (v) { return Number(v) > 0; })) {
+      return '<span class="br"><span class="na">' + t("find.brand.none") + "</span></span>";
+    }
+    var bg = brandBest(c);
+    var now = series[series.length - 1];
+    var pill = !bg ? "" : bg.g === Infinity
+      ? '<span class="pill new">' + t("find.brand.new") + "</span>"
+      : '<span class="pill ' + (bg.g >= 0 ? "up" : "dn") + '">' + (bg.g >= 0 ? "▲" : "▼") + " " + pctTxt(bg.g).replace(/^[+−]/, "") + "</span>";
+    var per = !bg || bg.y == null ? t("find.brand.unit")
+      : (bg.y === 1 ? t("find.brand.vs1") : bg.y === 2 ? t("find.brand.vs2") : t("find.brand.vs3"));
+    var gl = function (g) {
+      return g == null ? "<em>—</em>" : '<em class="' + (g >= 0 ? "u" : "d") + '">' + (g >= 0 ? "▲" : "▼") + " " + pctTxt(g).replace(/^[+−]/, "") + "</em>";
+    };
+    var rows = "";
+    for (var i = series.length - 1; i >= 0; i--) {
+      var yearsAgo = series.length - 1 - i;
+      rows += '<span class="tr"><span>' + esc(labs[i] || "") + '</span><span class="num">' + fmt(series[i]) + "</span>" + (yearsAgo ? gl(gOf(now, series[i])) : "<span></span>") + "</span>";
+    }
+    return '<span class="br hv" tabindex="0"><b class="num">' + fmt(now) + "</b>" + pill + "<small>" + per + "</small>" +
+      '<span class="tt" role="tooltip"><b>' + t("find.brand.tip") + "</b>" + rows +
+      "<small>" + t("find.brand.tip_s") + "</small></span></span>";
+  }
 
   var ME = CO.find(function (c) { return c.me; }) || CO[0];
   var coDot = function (c) { return '<span class="dot" style="background:' + c.color + '"></span>'; };
@@ -385,15 +433,11 @@
       CO.map(function (c) {
         return "<tr>" + nmCell(c) + '<td class="num"><b>' + (c.visits ? num(c.visits) : "—") + '</b></td><td class="num ' + (c.vg >= 0 ? "up" : "dn") + '">' + pct(c.vg) + '</td><td class="num">' + (c.bounce == null ? "—" : dec1(c.bounce) + "%") + '</td><td class="num">' + (c.ppv == null ? "—" : Number(c.ppv).toFixed(2).replace(".", dec())) + '</td><td class="num">' + esc(c.time || "—") + "</td></tr>";
       }).join("") + "</tbody></table></div>" +
-      '<div class="sub-h">' + t("tr.brand") + '</div><div class="mx"><table class="tb"><thead><tr><th>' + t("tr.company") + "</th>" +
-      (D.brand_labels || ["2023", "2024", "2025", "2026"]).map(function (l) { return "<th>" + esc(l) + "</th>"; }).join("") +
-      "<th>" + t("tr.d1y") + "</th><th>" + t("tr.sem") + "</th></tr></thead><tbody>" +
+      '<div class="sub-h">' + t("tr.brand") + '</div><div class="mx brand-mx"><table class="tb"><thead><tr><th>' + t("tr.company") + "</th><th class="brc">' + t("find.th.brand") + "</th><th>" + t("tr.sem") + "</th></tr></thead><tbody>" +
       CO.map(function (c) {
-        var cells = (c.brand || []).map(function (v, i) {
-          return '<td class="num">' + (i === (c.brand.length - 1) ? "<b>" + num(v) + "</b>" : num(v)) + "</td>";
-        }).join("");
-        return "<tr>" + nmCell(c) + cells + '<td class="num ' + (c.bg >= 0 ? "up" : "dn") + '">' + pct(c.bg) + '</td><td class="num">' + (c.sem == null ? "—" : fmt(c.sem)) + (c.semg == null ? "" : ' <span class="' + (c.semg >= 0 ? "up" : "dn") + '" style="font-size:12.5px">' + pct(c.semg) + "</span>") + "</td></tr>";
-      }).join("") + "</tbody></table></div>";
+        return "<tr>" + nmCell(c) + '<td class="brc">' + brandCell(c) + '</td><td class="num">' + (c.sem == null ? "—" : fmt(c.sem)) + (c.semg == null ? "" : ' <span class="' + (c.semg >= 0 ? "up" : "dn") + '" style="font-size:12.5px">' + pct(c.semg) + "</span>") + "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      '<div class="note"><span>' + t("find.brand.tip_s") + "</span></div>";
   }
 
   function renderOrigem() {
