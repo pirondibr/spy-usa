@@ -80,6 +80,10 @@ STEP_DEFS = [
     {"id": "linkedin_profile", "label": "LinkedIn Profile", "index": 18, "eta_live": 20},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
+# Wall-clock guess from recent live runs (extras run in parallel). Not the
+# sequential sum of eta_live, which inflated the bar to 8–16 min.
+ANALYSIS_WALL_SEC = 180
+FIND_WALL_SEC = 180
 
 _STEP_CLOCK: contextvars.ContextVar[Optional["StepClock"]] = contextvars.ContextVar(
     "spy_step_clock", default=None,
@@ -120,12 +124,15 @@ def _fmt_clock(seconds: float) -> str:
 class StepClock:
     """Count finished steps (not catalog order) + elapsed vs projected time."""
 
-    def __init__(self, steps: list[dict]):
+    def __init__(self, steps: list[dict], *, eta_total: Optional[int] = None):
         self.steps = [dict(s) for s in steps]
         self.ids = {s["id"] for s in self.steps}
         self.done: set[str] = set()
         self.t0 = time.time()
-        self.eta_total = sum(int(s.get("eta_live") or 60) for s in self.steps)
+        if eta_total is not None:
+            self.eta_total = max(1, int(eta_total))
+        else:
+            self.eta_total = ANALYSIS_WALL_SEC
 
     def mark(self, step_id: str, state: str) -> None:
         if state == "done" and step_id in self.ids:
@@ -168,11 +175,16 @@ class StepClock:
         }
 
 
-def _bind_step_clock(steps: list[dict], *, replace: bool = True) -> tuple["StepClock", Any]:
+def _bind_step_clock(
+    steps: list[dict],
+    *,
+    replace: bool = True,
+    eta_total: Optional[int] = None,
+) -> tuple["StepClock", Any]:
     existing = _STEP_CLOCK.get()
     if existing is not None and not replace:
         return existing, None
-    clock = StepClock(steps)
+    clock = StepClock(steps, eta_total=eta_total)
     token = _STEP_CLOCK.set(clock)
     return clock, token
 
@@ -1412,18 +1424,22 @@ def _run_compare_all_pipeline(
     emit = _wrap_emit_logger(emit, recorder)
     set_step = _wrap_set_step_timer(ui_set_step, recorder)
 
-    all_steps = [
-        {"id": "briefing_concorrentes", "label": "All caches", "eta_live": 30},
-    ]
-    for i, company in enumerate(companies):
-        has_cache = bool(find_metricas_xlsx(company["slug"]))
-        all_steps.append({
-            "id": f"all_{i}",
-            "label": company["name"],
-            "eta_live": 420 if force or not has_cache else 25,
-        })
-    all_steps.append({"id": "all_merge", "label": "Merge reports", "eta_live": 30})
-    clock, _token = _bind_step_clock(all_steps)
+    planned = _planned_analysis_steps(
+        include_google_ads=include_google_ads,
+        include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
+        include_instagram_influencers=include_instagram_influencers,
+        include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
+    )
+    n_fetch = sum(
+        1 for c in companies if force or not find_metricas_xlsx(c["slug"])
+    )
+    eta = ANALYSIS_WALL_SEC * n_fetch if n_fetch else 45
+    clock, _token = _bind_step_clock(planned, eta_total=eta)
 
     emit(
         "pipeline_meta",
@@ -1448,9 +1464,9 @@ def _run_compare_all_pipeline(
     )
 
     def _child_emit(event: str, **payload: Any) -> None:
-        # Nested individual runs must not finish/close the parent All job
-        # or reset the parent step clock with catalog indexes.
-        if event in ("done", "pipeline_meta", "progress"):
+        # Nested individual runs must not finish/close the parent All job.
+        # Channel progress is forwarded so each extra still counts as a step.
+        if event in ("done", "pipeline_meta"):
             return
         emit(event, **payload)
 
@@ -1463,7 +1479,7 @@ def _run_compare_all_pipeline(
         has_cache = bool(find_metricas_xlsx(c_slug))
         need_fetch = bool(force) or not has_cache
         _emit_progress(
-            emit, set_step, f"all_{i}", "running",
+            emit, set_step, "briefing_concorrentes", "running",
             f"All: {c_name} ({i + 1}/{len(companies)})",
         )
         if need_fetch:
@@ -1580,14 +1596,13 @@ def _run_compare_all_pipeline(
                     emit("log", line=f"[ALL] WARN X influencers refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
-        _emit_progress(emit, set_step, f"all_{i}", "done", f"{c_name} ready")
 
     _emit_progress(
         emit, set_step, "briefing_concorrentes", "done",
         f"All: {len(companies)} empresas · fetched={fetched} cached={cached}",
     )
     emit("log", line=f"[ALL] Merging {len(companies)} company reports…")
-    _emit_progress(emit, set_step, "all_merge", "running", "Merging All report…")
+    _emit_progress(emit, set_step, "seo", "running", "Merging All report…")
 
     attach_fns = [_attach_all_sidecars]
     per_reports: list[dict] = []
@@ -1673,7 +1688,6 @@ def _run_compare_all_pipeline(
     else:
         attach_run_log(report, recorder)
 
-    _emit_progress(emit, set_step, "all_merge", "done", "Merged")
     emit("done", report=report, html_url=html_url)
     return report
 
@@ -1903,7 +1917,7 @@ def run_competitors_only_pipeline(
     recorder = RunRecorder()
     emit = _wrap_emit_logger(emit, recorder)
     set_step = _wrap_set_step_timer(set_step, recorder)
-    clock, _token = _bind_step_clock(steps)
+    clock, _token = _bind_step_clock(steps, eta_total=FIND_WALL_SEC)
 
     def on_log(line: str) -> None:
         emit("log", line=line)
@@ -2139,7 +2153,7 @@ def run_pipeline(
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
     )
-    clock, _token = _bind_step_clock(planned, replace=False)
+    clock, _token = _bind_step_clock(planned, eta_total=ANALYSIS_WALL_SEC)
 
     def on_log(line: str) -> None:
         emit("log", line=line)
