@@ -1,17 +1,14 @@
 # -*- coding: utf-8 -*-
-"""LinkedIn company/profile — Google search; followers from snippet (page often bot-blocked)."""
+"""LinkedIn company page — Google search; followers from snippet (page often bot-blocked)."""
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from typing import Any, Optional
 from urllib.parse import quote_plus
 
-import requests
-
-TINYFISH_SEARCH = "https://api.search.tinyfish.ai"
+from google_serp import google_serp, has_google_serp
 
 COMPANY_RE = re.compile(
     r"https?://(?:[a-z]+\.)?linkedin\.com/company/([^/?#]+)/?",
@@ -25,13 +22,11 @@ FOLLOWERS_RE = re.compile(
     r"([\d][\d,.]*(?:\.\d+)?\s*[KkMmBb]?)\s+followers?\b",
     flags=re.I,
 )
-
-
-def _tf_key() -> str:
-    key = (os.environ.get("TINYFISH_API_KEY") or "").strip()
-    if not key:
-        raise RuntimeError("TINYFISH_API_KEY ausente")
-    return key
+_SKIP_PATH = re.compile(r"/(?:posts|pulse|jobs|life|about|people|admin)(?:/|$)", flags=re.I)
+_STOP = {
+    "inc", "llc", "ltd", "ai", "the", "and", "company", "co", "corp",
+    "official", "app", "group", "studio", "labs", "lab", "io",
+}
 
 
 def _parse_count(raw: str) -> Optional[int]:
@@ -54,12 +49,15 @@ def _parse_count(raw: str) -> Optional[int]:
 
 
 def _brand_tokens(company: str, domain: str = "") -> list[str]:
-    raw = []
+    raw: list[str] = []
     for part in (company, domain.split(".")[0] if domain else ""):
-        part = re.sub(r"[^a-z0-9]+", " ", (part or "").lower()).strip()
-        if part:
-            raw.append(part.replace(" ", ""))
-            raw.append(part)
+        cleaned = re.sub(r"[^a-z0-9]+", " ", (part or "").lower()).strip()
+        if not cleaned:
+            continue
+        raw.append(cleaned.replace(" ", ""))
+        for word in cleaned.split():
+            if word not in _STOP:
+                raw.append(word)
     out, seen = [], set()
     for r in raw:
         if r and r not in seen and len(r) >= 3:
@@ -71,6 +69,14 @@ def _brand_tokens(company: str, domain: str = "") -> list[str]:
 def normalize_linkedin_url(url: str) -> tuple[str, str]:
     """Return (kind, clean_url) where kind is company|person|''."""
     u = (url or "").strip()
+    if _SKIP_PATH.search(u.split("linkedin.com", 1)[-1] if "linkedin.com" in u.lower() else u):
+        # still keep /company/{slug}/jobs → company root
+        m = COMPANY_RE.search(u)
+        if m:
+            slug = m.group(1).strip("/")
+            if slug.lower() not in {"jobs", "life", "about", "people", "posts", "admin"}:
+                return "company", f"https://www.linkedin.com/company/{slug}"
+        return "", ""
     m = COMPANY_RE.search(u)
     if m:
         slug = m.group(1).strip("/")
@@ -82,80 +88,163 @@ def normalize_linkedin_url(url: str) -> tuple[str, str]:
     return "", ""
 
 
-def tinyfish_search_linkedin(company: str, *, location: str = "US") -> dict[str, Any]:
-    t0 = time.time()
-    q = f"{company} linkedin"
-    r = requests.get(
-        TINYFISH_SEARCH,
-        params={
-            "query": q,
-            "location": location,
-            "language": "en" if location.upper() == "US" else "pt",
-            "page": 0,
-        },
-        headers={"X-API-Key": _tf_key()},
-        timeout=45,
-    )
-    r.raise_for_status()
-    data = r.json() if r.content else {}
-    results = data.get("results") or []
-    tokens = _brand_tokens(company)
-    candidates = []
-    for item in results:
-        kind, url = normalize_linkedin_url(str(item.get("url") or ""))
-        if not url:
+def _compact(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def _is_brand(slug: str, title: str, snippet: str, tokens: list[str]) -> bool:
+    slug_c = _compact(slug)
+    title_c = _compact(title)
+    snip_c = _compact(snippet)
+    for tok in tokens:
+        t = _compact(tok)
+        if not t:
             continue
-        # skip posts
-        if "/posts/" in (item.get("url") or "").lower() or "/pulse/" in (item.get("url") or "").lower():
+        if t == slug_c or t in slug_c or (len(slug_c) >= 4 and slug_c in t):
+            return True
+        if t in title_c or t in snip_c:
+            return True
+    return False
+
+
+def _candidate_from_item(item: dict[str, Any], tokens: list[str]) -> Optional[dict[str, Any]]:
+    kind, url = normalize_linkedin_url(str(item.get("url") or ""))
+    if not url:
+        return None
+    title = str(item.get("title") or "")
+    snippet = str(item.get("snippet") or item.get("description") or "")
+    slug = url.rstrip("/").split("/")[-1]
+    score = 30 if kind == "company" else 10
+    slug_c = _compact(slug)
+    title_c = _compact(title)
+    snip_c = _compact(snippet)
+    brand = False
+    for tok in tokens:
+        t = _compact(tok)
+        if not t:
             continue
-        title = str(item.get("title") or "")
-        snippet = str(item.get("snippet") or item.get("description") or "")
-        slug = url.rstrip("/").split("/")[-1]
-        slug_c = re.sub(r"[^a-z0-9]+", "", slug.lower())
-        score = 30 if kind == "company" else 10
-        for tok in tokens:
-            t = re.sub(r"[^a-z0-9]+", "", tok)
-            if t and t == slug_c:
-                score += 80
-            elif t and t in slug_c:
-                score += 40
-            if t and t in re.sub(r"[^a-z0-9]+", "", title.lower()):
-                score += 20
-            if t and t in re.sub(r"[^a-z0-9]+", "", snippet.lower()):
-                score += 10
-        followers = None
-        followers_text = ""
-        m = FOLLOWERS_RE.search(f"{title} {snippet}")
-        if m:
-            followers_text = m.group(1).strip()
-            followers = _parse_count(followers_text)
-            score += 15
-        candidates.append({
-            "url": url,
-            "kind": kind,
-            "slug": slug,
-            "title": title,
-            "snippet": snippet,
-            "followers": followers,
-            "followers_text": followers_text,
-            "score": score,
-        })
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    seen, uniq = set(), []
-    for c in candidates:
-        if c["url"] in seen:
-            continue
-        seen.add(c["url"])
-        uniq.append(c)
-    # Prefer company page with brand match
-    best = next((c for c in uniq if c["kind"] == "company" and c["score"] >= 40), None)
-    if not best:
-        best = uniq[0] if uniq else None
+        if t == slug_c:
+            score += 80
+            brand = True
+        elif t in slug_c or (len(slug_c) >= 4 and slug_c in t):
+            score += 40
+            brand = True
+        if t in title_c:
+            score += 20
+            brand = True
+        if t in snip_c:
+            score += 10
+            brand = True
+    followers = None
+    followers_text = ""
+    m = FOLLOWERS_RE.search(f"{title} {snippet}")
+    if m:
+        followers_text = m.group(1).strip()
+        followers = _parse_count(followers_text)
+        score += 15
     return {
-        "ok": bool(best),
-        "query": q,
-        "profile": best,
-        "candidates": uniq[:6],
+        "url": url,
+        "kind": kind,
+        "slug": slug,
+        "title": title,
+        "snippet": snippet,
+        "followers": followers,
+        "followers_text": followers_text,
+        "score": score,
+        "brand": brand or _is_brand(slug, title, snippet, tokens),
+        "position": int(item.get("position") or 99),
+    }
+
+
+def _pick_profile(candidates: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    companies = [c for c in candidates if c.get("kind") == "company"]
+    # First Google company link that is the brand.
+    first_brand = next((c for c in companies if c.get("brand")), None)
+    if first_brand:
+        return first_brand
+    scored = next((c for c in companies if int(c.get("score") or 0) >= 40), None)
+    if scored:
+        return scored
+    return companies[0] if companies else (candidates[0] if candidates else None)
+
+
+def search_linkedin_brand(
+    company: str,
+    *,
+    domain: str = "",
+    market: str = "us",
+) -> dict[str, Any]:
+    tokens = _brand_tokens(company, domain)
+    brand = (company or (domain.split(".")[0] if domain else "")).strip()
+    queries = [
+        (f"{brand} site:linkedin.com/company", "linkedin.com"),
+        (f"{brand} linkedin", "linkedin.com"),
+    ]
+    seen_q = set()
+    all_candidates: list[dict[str, Any]] = []
+    used_query = ""
+    used_source = ""
+    usage = {
+        "search_cost_usd": 0.0,
+        "source": "",
+        "providers_tried": [],
+        "note": "LinkedIn pages often bot-block Fetch; snippet followers used when present",
+    }
+    t0 = time.time()
+    for q, domains in queries:
+        if q.lower() in seen_q:
+            continue
+        seen_q.add(q.lower())
+        serp = google_serp(q, market=market, include_domains=domains)
+        usage["search_cost_usd"] = round(
+            float(usage["search_cost_usd"]) + float(serp.get("cost_usd") or 0), 6
+        )
+        usage["providers_tried"] = list(
+            dict.fromkeys(list(usage["providers_tried"]) + list(serp.get("providers_tried") or []))
+        )
+        if serp.get("credits"):
+            usage["scrapingbee_credits"] = int(serp["credits"])
+        batch = []
+        for item in serp.get("items") or []:
+            cand = _candidate_from_item(item, tokens)
+            if cand:
+                batch.append(cand)
+        # keep first-page order; merge follower snippets from /jobs etc.
+        uniq, seen = [], {}
+        for c in batch:
+            prev = seen.get(c["url"])
+            if prev is None:
+                seen[c["url"]] = c
+                uniq.append(c)
+            elif prev.get("followers") is None and c.get("followers") is not None:
+                prev["followers"] = c["followers"]
+                prev["followers_text"] = c.get("followers_text") or ""
+                prev["score"] = max(int(prev.get("score") or 0), int(c.get("score") or 0))
+        all_candidates.extend(c for c in uniq if c["url"] not in {x["url"] for x in all_candidates})
+        picked = _pick_profile(uniq)
+        if picked and (picked.get("brand") or picked.get("kind") == "company"):
+            used_query = q
+            used_source = str(serp.get("source") or "")
+            usage["source"] = used_source
+            return {
+                "ok": True,
+                "query": q,
+                "profile": picked,
+                "candidates": (uniq or all_candidates)[:6],
+                "usage": usage,
+                "elapsed_sec": round(time.time() - t0, 2),
+            }
+        if not used_query:
+            used_query = q
+            used_source = str(serp.get("source") or "")
+            usage["source"] = used_source
+    picked = _pick_profile(all_candidates)
+    return {
+        "ok": bool(picked),
+        "query": used_query,
+        "profile": picked,
+        "candidates": all_candidates[:6],
+        "usage": usage,
         "elapsed_sec": round(time.time() - t0, 2),
     }
 
@@ -171,15 +260,24 @@ def analyze_company(
     q = (query or company or (domain.split(".")[0] if domain else "")).strip()
     if not q:
         raise ValueError("company/query required")
-    loc = "US" if (market or "us").lower().startswith("us") else "BR"
-    usage = {
-        "search_cost_usd": 0.0,
-        "source": "tinyfish_search (followers from Google snippet)",
-        "note": "LinkedIn pages often bot-block Fetch; snippet followers used when present",
-    }
+    if not has_google_serp():
+        return {
+            "ok": False,
+            "company": company,
+            "domain": domain,
+            "query": q,
+            "error": "No Google SERP provider (TinyFish / ScrapingBee / DataForSEO)",
+            "usage": {"search_cost_usd": 0.0, "source": ""},
+            "elapsed_sec": 0,
+        }
 
-    search = tinyfish_search_linkedin(q, location=loc)
+    search = search_linkedin_brand(q, domain=domain, market=market)
     prof = search.get("profile") or {}
+    usage = dict(search.get("usage") or {})
+    usage.setdefault(
+        "note",
+        "LinkedIn pages often bot-block Fetch; snippet followers used when present",
+    )
 
     return {
         "ok": bool(prof.get("url")),

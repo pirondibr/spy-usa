@@ -146,9 +146,9 @@ def main() -> None:
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "tinyfish_search",
+        "source": "google_serp_rotate",
         "elapsed_sec": round(time.time() - t0, 2),
-        "usage_total": {"note": "Followers from Google snippet when available"},
+        "usage_total": {"note": "TinyFish first (free). ScrapingBee / DataForSEO if rate-limited."},
         "rows": rows,
     }
     out_dir = METRICAS_DIR / slug

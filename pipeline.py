@@ -2220,9 +2220,15 @@ def run_pipeline(
 
     # 14) LinkedIn company/profile (optional)
     if include_linkedin_profile:
-        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
-            emit("log", line="[LI] Skipped: TINYFISH_API_KEY missing")
-            _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped (no TinyFish key)")
+        _li_tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
+        _li_sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
+        _li_dfs = bool(
+            (os.environ.get("DATAFORSEO_USER") or os.environ.get("DATAFORSEO_LOGIN") or "").strip()
+            and (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
+        )
+        if not (_li_tf or _li_sb or _li_dfs):
+            emit("log", line="[LI] Skipped: no TinyFish / ScrapingBee / DataForSEO key")
+            _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped (no SERP key)")
         else:
             _emit_progress(emit, set_step, "linkedin_profile", "running", "LinkedIn profile...")
             try:
