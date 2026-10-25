@@ -755,6 +755,8 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         src = str(data.get("source") or "").lower()
         if "scrapingbee" not in src or "njs" not in src:
             return True
+        if data.get("brand_filter") != "title_desc":
+            return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
         return False

@@ -310,7 +310,11 @@ def classify(
     title = _title(post)
     tags = _hashtags(post)
     user = _username(post)
-    speech = sub_text if sub_text is not None else str(post.get("subtitle_text") or "")
+    speech = (
+        sub_text
+        if sub_text is not None
+        else str(post.get("subtitle_text") or post.get("description") or "")
+    )
     host = str(cfg.get("domain") or "")
     mention = str(cfg.get("mention") or "")
     prefix = str(cfg.get("hashtag_prefix") or "")
@@ -473,7 +477,7 @@ def classify_all(
             classify(
                 post,
                 brand,
-                subs.get(i, ""),
+                subs.get(i) if with_subtitles else None,
                 domain=domain,
                 official_handle=official_handle,
                 min_views=min_views,

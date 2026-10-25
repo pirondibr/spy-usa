@@ -211,6 +211,7 @@ def main() -> None:
         "slug": slug,
         "market": market.upper(),
         "source": "scrapingbee_youtube_njs",
+        "brand_filter": "title_desc",
         "llm_title_filter": False,
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
