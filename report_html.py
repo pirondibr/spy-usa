@@ -361,7 +361,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.84"
+REPORT_UI_VERSION = "0.4.85"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -1954,11 +1954,14 @@ def _section_linkedin_profile(section: Optional[dict[str, Any]]) -> str:
         title = _esc(r.get("title") or "—")
         if r.get("snippet"):
             title += f'<div class="muted">{_esc(str(r.get("snippet"))[:120])}</div>'
+        followers = _esc(r.get("followers_fmt") or r.get("traffic_fmt") or "—")
+        if r.get("followers_source"):
+            followers += f'<div class="muted">{_esc(str(r.get("followers_source")))}</div>'
         table_rows.append([
             str(i),
             name,
             _esc(r.get("kind") or "—"),
-            _esc(r.get("followers_fmt") or r.get("traffic_fmt") or "—"),
+            followers,
             title,
             _link_cell(r.get("url"), "LinkedIn"),
             _link_cell(r.get("search_url"), "Google"),

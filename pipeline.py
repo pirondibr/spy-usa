@@ -2240,20 +2240,21 @@ def run_pipeline(
     else:
         _emit_progress(emit, set_step, "twitter", "done", "Skipped")
 
+    _or = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if include_linkedin_profile:
-        if not (_tf or _sb or _dfs):
-            emit("log", line="[LI] Skipped: no TinyFish / ScrapingBee / DataForSEO key")
-            _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped (no SERP key)")
+        if not (_tf or _sb or _dfs or _or):
+            emit("log", line="[LI] Skipped: no TinyFish / ScrapingBee / DataForSEO / OpenRouter key")
+            _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped (no SERP or OpenRouter key)")
         else:
             extras.append({
                 "tag": "LI",
                 "step": "linkedin_profile",
                 "section": "linkedin_profile",
                 "script": SCRIPT_LI_PROFILE,
-                "timeout": 120,
+                "timeout": 180,
                 "kind": "json",
                 "priority": 15,
-                "running": "LinkedIn profile...",
+                "running": "LinkedIn profile (Google + OpenRouter online)...",
                 "done": "LinkedIn Profile ready",
                 "attach": _attach_linkedin_profile,
             })

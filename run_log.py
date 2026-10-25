@@ -66,7 +66,7 @@ CHANNEL_APIS = {
     "tiktok_influencers": ["TinyFish", "ScrapingBee", "DataForSEO"],
     "reddit": ["TinyFish", "ScrapingBee"],
     "twitter": ["TinyFish", "ScrapingBee"],
-    "linkedin_profile": ["TinyFish", "ScrapingBee", "DataForSEO"],
+    "linkedin_profile": ["TinyFish", "ScrapingBee", "DataForSEO", "OpenRouter"],
 }
 
 _CREDIT_RE = re.compile(

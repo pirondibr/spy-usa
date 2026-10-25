@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Etapa LinkedIn profile (TinyFish Search; followers from Google snippet)."""
+"""Etapa LinkedIn profile (Google snippet, then OpenRouter :online if no count)."""
 
 from __future__ import annotations
 
@@ -143,12 +143,23 @@ def main() -> None:
             "error": result.get("error"),
         })
 
+    search_cost = 0.0
+    or_calls = 0
+    for r in rows:
+        u = r.get("usage") or {}
+        search_cost += float(u.get("search_cost_usd") or 0)
+        if isinstance(u.get("openrouter_online"), dict):
+            or_calls += 1
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "google_serp_rotate",
+        "source": "google_serp_then_openrouter_online",
         "elapsed_sec": round(time.time() - t0, 2),
-        "usage_total": {"note": "TinyFish first (free). ScrapingBee / DataForSEO if rate-limited."},
+        "usage_total": {
+            "search_cost_usd": round(search_cost, 6),
+            "openrouter_online_calls": or_calls,
+            "note": "Google snippet first. OpenRouter web (Exa, linkedin.com) if followers missing.",
+        },
         "rows": rows,
     }
     out_dir = METRICAS_DIR / slug
