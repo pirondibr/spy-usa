@@ -1,28 +1,237 @@
 # -*- coding: utf-8 -*-
-"""YouTube Influencers spy — ScrapingBee fetch of native YouTube search + parse.
+"""YouTube Influencers — Apify first-page search (no video open).
 
-TinyFish Fetch is blocked on youtube.com/results; ScrapingBee render_js works.
-First page only:
-- official vs unofficial view totals
-- age buckets: 30d / 6m / 1y+
-- top links official / unofficial
-- product relevance from title+description (brand hit = yes)
+Primary: apidojo/youtube-scraper keyword search (min 10 videos, ~$0.50/1k).
+Fallback: ScrapingBee native YouTube / Google SERP if Apify fails.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import time
+from datetime import date
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote_plus, urlparse, parse_qs
 
 import requests
 
+from tiktok_brand_filter import classify_all, resolve_brand
+
+ACTOR_ID = "1p1aa7gcSydPkAE0d"
+APIFY_SYNC_URL = f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items"
+_COST_PER_VIDEO = 0.50 / 1000
+_MAX_DEFAULT = 10
+
 SCRAPINGBEE_URL = "https://app.scrapingbee.com/api/v1/"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash"
+
+
+def _api_token() -> str:
+    return (
+        os.environ.get("APIFY_TOKEN")
+        or os.environ.get("APIFY_API_TOKEN")
+        or os.environ.get("APIFY_API_KEY")
+        or ""
+    ).strip()
+
+
+def has_youtube_apify() -> bool:
+    return bool(_api_token())
+
+
+def _max_items() -> int:
+    raw = (os.environ.get("SPY_YOUTUBE_MAX_ITEMS") or str(_MAX_DEFAULT)).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = _MAX_DEFAULT
+    return max(10, min(50, n))
+
+
+def _cache_dir() -> Path:
+    root = (
+        os.environ.get("RADAR_DATA_DIR")
+        or os.environ.get("SPY_DATA_DIR")
+        or ""
+    ).strip()
+    base = Path(root) if root else Path(__file__).resolve().parents[2] / "data"
+    return base / "cache" / "youtube-apify"
+
+
+def _cache_key(query: str, gl: str, max_items: int) -> str:
+    raw = "|".join([query.lower(), gl, str(max_items), date.today().isoformat()])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _cache_get(key: str) -> Optional[list[dict[str, Any]]]:
+    path = _cache_dir() / date.today().isoformat() / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    items = data.get("items") if isinstance(data, dict) else data
+    return items if isinstance(items, list) else None
+
+
+def _cache_put(key: str, items: list[dict[str, Any]]) -> None:
+    folder = _cache_dir() / date.today().isoformat()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{key}.json").write_text(
+            json.dumps({"items": items}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
+
+
+def _iso_to_days(text: str) -> Optional[int]:
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", (text or "").strip())
+    if not m:
+        return parse_age_to_days(text)
+    try:
+        d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        return max(0, (date.today() - d).days)
+    except ValueError:
+        return parse_age_to_days(text)
+
+
+def _run_apify(
+    query: str,
+    *,
+    max_items: int,
+    gl: str,
+    hl: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    token = _api_token()
+    if not token:
+        raise RuntimeError("Missing APIFY_TOKEN for YouTube Apify")
+    body = {
+        "keywords": [query],
+        "gl": gl,
+        "hl": hl,
+        "uploadDate": "all",
+        "duration": "all",
+        "features": "all",
+        "sort": "r",
+        "maxItems": max_items,
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    last_err = ""
+    for attempt in range(2):
+        t0 = time.time()
+        try:
+            r = requests.post(
+                APIFY_SYNC_URL,
+                params={"timeout": 150},
+                headers=headers,
+                json=body,
+                timeout=160,
+            )
+            elapsed = round(time.time() - t0, 2)
+            if r.status_code >= 500 and attempt == 0:
+                last_err = f"HTTP {r.status_code}"
+                time.sleep(1.5)
+                continue
+            r.raise_for_status()
+            payload = r.json() if r.content else []
+            items = payload if isinstance(payload, list) else []
+            items = [p for p in items if isinstance(p, dict)]
+            return items, {
+                "ok": True,
+                "http_status": r.status_code,
+                "elapsed_sec": elapsed,
+                "attempt": attempt + 1,
+                "error": None,
+            }
+        except Exception as e:
+            last_err = str(e)
+            if attempt == 0:
+                time.sleep(1.5)
+                continue
+            return [], {
+                "ok": False,
+                "http_status": None,
+                "elapsed_sec": round(time.time() - t0, 2),
+                "attempt": attempt + 1,
+                "error": last_err,
+            }
+    return [], {"ok": False, "error": last_err}
+
+
+def _item_to_post(item: dict[str, Any]) -> Optional[dict[str, Any]]:
+    typ = str(item.get("type") or "video").lower()
+    if typ not in ("video", "short", "shorts", ""):
+        return None
+    ch = item.get("channel") if isinstance(item.get("channel"), dict) else {}
+    title = str(item.get("title") or "")
+    tags = [t.lstrip("#") for t in re.findall(r"#([A-Za-z0-9_]+)", title)]
+    url = str(item.get("url") or "")
+    if not url and item.get("id"):
+        url = f"https://www.youtube.com/watch?v={item.get('id')}"
+    ch_url = str(ch.get("url") or "")
+    handle = _handle_from_channel_url(ch_url)
+    publish = (
+        item.get("publishDate")
+        or item.get("publishedAt")
+        or item.get("uploadDate")
+        or item.get("date")
+        or ""
+    )
+    views = item.get("viewCount")
+    if views is None:
+        views = item.get("views")
+    return {
+        "id": str(item.get("id") or item.get("videoId") or ""),
+        "title": title,
+        "hashtags": tags,
+        "views": views,
+        "likes": item.get("likes") or item.get("likeCount"),
+        "postPage": url,
+        "uploadedAtFormatted": str(publish),
+        "description": str(item.get("description") or "")[:400],
+        "channel": {
+            "username": handle,
+            "name": ch.get("name") or "",
+            "url": ch_url,
+            "id": ch.get("id") or "",
+        },
+    }
+
+
+def _row_to_video(row: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
+    ch = post.get("channel") if isinstance(post.get("channel"), dict) else {}
+    handle = str(row.get("user") or ch.get("username") or "").lstrip("@")
+    publish = str(row.get("uploaded") or post.get("uploadedAtFormatted") or "")
+    return {
+        "id": row.get("id") or post.get("id") or "",
+        "title": row.get("title") or post.get("title") or "YouTube",
+        "url": row.get("link") or post.get("postPage") or "",
+        "handle": handle,
+        "channel_name": ch.get("name") or (f"@{handle}" if handle else ""),
+        "channel_url": ch.get("url") or (f"https://www.youtube.com/@{handle}" if handle else ""),
+        "views": row.get("views") if row.get("views") is not None else post.get("views"),
+        "likes": row.get("likes") if row.get("likes") is not None else post.get("likes"),
+        "upload_age": publish,
+        "age_days": _iso_to_days(publish),
+        "is_official": bool(row.get("official")),
+        "label": row.get("label"),
+        "score": row.get("score"),
+        "reasons": row.get("reasons") or [],
+        "flags": row.get("flags") or [],
+        "about_product": row.get("label") == "confirmed",
+        "about_reason": ",".join(row.get("reasons") or []) or row.get("label"),
+    }
 
 
 def _scrapingbee_key() -> str:
@@ -828,18 +1037,153 @@ def analyze_company(
 ) -> dict[str, Any]:
     """Full YouTube Influencers pass for one company (first search page)."""
     t_all = time.time()
-    q = (query or company or domain or "").strip()
+    name = (company or (domain.split(".")[0] if domain else "")).strip()
+    q = (query or name or domain or "").strip()
     if not q:
         raise ValueError("company/query required")
-    loc = "US" if (market or "us").lower().startswith("us") else "BR"
+    loc = "us" if (market or "us").lower().startswith("us") else "br"
+    hl = "en" if loc == "us" else "pt"
+    hint_handle = _handle_from_channel_url(str((official_hint or {}).get("url") or ""))
+    if not hint_handle:
+        hint_handle = str((official_hint or {}).get("name") or "").lstrip("@").lower()
+    cfg = resolve_brand(name, domain=domain, official_handle=hint_handle)
+    max_items = _max_items()
+
+    cached = False
+    cache_key = _cache_key(q, loc, max_items)
+    raw = _cache_get(cache_key)
+    fetch_meta: dict[str, Any] = {"ok": True, "error": None, "elapsed_sec": 0}
+    if raw is None:
+        if has_youtube_apify():
+            raw, fetch_meta = _run_apify(q, max_items=max_items, gl=loc, hl=hl)
+            if fetch_meta.get("ok") and raw:
+                _cache_put(cache_key, raw)
+        else:
+            raw = []
+            fetch_meta = {"ok": False, "error": "APIFY_TOKEN missing"}
+    else:
+        cached = True
+
+    posts = [p for p in (_item_to_post(it) for it in (raw or [])) if p]
+    if posts:
+        classified = classify_all(
+            posts,
+            name,
+            with_subtitles=False,
+            domain=domain,
+            official_handle=hint_handle,
+        )
+        by_id = {str(p.get("id") or ""): p for p in posts if p.get("id")}
+        videos = [
+            _row_to_video(row, by_id.get(str(row.get("id") or ""), {}))
+            for row in classified
+        ]
+        for v in videos:
+            v["is_official"] = bool(v.get("is_official")) or is_official_channel(
+                str(v.get("channel_name") or ""),
+                str(v.get("channel_url") or ""),
+                name,
+                domain,
+                official_hint,
+            )
+            days = v.get("age_days")
+            if days is None:
+                days = _iso_to_days(str(v.get("upload_age") or ""))
+                v["age_days"] = days
+            v["age_bucket"] = age_bucket(days)
+            v["views"] = _views_of(v) or 0
+
+        confirmed = [v for v in videos if v.get("label") == "confirmed"]
+        probable = [v for v in videos if v.get("label") == "probable"]
+        unrelated = [v for v in videos if v.get("label") == "unrelated"]
+        official_pool = [v for v in confirmed if v.get("is_official")]
+        other_pool = [v for v in confirmed if not v.get("is_official")]
+
+        def _top(items: list[dict], limit: int = 5) -> list[dict]:
+            return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
+
+        buckets = {"30d": 0, "6m": 0, "1y_plus": 0, "unknown": 0}
+        for v in confirmed:
+            key = v.get("age_bucket") or "unknown"
+            buckets[key] = buckets.get(key, 0) + int(v.get("views") or 0)
+
+        billed = max(len(raw), 10) if raw and not cached else 0
+        cost = round(billed * _COST_PER_VIDEO, 6) if not cached else 0.0
+        print(
+            f"[YT-INF] apify q={q!r} items={len(raw)} confirmed={len(confirmed)} "
+            f"probable={len(probable)} unrelated={len(unrelated)} "
+            f"~${cost:.4f} cached={cached}",
+            flush=True,
+        )
+        return {
+            "ok": bool(confirmed or probable or (fetch_meta.get("ok") and raw)),
+            "company": name,
+            "domain": domain,
+            "query": q,
+            "search_url": f"https://www.youtube.com/results?search_query={quote_plus(q)}",
+            "official_channel": official_hint or (
+                official_hint_from_url(f"https://www.youtube.com/@{hint_handle}")
+                if hint_handle else None
+            ),
+            "brand": {
+                "name": cfg.get("name"),
+                "ambiguous": bool(cfg.get("ambiguous")),
+                "query": q,
+            },
+            "views_official": sum(int(v.get("views") or 0) for v in official_pool),
+            "views_unofficial": sum(int(v.get("views") or 0) for v in other_pool),
+            "views_by_age": buckets,
+            "about_count": len(confirmed),
+            "page_count": len(raw or []),
+            "top5": _top(confirmed or probable),
+            "top5_official": _top(official_pool),
+            "top5_unofficial": _top(other_pool),
+            "videos_about_product": confirmed,
+            "counts": {
+                "search_page": len(raw or []),
+                "about_product": len(confirmed),
+                "confirmed": len(confirmed),
+                "probable": len(probable),
+                "unrelated": len(unrelated),
+                "official": len(official_pool),
+                "unofficial": len(other_pool),
+            },
+            "usage": {
+                "source": "apify_youtube",
+                "actor": ACTOR_ID,
+                "cached": cached,
+                "estimated_usd": cost,
+                "estimated_total_usd": cost,
+                "search_cost_usd": cost,
+                "posts": len(raw or []),
+                "max_items": max_items,
+                "gl": loc,
+                "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
+                "scrapingbee_credits": 0,
+                "note": (
+                    "Apify apidojo/youtube-scraper keyword search. "
+                    "First page, no video open. Brand filter confirmed/probable/unrelated."
+                ),
+            },
+            "elapsed_sec": round(time.time() - t_all, 2),
+            "error": None if (raw or cached) else (fetch_meta.get("error") or "YouTube Apify returned no videos"),
+        }
+
+    print(
+        f"[YT-INF] Apify empty ({fetch_meta.get('error') or 'no videos'}); "
+        f"falling back to ScrapingBee / Google SERP",
+        flush=True,
+    )
+    loc_sb = "US" if loc == "us" else "BR"
     usage = {
         "scrapingbee_credits": 0,
         "openrouter": bool((os.environ.get("OPENROUTER_API_KEY") or "").strip()),
         "estimated_total_usd": 0.0,
         "source": "youtube_native_scrapingbee",
+        "apify_error": fetch_meta.get("error"),
     }
 
-    fetched = scrapingbee_youtube_search(q, country=loc)
+    fetched = scrapingbee_youtube_search(q, country=loc_sb)
     usage["scrapingbee_credits"] = int(fetched.get("credits") or 0)
     usage["fetch_elapsed_sec"] = fetched.get("elapsed_sec")
     usage["source"] = "youtube_native_scrapingbee"

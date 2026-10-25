@@ -24,6 +24,7 @@ CH_META = (
     ("ytv", "inf", "YouTube", "video views", 0),
     ("igl", "inf", "Instagram", "likes", 0),
     ("ttv", "inf", "TikTok", "video views", 0),
+    ("xl", "inf", "X", "likes", 0),
 )
 CH_TO_CMP = {
     "google": "google",
@@ -39,6 +40,7 @@ CH_TO_CMP = {
     "ytv": "yt_inf",
     "igl": "ig_inf",
     "ttv": "tt_inf",
+    "xl": "x_inf",
 }
 
 
@@ -172,6 +174,7 @@ def build_v5_payload(
         yt_prof = _row_for_company(section("youtube"), company) or {}
         ig_prof = _row_for_company(section("instagram"), company) or {}
         tt_prof = _row_for_company(section("tiktok"), company) or {}
+        tw_prof = _row_for_company(section("twitter"), company) or {}
         li_prof = _row_for_company(section("linkedin_profile"), company) or {}
         companies.append({
             "k": k,
@@ -182,6 +185,7 @@ def build_v5_payload(
             "yt_url": str(yt_prof.get("url") or ""),
             "ig_url": str(ig_prof.get("url") or ""),
             "tt_url": str(tt_prof.get("url") or ""),
+            "x_url": str(tw_prof.get("url") or ""),
             "li_url": str(li_prof.get("url") or ""),
             "visits": _num(crow.get("visits")) or 0,
             "vg": float(crow.get("vg") or 0),
@@ -414,6 +418,56 @@ def build_v5_payload(
             "w": str(row.get("note") or ""),
         }
 
+    # x influencers (official profile + tweet search)
+    twitter: dict[str, Any] = {}
+    tw_sec = section("twitter")
+    tw_inf = section("twitter_influencers")
+    for company, co in zip(raw_cos, companies):
+        row = _row_for_company(tw_inf, company) or {}
+        prow = _row_for_company(tw_sec, company) or {}
+        top_off = list(row.get("top5_official") or [])
+        top_unoff = list(row.get("top5_unofficial") or [])
+        if not top_off and not top_unoff:
+            for t in row.get("top5") or []:
+                (top_off if t.get("is_official") else top_unoff).append(t)
+        oc = row.get("official_channel") or {}
+        profile = ""
+        if isinstance(oc, dict):
+            profile = str(oc.get("url") or "")
+        if not profile:
+            profile = str(prow.get("url") or co.get("x_url") or "")
+        handle = ""
+        if profile:
+            import re as _re
+            m = _re.search(r"(?:x|twitter)\.com/@?([^/?#]+)", profile, flags=_re.I)
+            handle = (m.group(1) if m else "").lstrip("@")
+        collected = bool(
+            row.get("page_count")
+            or row.get("about_count")
+            or row.get("top5")
+            or row.get("top5_official")
+            or row.get("top5_unofficial")
+            or row.get("query")
+            or row.get("url")
+        )
+        q = str(row.get("query") or "").strip()
+        search = str(row.get("url") or row.get("search_url") or "")
+        twitter[co["k"]] = {
+            "followers": prow.get("value_fmt") or prow.get("followers_fmt") or None,
+            "h": handle or None,
+            "profile": profile,
+            "views": _compact_num(_num(row.get("views_unofficial")) or 0),
+            "off": _compact_num(_num(row.get("views_official")) or 0),
+            "oth": _compact_num(_num(row.get("views_unofficial")) or 0),
+            "n": int(row.get("about_count") or 0),
+            "q": q,
+            "search": search,
+            "o": _yt_items(top_off),
+            "x": _yt_items(top_unoff),
+            "collected": collected,
+            "w": str(row.get("note") or ""),
+        }
+
     # linkedin (official company page + ads library)
     linkedin: dict[str, Any] = {}
     li_sec = section("linkedin_profile")
@@ -435,7 +489,12 @@ def build_v5_payload(
             "profile": profile,
             "h": handle or None,
             "search": str(row.get("search_url") or ""),
-            "ads": arow.get("value_fmt") or arow.get("linkedin_ads_fmt") or arow.get("count_fmt") or None,
+            "ads": (
+                str(arow.get("value_fmt") or arow.get("linkedin_ads_fmt") or arow.get("count_fmt") or "")
+                .split("/", 1)[0]
+                .strip()
+                or None
+            ),
             "ads_url": _summary_channel_url("linkedin", li_ads, arow, market=market),
             "w": str(row.get("note") or row.get("error") or ""),
         }
@@ -505,6 +564,7 @@ def build_v5_payload(
         "youtube": youtube,
         "instagram": instagram,
         "tiktok": tiktok,
+        "twitter": twitter,
         "linkedin": linkedin,
         "reddit": reddit,
         "exec": {

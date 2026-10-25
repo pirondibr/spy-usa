@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
-"""LinkedIn Ad Library — keyword search + Ctrl+F (1 pagina).
+"""LinkedIn Ad Library — keyword search + brand hits in ad cards.
 
 URL: https://www.linkedin.com/ad-library/search?keyword=<empresa>
 Fallback: accountOwner=<empresa>
 
-1) Baixa a pagina via ScrapingBee premium proxy (render_js=false)
-2) Ctrl+F: conta quantas vezes o nome da empresa aparece no HTML
-3) Le o total do H1: "1,728 ads match your search criteria"
-4) Mostra name-hits / ads total
+1) Download the page via ScrapingBee premium proxy (render_js=false)
+2) Count brand-name hits inside ad cards only (Ctrl+F, word-boundary)
+3) Ignore search chrome / H1 "N ads match your search criteria"
+4) Displayed number = card hits. H1 total is stored only for debug.
 
-ScrapingBee com render_js=true e bloqueado/timeout no LinkedIn; sem JS passa.
-O HTML ja vem server-side renderizado com os cards e o H1.
+ScrapingBee with render_js=true is blocked/timeout on LinkedIn; no-JS works.
 """
 
 from __future__ import annotations
@@ -42,20 +41,57 @@ def keyword_url(keyword: str) -> str:
     return f"{AD_LIBRARY_BASE}?keyword={quote_plus(keyword.strip())}"
 
 
-def _ctrl_f_count(html: str, needles: list[str]) -> tuple[int, str]:
-    """Case-insensitive substring count on visible-ish HTML (browser Ctrl+F)."""
-    if not html or not needles:
-        return 0, ""
-    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+def _word_hits(text: str, needle: str) -> int:
+    n = (needle or "").strip()
+    if len(n) < 3 or not text:
+        return 0
+    return len(re.findall(rf"(?<![A-Za-z0-9]){re.escape(n)}(?![A-Za-z0-9])", text, flags=re.I))
+
+
+def _strip_chrome(html: str) -> str:
+    """Drop search box, H1, nav and other chrome that mention the query."""
+    text = html or ""
+    for tag in ("script", "style", "header", "nav", "footer", "form", "noscript"):
+        text = re.sub(rf"(?is)<{tag}\b[^>]*>.*?</{tag}>", " ", text)
+    text = re.sub(r"(?is)<(?:title|h1)\b[^>]*>.*?</(?:title|h1)>", " ", text)
+    text = re.sub(r"(?is)<(?:input|textarea|select|button|meta|link)\b[^>]*/?>", " ", text)
+    text = re.sub(r'(?is)\b(?:value|placeholder|aria-label|title|alt)\s*=\s*("[^"]*"|\'[^\']*\')', " ", text)
+    return text
+
+
+def _ad_card_blobs(html: str) -> list[str]:
+    patterns = (
+        r'(?is)<(?:article|li|div)[^>]*(?:ad-library|ad-card|ad-preview|base-ad|sponsored)[^>]*>.*?</(?:article|li|div)>',
+        r'(?is)<(?:article|div)[^>]*data-test-id="[^"]*ad[^"]*"[^>]*>.*?</(?:article|div)>',
+    )
+    found: list[str] = []
+    for pat in patterns:
+        found.extend(re.findall(pat, html or ""))
+    return found
+
+
+def _visible_text(html: str) -> str:
+    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html or "")
     text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
     text = re.sub(r"(?is)<!--.*?-->", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text)
+
+
+def _ctrl_f_count(html: str, needles: list[str]) -> tuple[int, str]:
+    """Brand-name hits inside ad cards (chrome-stripped if no card markup)."""
+    if not html or not needles:
+        return 0, ""
+    cards = _ad_card_blobs(html)
+    blob = "\n".join(cards) if cards else _strip_chrome(html)
+    text = _visible_text(blob)
     best_n = 0
     best = ""
     for needle in needles:
         n = (needle or "").strip()
         if len(n) < 3:
             continue
-        count = len(re.findall(re.escape(n), text, flags=re.IGNORECASE))
+        count = _word_hits(text, n)
         if count > best_n:
             best_n = count
             best = n
@@ -181,16 +217,14 @@ def fetch_ad_library_html(url: str) -> tuple[str, int]:
     raise RuntimeError(str(last_err) if last_err else "ScrapingBee falhou")
 
 
-def _fmt_dual(ctrl_f: Optional[int], total: Optional[int]) -> str:
-    if ctrl_f is None and total is None:
+def _fmt_hits(ctrl_f: Optional[int]) -> str:
+    if ctrl_f is None:
         return ""
-    left = "—" if ctrl_f is None else str(int(ctrl_f))
-    right = "—" if total is None else str(int(total))
-    return f"{left}/{right}"
+    return str(int(ctrl_f))
 
 
 def lookup_company_via_payer_flow(company_name: str) -> dict[str, Any]:
-    """Keyword search -> Ctrl+F company name -> H1 ads total. accountOwner fallback."""
+    """Keyword search → brand hits in ad cards. accountOwner fallback. H1 is debug only."""
     raw = (company_name or "").strip()
     q = re.split(r"[|\-–—:·•/]", raw)[0].strip() or raw
     needles = _needles_for(q)
@@ -235,31 +269,31 @@ def lookup_company_via_payer_flow(company_name: str) -> dict[str, Any]:
         h1 = _extract_h1(html)
         total = parse_result_count(h1) or parse_result_count(html)
         ctrl, needle = _ctrl_f_count(html, needles)
-        found = ctrl > 0 or _name_appears(html, q)
+        found = ctrl > 0
         print(
-            f"[LI] {label} h1='{h1}' ctrl+f={ctrl} needle='{needle or q}' "
-            f"total={total} found={found}",
+            f"[LI] {label} h1='{h1}' card-hits={ctrl} needle='{needle or q}' "
+            f"h1_total={total} found={found}",
             flush=True,
         )
-        if not found and total in (None, 0):
+        if not found:
             continue
         base["spb_credits"] = credits_all
         base["linkedin_search_url"] = url
         base["linkedin_keyword_url"] = keyword or url
         base["linkedin_ads_ctrl"] = ctrl
         base["linkedin_ads_total"] = total
-        base["linkedin_ads_fmt"] = _fmt_dual(ctrl, total)
-        base["linkedin_ads"] = total if total is not None else ctrl
+        base["linkedin_ads_fmt"] = _fmt_hits(ctrl)
+        base["linkedin_ads"] = ctrl
         base["linkedin_advertiser"] = q
-        base["name_found"] = found
+        base["name_found"] = True
         base["method"] = label
         return base
 
     base["spb_credits"] = credits_all
     if last_err:
         base["error"] = last_err
-    print(f"[LI] nome '{q}' nao confirmado em keyword/accountOwner", flush=True)
+    print(f"[LI] nome '{q}' nao confirmado em cards keyword/accountOwner", flush=True)
     base["linkedin_ads"] = 0
     base["linkedin_ads_ctrl"] = 0
-    base["linkedin_ads_fmt"] = _fmt_dual(0, 0)
+    base["linkedin_ads_fmt"] = _fmt_hits(0)
     return base

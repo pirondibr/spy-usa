@@ -973,10 +973,12 @@ def build_report_from_xlsx(
                 "meta_ig": str(_get(row, idx, "meta ig") or "").strip(),
                 "meta_page_id": str(_get(row, idx, "meta page id") or "").strip(),
                 "meta_method": str(_get(row, idx, "meta method") or "").strip(),
-                "linkedin_ads": li_total if li_total is not None else li_ctrl,
+                "linkedin_ads": li_ctrl,
                 "linkedin_ads_ctrl": li_ctrl,
                 "linkedin_ads_total": li_total,
-                "linkedin_ads_fmt": _fmt_meta_dual(li_ctrl, li_total) if (li_ctrl is not None or li_total is not None) else "",
+                "linkedin_ads_fmt": (
+                    str(int(li_ctrl)) if li_ctrl is not None else ""
+                ),
                 "linkedin_ads_url": str(_get(row, idx, "linkedin ads url", "linkedin ads url") or ""),
                 "instagram_followers": _safe_int(_get(
                     row, idx,
@@ -1374,6 +1376,8 @@ def build_report_from_xlsx(
             if url_field == "linkedin_ads_url":
                 raw_url = _linkedin_ad_library_url(e.get("name") or e.get("domain") or "", raw_url)
             dual_fmt = str(e.get("linkedin_ads_fmt") or "").strip() if field == "linkedin_ads" else ""
+            if field == "linkedin_ads" and "/" in dual_fmt:
+                dual_fmt = dual_fmt.split("/", 1)[0].strip()
             table.append({
                 "name": e["name"],
                 "domain": e["domain"],
@@ -1489,8 +1493,8 @@ def build_report_from_xlsx(
         "Na versão Pro aprofundamos mensagens B2B e anúncios LinkedIn do líder do nicho.",
     )
     linkedin_section["insight"] = (
-        "LinkedIn Ads: busca o nome da empresa na Ad Library (ScrapingBee), "
-        "depois Ctrl+F o nome na página baixada. O número é hits do nome / total do H1."
+        "LinkedIn Ads: keyword search in the Ad Library (ScrapingBee). "
+        "The number is brand-name hits inside ad cards only — not the H1 total."
     )
     ig_section = _count_section(
         "instagram_followers", "instagram_url", "Instagram", "seguidores",

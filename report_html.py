@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.87"
+REPORT_UI_VERSION = "0.4.88"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -771,6 +771,12 @@ def _main_datum(
         if row:
             return str(row.get("ads_fmt") or row.get("value_fmt") or "0")
         return str(section.get("total_ads_fmt") or "—")
+    if kind == "count" and row:
+        raw = str(row.get("linkedin_ads_fmt") or row.get("value_fmt") or row.get("ads_fmt") or "")
+        if row.get("linkedin_ads_ctrl") is not None or row.get("linkedin_ads_total") is not None or re.match(
+            r"^\s*[\d.,]+\s*/\s*[\d.,]+", raw
+        ):
+            return raw.split("/", 1)[0].strip() or "0"
     if kind in ("seo", "brand"):
         if row:
             return str(row.get("traffic_fmt") or "0")
@@ -900,7 +906,20 @@ def _channel_metric_value(
         if a or b:
             return b
 
-    if key in ("google_ads", "meta", "linkedin"):
+    if key == "linkedin":
+        if row.get("linkedin_ads_ctrl") is not None:
+            n = _coerce_number(row.get("linkedin_ads_ctrl"))
+            if n is not None:
+                return n
+        dual = str(row.get("linkedin_ads_fmt") or row.get("value_fmt") or row.get("ads_fmt") or "")
+        if "/" in dual:
+            n = _coerce_number(dual.split("/", 1)[0])
+            if n is not None:
+                return n
+        candidates: list[Any] = [
+            row.get("ads"), row.get("value"), section.get("total_ads"), section.get("total"),
+        ]
+    elif key in ("google_ads", "meta"):
         candidates: list[Any] = [
             row.get("ads"), row.get("value"), section.get("total_ads"), section.get("total"),
         ]
@@ -1768,10 +1787,13 @@ def _section_rank(
             name = _esc(r.get("name") or r.get("domain") or "—")
             if r.get("is_client"):
                 name += ' <span class="you">you</span>'
+            raw_val = str(r.get("value_fmt") or r.get("ads_fmt") or "0")
+            if r.get("linkedin_ads_ctrl") is not None or r.get("linkedin_ads_total") is not None or "/" in raw_val:
+                raw_val = raw_val.split("/", 1)[0].strip() or "0"
             table_rows.append([
                 str(i),
                 name,
-                _esc(r.get("value_fmt") or r.get("ads_fmt") or "0"),
+                _esc(raw_val),
                 _esc(r.get("similaridade") or "—"),
                 _link_cell(r.get("url"), link_label),
             ])
@@ -2036,8 +2058,8 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
     usage = section.get("usage_total") or {}
     hero = _esc(section.get("total_traffic_fmt") or "—")
     hero_sub = (
-        f"product-relevant 1st page · ScrapingBee credits="
-        f"{_esc(str(usage.get('scrapingbee_credits', usage.get('estimated_usd', '—'))))} "
+        f"product-relevant 1st page · Apify ~$"
+        f"{_esc(str(usage.get('estimated_usd', usage.get('scrapingbee_credits', '—'))))} "
         f"· leader {_esc(section.get('leader') or '—')}"
     )
     insight = section.get("insight") or ""

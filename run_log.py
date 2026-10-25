@@ -62,7 +62,7 @@ CHANNEL_APIS = {
     "instagram": ["ScrapingBee", "TinyFish"],
     "youtube": ["ScrapingBee"],
     "tiktok": ["ScrapingBee"],
-    "youtube_influencers": ["ScrapingBee"],
+    "youtube_influencers": ["Apify"],
     "instagram_influencers": ["TinyFish"],
     "tiktok_influencers": ["Apify"],
     "twitter_influencers": ["Apify"],
@@ -127,7 +127,7 @@ def _apify_domain_count(ch: dict[str, Any]) -> Optional[int]:
 
 def _is_apify_step(ch: dict[str, Any]) -> bool:
     sid = str(ch.get("id") or "")
-    if sid in ("tiktok_influencers", "twitter_influencers"):
+    if sid in ("tiktok_influencers", "twitter_influencers", "youtube_influencers"):
         return False
     if sid in ("similarweb", "similarweb_alto"):
         return True

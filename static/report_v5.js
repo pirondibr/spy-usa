@@ -23,6 +23,7 @@
   var YT = D.youtube || {};
   var IG = D.instagram || {};
   var TT = D.tiktok || {};
+  var TW = D.twitter || {};
   var LI = D.linkedin || {};
   var RD = D.reddit || {};
   var EX = D.exec || {};
@@ -147,7 +148,7 @@
   var sel = ME.k;
   var flt = "all";
   var rkSel = "visits";
-  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, li: ME.k, rd: ME.k };
+  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, x: ME.k, li: ME.k, rd: ME.k };
   var FIXED = ["perfil", "canais"];
   var open = null;
   try { open = localStorage.getItem("spy-min-tab"); } catch (e) {}
@@ -163,6 +164,7 @@
       { id: "yt", t: t("p.yt"), d: t("p.yt_d"), grp: "det" },
       { id: "ig", t: t("p.ig"), d: t("p.ig_d"), grp: "det" },
       { id: "tt", t: t("p.tt"), d: t("p.tt_d"), grp: "det" },
+      { id: "x", t: t("p.x"), d: t("p.x_d"), grp: "det" },
       { id: "li", t: t("p.li"), d: t("p.li_d"), grp: "det" },
       { id: "rd", t: t("p.rd"), d: t("p.rd_d"), grp: "det" },
       { id: "exec", t: t("p.exec"), d: t("p.exec_d"), grp: "det" },
@@ -481,6 +483,31 @@
       '<div class="note">' + (y.search ? '<a class="lnk" href="' + esc(y.search) + '" target="_blank" rel="noopener">' + t("tt.search") + "</a>" : "") + (y.profile || y.h ? '<a class="lnk" href="' + esc(y.profile || ("https://www.tiktok.com/@" + y.h)) + '" target="_blank" rel="noopener">' + t("tt.ch") + (y.h ? " @" + esc(y.h) : "") + "</a>" : "") + "<span>" + (y.collected === false ? t("tt.none_run") : t("tt.note")) + "</span></div>";
   }
 
+  function renderX() {
+    var c = CO.find(function (x) { return x.k === tabCo.x; }) || ME;
+    var y = TW[c.k] || { o: [], x: [], views: "0", off: "0", oth: "0", n: 0 };
+    var list = function (arr, empty) {
+      arr = arr || [];
+      if (!arr.length) return '<div class="none">' + empty + "</div>";
+      return '<ol class="vl">' + arr.map(function (it) {
+        var href = it.url ? '<a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.title) + "</a>" : "<span>" + esc(it.title) + "</span>";
+        return "<li>" + href + '<span class="vm">' + esc(it.channel || "") + (it.age ? " · " + esc(it.age) : "") + '</span><span class="vv num">' + esc(it.views_fmt || fmt(it.views)) + "</span></li>";
+      }).join("") + "</ol>";
+    };
+    $("pb-x").innerHTML = '<div class="mx"><table class="tb"><thead><tr><th>' + t("x.company") + "</th><th>" + t("x.followers") + "</th><th>" + t("x.likes") + "</th><th>" + t("x.off") + "</th><th>" + t("x.oth") + "</th><th>" + t("x.posts") + "</th></tr></thead><tbody>" +
+      CO.map(function (k) {
+        var z = TW[k.k] || { views: "0", off: "0", oth: "0", n: 0 };
+        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="x:' + k.k + '">' + nmCell(k, z.profile || k.x_url) + '<td class="num" style="color:var(--soft)">' + esc(z.followers || t("nc")) + '</td><td class="num"><b>' + esc(z.views) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td class="num">' + esc(z.off) + '</td><td class="num">' + esc(z.oth) + '</td><td class="num">' + esc(String(z.n || 0)) + "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      '<div class="det-h"><span>' + t("x.page") + "</span>" + coSeg("x") + "</div>" +
+      warnBox(y.w) +
+      (y.collected === false
+        ? '<div class="none">' + t("x.none_run") + "</div>"
+        : '<div class="two"><div><div class="sub-h">' + t("x.off_h") + " <span>" + esc(y.off) + " likes</span></div>" + list(y.o, t("x.empty_off")) + "</div>" +
+          "<div><div class=\"sub-h\">" + t("x.oth_h") + " <span>" + esc(y.oth) + " likes</span></div>" + list(y.x, t("x.empty_oth")) + "</div></div>") +
+      '<div class="note">' + (y.search ? '<a class="lnk" href="' + esc(y.search) + '" target="_blank" rel="noopener">' + t("x.search") + "</a>" : "") + (y.profile || y.h ? '<a class="lnk" href="' + esc(y.profile || ("https://x.com/" + y.h)) + '" target="_blank" rel="noopener">' + t("x.ch") + (y.h ? " @" + esc(y.h) : "") + "</a>" : "") + "<span>" + (y.collected === false ? t("x.none_run") : t("x.note")) + "</span></div>";
+  }
+
   function renderRD() {
     var c = CO.find(function (x) { return x.k === tabCo.rd; }) || ME;
     var r = RD[c.k] || { posts: 0, com: 0, g: "—", l: [] };
@@ -547,6 +574,7 @@
     renderYT();
     renderIG();
     renderTT();
+    renderX();
     renderLI();
     renderRD();
     renderExec();
@@ -565,7 +593,7 @@
       if (tc && root.contains(tc)) {
         var parts = tc.dataset.tco.split(":");
         tabCo[parts[0]] = parts[1];
-        ({ yt: renderYT, ig: renderIG, tt: renderTT, li: renderLI, rd: renderRD })[parts[0]]();
+        ({ yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD })[parts[0]]();
         return;
       }
       var fl = e.target.closest("[data-flt]");

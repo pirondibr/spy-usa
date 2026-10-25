@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Etapa YouTube Influencers (TinyFish) — opcional no Spy USA."""
+"""Etapa YouTube Influencers (Apify first-page search) — opcional no Spy USA."""
 
 from __future__ import annotations
 
@@ -129,6 +129,7 @@ def main() -> None:
 
     rows = []
     total_credits = 0
+    total_usd = 0.0
     t0 = time.time()
 
     for ent in entities:
@@ -167,11 +168,12 @@ def main() -> None:
             }
         usage = result.get("usage") or {}
         total_credits += int(usage.get("scrapingbee_credits") or 0)
+        total_usd += float(usage.get("estimated_usd") or usage.get("estimated_total_usd") or 0)
         print(
             f"[YT-INF]   about={result.get('counts', {}).get('about_product')} "
             f"off_views={result.get('views_official')} "
             f"unoff_views={result.get('views_unofficial')} "
-            f"sb_credits={usage.get('scrapingbee_credits')} "
+            f"usd={usage.get('estimated_usd') or 0} "
             f"src={usage.get('source') or '—'} "
             f"err={result.get('error') or '—'} "
             f"t={result.get('elapsed_sec')}s",
@@ -205,13 +207,13 @@ def main() -> None:
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "youtube_native_scrapingbee",
-        "llm_title_filter": True,
+        "source": "apify_youtube",
+        "llm_title_filter": False,
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
-            "estimated_usd": 0.0,
+            "estimated_usd": round(total_usd, 6),
             "scrapingbee_credits": total_credits,
-            "note": "Native YouTube search via ScrapingBee render_js + ytInitialData parse",
+            "note": "Apify apidojo/youtube-scraper keyword search. First page, no video open.",
         },
         "rows": rows,
     }
@@ -221,7 +223,7 @@ def main() -> None:
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[OUT] {out_path}", flush=True)
     print(
-        f"[YT-INF] TOTAL {out['elapsed_sec']}s · ScrapingBee credits={total_credits}",
+        f"[YT-INF] TOTAL {out['elapsed_sec']}s · Apify ~${total_usd:.4f} · SB credits={total_credits}",
         flush=True,
     )
 

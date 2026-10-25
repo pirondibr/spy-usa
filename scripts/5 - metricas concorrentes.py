@@ -1959,7 +1959,11 @@ def build_metric_rows(
             "linkedin_ads_total": linkedin.get("linkedin_ads_total"),
             "linkedin_ads_ctrl": linkedin.get("linkedin_ads_ctrl"),
             "linkedin_ads_fmt": linkedin.get("linkedin_ads_fmt")
-            or _fmt_meta_dual(linkedin.get("linkedin_ads_ctrl"), linkedin.get("linkedin_ads_total")),
+            or (
+                str(int(linkedin["linkedin_ads_ctrl"]))
+                if linkedin.get("linkedin_ads_ctrl") is not None
+                else ""
+            ),
             "linkedin_ads_url": linkedin.get("linkedin_search_url", ""),
             "instagram_url": socials["instagram"] or meta.get("instagram_url") or "",
             "youtube_url": socials["youtube"],
@@ -2234,7 +2238,7 @@ def write_metrics_xlsx(
             row["seo_atual"], row["marca_atual"],
             (row.get("meta_ads_fmt") or _fmt_meta_dual(row.get("meta_ads"), row.get("meta_ads_total")) or row.get("meta_ads")),
             row["google_ads"],
-            (row.get("linkedin_ads_fmt") or _fmt_meta_dual(row.get("linkedin_ads_ctrl"), row.get("linkedin_ads_total")) or row.get("linkedin_ads")),
+            (row.get("linkedin_ads_fmt") or row.get("linkedin_ads_ctrl") or row.get("linkedin_ads") or 0),
             row["meta_ads_url"],
             "sim" if row.get("meta_confirmed") else "nao",
             row.get("meta_ig") or "",
