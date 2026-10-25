@@ -133,6 +133,8 @@ def tinyfish_search_instagram(company: str, *, location: str = "US") -> dict[str
         snippet = str(item.get("snippet") or item.get("description") or "")
         score = 0
         handle_c = re.sub(r"[^a-z0-9]+", "", handle)
+        if company_l and handle_c == company_l:
+            score += 80
         if company_l and company_l in handle_c:
             score += 50
         if company_l and company_l in re.sub(r"[^a-z0-9]+", "", title.lower()):

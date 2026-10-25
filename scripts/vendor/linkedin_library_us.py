@@ -93,7 +93,8 @@ def parse_result_count(text: str) -> Optional[int]:
     if re.search(r"(nenhum resultado|no results|no ads match|aucun r[eé]sultat)", t, flags=re.IGNORECASE):
         return 0
     m = re.search(
-        r"([\d.,]+)\s+(?:an[uú]ncios?|ads?|publicit[eé]s?)\s+(?:match|correspond)",
+        r"([\d.,]+)\s+(?:an[uú]ncios?|ads?|publicit[eé]s?)\s+"
+        r"(?:que\s+)?(?:match|correspond|coinciden)",
         t,
         flags=re.IGNORECASE,
     )

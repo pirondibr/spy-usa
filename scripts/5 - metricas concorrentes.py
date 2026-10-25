@@ -1107,22 +1107,14 @@ def lookup_meta_ads(comp: dict) -> dict:
                 "spb_credits": credits,
             }
         print(
-            f"[META/SB] IG @{handle} ({ig_source}) not verified on Ad Library — skip keyword",
+            f"[META/SB] IG @{handle} ({ig_source}) not verified on Ad Library — keyword fallback",
             flush=True,
         )
-        return {
-            "meta_ads": 0,
-            "meta_ads_total": 0,
-            "meta_ads_fmt": "0",
-            "meta_url": _meta_keyword_library_url(handle),
-            "page_id": "",
-            "page_name": handle,
-            "instagram_url": f"https://www.instagram.com/{handle}/",
-            "ig_handle": handle,
-            "confirmed": False,
-            "method": f"instagram_{ig_source}_unverified",
-            "spb_credits": credits,
-        }
+        result = _lookup_meta_keyword_fallback(comp)
+        result["instagram_url"] = f"https://www.instagram.com/{handle}/"
+        result["ig_handle"] = handle
+        result["spb_credits"] = int(result.get("spb_credits") or 0) + credits
+        return result
     result = _lookup_meta_keyword_fallback(comp)
     result["spb_credits"] = int(result.get("spb_credits") or 0) + credits
     return result
@@ -1518,28 +1510,38 @@ def discover_official_socials(
             flush=True,
         )
 
-    for key_name in out:
-        if candidates[key_name]:
-            continue
-        _add(key_name, search_social_profile_google(key_name, label, site_url), "google")
-
-    for key_name, cands in candidates.items():
+    def _best_of(platform: str, cands: list[tuple[str, str]]) -> tuple[str, str, int | None]:
         if not cands:
-            continue
-        if len(cands) == 1:
-            out[key_name], src[key_name] = cands[0]
-            continue
+            return "", "", None
         best_url, best_src, best_n = cands[0][0], cands[0][1], -1
         best_count: int | None = None
         for url, source in cands:
-            n = _followers_for_platform(key_name, url)
+            n = _followers_for_platform(platform, url)
             n_i = -1 if n is None else int(n)
-            print(f"[SOCIAL] candidate {key_name} {url} src={source} followers={n}", flush=True)
+            print(f"[SOCIAL] candidate {platform} {url} src={source} followers={n}", flush=True)
             if n_i > best_n:
                 best_url, best_src, best_n, best_count = url, source, n_i, n
-        out[key_name] = best_url
-        src[key_name] = best_src
-        counts[key_name] = best_count
+        return best_url, best_src, best_count
+
+    # Google when a platform is empty *or* the best Gemini/website pick looks like a stub.
+    _WEAK_FOLLOWERS = 200
+    for key_name in out:
+        url, source, n = _best_of(key_name, candidates[key_name])
+        weak = (not url) or n is None or int(n) < _WEAK_FOLLOWERS
+        if weak:
+            before = {_social_url_key(key_name, u) for u, _ in candidates[key_name]}
+            _add(key_name, search_social_profile_google(key_name, label, site_url), "google")
+            added = any(
+                _social_url_key(key_name, u) not in before for u, _ in candidates[key_name]
+            )
+            if added or not url:
+                url, source, n = _best_of(key_name, candidates[key_name])
+        if not url:
+            continue
+        out[key_name] = url
+        src[key_name] = source
+        if n is not None:
+            counts[key_name] = n
 
     print(f"[SOCIAL] official {label} sources={src}", flush=True)
     return out, counts

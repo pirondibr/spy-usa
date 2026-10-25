@@ -107,6 +107,17 @@ def _is_brand(slug: str, title: str, snippet: str, tokens: list[str]) -> bool:
     return False
 
 
+def _has_snippet_followers(items: list[dict[str, Any]]) -> bool:
+    for item in items or []:
+        kind, url = normalize_linkedin_url(str(item.get("url") or ""))
+        if kind != "company" or not url:
+            continue
+        blob = f"{item.get('title') or ''} {item.get('snippet') or item.get('description') or ''}"
+        if FOLLOWERS_RE.search(blob):
+            return True
+    return False
+
+
 def _candidate_from_item(item: dict[str, Any], tokens: list[str]) -> Optional[dict[str, Any]]:
     kind, url = normalize_linkedin_url(str(item.get("url") or ""))
     if not url:
@@ -195,7 +206,12 @@ def search_linkedin_brand(
         if q.lower() in seen_q:
             continue
         seen_q.add(q.lower())
-        serp = google_serp(q, market=market, include_domains=domains)
+        serp = google_serp(
+            q,
+            market=market,
+            include_domains=domains,
+            accept=_has_snippet_followers,
+        )
         usage["search_cost_usd"] = round(
             float(usage["search_cost_usd"]) + float(serp.get("cost_usd") or 0), 6
         )
