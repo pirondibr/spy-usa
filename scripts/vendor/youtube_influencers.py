@@ -172,12 +172,10 @@ def is_official_channel(
     domain: str = "",
     official_hint: Optional[dict] = None,
 ) -> bool:
-    """Only trust an explicit official hint (website or LLM). No name-substring guess."""
-    if not official_hint:
-        return False
-    on = str(official_hint.get("name") or "").strip().lower().lstrip("@")
-    oh = str(official_hint.get("url") or "").strip().lower()
-    hint_handle = _handle_from_channel_url(oh) or (on if on.startswith("@") else on)
+    """Hint from the site/LLM, or the channel name/handle itself carrying the brand."""
+    on = str((official_hint or {}).get("name") or "").strip().lower().lstrip("@")
+    oh = str((official_hint or {}).get("url") or "").strip().lower()
+    hint_handle = _handle_from_channel_url(oh) or on
     cn = (channel_name or "").strip().lower().lstrip("@")
     ch = (channel_url or "").strip().lower()
     ch_handle = _handle_from_channel_url(ch)
@@ -186,6 +184,12 @@ def is_official_channel(
     if oh and ch and ch.rstrip("/") == oh.rstrip("/"):
         return True
     if on and cn and cn == on:
+        return True
+    tokens = [
+        t for t in _brand_tokens(company, domain)
+        if len(re.sub(r"[^a-z0-9]+", "", t)) >= 5
+    ]
+    if tokens and _brand_in_text(f"{cn} {ch} {ch_handle}", tokens):
         return True
     return False
 
@@ -463,7 +467,7 @@ def _as_int(v: Any) -> Optional[int]:
     return int(num)
 
 
-def _call_openrouter_json(prompt: str, *, max_tokens: int = 1800) -> dict:
+def _call_openrouter_json(prompt: str, *, max_tokens: int = 8000) -> dict:
     key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY ausente")
@@ -513,7 +517,7 @@ def classify_about_product(
     product_hint: str = "",
     domain: str = "",
 ) -> tuple[list[dict], Optional[dict]]:
-    """LLM-confirm every title. Same-name celebrities/music/other products are false."""
+    """LLM-confirm titles. Brand in title/description counts as about the product."""
     official_from_llm: Optional[dict] = None
     if not videos:
         return videos, None
@@ -528,7 +532,7 @@ def classify_about_product(
         return videos, None
 
     lines = []
-    for i, v in enumerate(videos):
+    for i, v in enumerate(videos[:40]):
         lines.append(
             f"[{i}] title={v.get('title')!r} channel={v.get('channel_name')!r} "
             f"channel_url={v.get('channel_url')!r} description={v.get('snippet')!r}"
@@ -536,14 +540,15 @@ def classify_about_product(
     site = (domain or product_hint or "").strip()
     prompt = (
         f"Brand/company: {company!r}. Official website: {site!r}.\n"
-        "This is a company/product at that website — NOT a celebrity, musician, movie, "
-        "or some other product that merely shares the name.\n"
-        "For each YouTube search result, set about=true ONLY if the video is about THIS "
-        "company/product (review, tutorial, ad, demo, comparison, news of the software/service).\n"
-        "Set about=false for music, artists, people, other companies, or anything unclear — "
-        "even if the brand string appears in the title.\n"
-        "Also set official_i to the index of the video whose CHANNEL is the brand's official "
-        "YouTube (the company itself), or -1 if none is clearly official.\n"
+        "These are YouTube search results for that brand.\n"
+        "Set about=true when the TITLE or DESCRIPTION mentions this brand/product name "
+        "(or a clear variant like 'Higgsfield AI'), or the video is a review, tutorial, "
+        "ad, demo, comparison, or news of this product.\n"
+        "If the brand name is in the title, about=true. Do not reject those as 'unclear'.\n"
+        "Set about=false ONLY when the video is clearly a different well-known thing that "
+        "just shares a word (a person, song, movie, or another company). "
+        "Examples: 'Leonardo da Vinci' is not leonardo.ai; a fashion 'runway' video is not Runway ML.\n"
+        "Also set official_i to the index of a video from the company's own YouTube channel, or -1.\n"
         "Return ONLY JSON: "
         '{"items":[{"i":0,"about":true,"reason":"short"}],"official_i":-1}\n\n'
         + "\n".join(lines)
@@ -585,6 +590,21 @@ def classify_about_product(
         for v in videos:
             v["about_product"] = False
             v["about_reason"] = f"llm_error:{e}"[:160]
+    tokens = [
+        t for t in _brand_tokens(company, domain)
+        if len(re.sub(r"[^a-z0-9]+", "", t)) >= 5
+    ] or _brand_tokens(company, domain)
+    recovered = 0
+    for v in videos:
+        blob = f"{v.get('title') or ''} {v.get('snippet') or ''} {v.get('channel_name') or ''}"
+        if not _brand_in_text(blob, tokens):
+            continue
+        if not v.get("about_product"):
+            recovered += 1
+        v["about_product"] = True
+        v["about_reason"] = "brand_in_title"
+    if recovered:
+        print(f"[YT-LLM] {company}: recovered {recovered} via brand-in-title", flush=True)
     return videos, official_from_llm
 
 
@@ -698,7 +718,7 @@ def analyze_company(
         product_hint=product_hint or domain,
         domain=domain,
     )
-    hint = official_hint or llm_official
+    hint = official_hint or llm_official or _guess_official_channel(videos, company)
     summary = summarize_videos(
         videos,
         company=company,

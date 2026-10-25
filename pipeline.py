@@ -565,6 +565,11 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         import json
 
         data = json.loads(path.read_text(encoding="utf-8"))
+        rows = data.get("rows") or []
+        if not rows:
+            return True
+        if not any(int(r.get("about_count") or 0) > 0 for r in rows):
+            return True
         return not bool(data.get("llm_title_filter"))
     except Exception:
         return True
