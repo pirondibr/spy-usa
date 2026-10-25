@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Etapa TikTok Influencers (Google SERP page 1) — opcional no Spy USA."""
+"""Etapa TikTok Influencers (Apify keyword search + brand filter)."""
 
 from __future__ import annotations
 
@@ -135,10 +135,7 @@ def main() -> None:
         name = ent.get("name") or slug
         domain = ent.get("domain") or ""
         q = override_query if (override_query and ent.get("is_client")) else ""
-        if not q:
-            brand = name.replace("-", " ").strip() or domain.split(".")[0]
-            q = f"site:tiktok.com {brand}"
-        print(f"[TT-INF] -> {name} ({domain}) query={q!r}", flush=True)
+        print(f"[TT-INF] -> {name} ({domain}) query={q or '(brand ai)'!r}", flush=True)
         try:
             result = analyze_company(
                 name,
@@ -167,13 +164,13 @@ def main() -> None:
         total_usd += float(usage.get("estimated_usd") or 0)
         counts = result.get("counts") or {}
         src = (usage.get("source") or "none")
-        tried = ",".join(usage.get("providers_tried") or [src])
         print(
-            f"[TT-INF]   about={counts.get('about_product')} "
+            f"[TT-INF]   confirmed={counts.get('confirmed')} "
+            f"probable={counts.get('probable')} "
+            f"unrelated={counts.get('unrelated')} "
             f"off={result.get('views_official')} "
             f"oth={result.get('views_unofficial')} "
-            f"skip_noview={counts.get('skipped_no_views')} "
-            f"src={src} tried={tried} "
+            f"src={src} cached={usage.get('cached')} "
             f"t={result.get('elapsed_sec')}s",
             flush=True,
         )
@@ -186,12 +183,22 @@ def main() -> None:
             "search_url": result.get("search_url") or "",
             "views_official": result.get("views_official") or 0,
             "views_unofficial": result.get("views_unofficial") or 0,
-            "about_count": counts.get("about_product") or 0,
+            "views_confirmed": result.get("views_confirmed") or 0,
+            "views_probable": result.get("views_probable") or 0,
+            "about_count": counts.get("confirmed") or counts.get("about_product") or 0,
             "page_count": counts.get("search_page") or 0,
+            "confirmed_count": counts.get("confirmed") or 0,
+            "probable_count": counts.get("probable") or 0,
+            "unrelated_count": counts.get("unrelated") or 0,
             "top5": result.get("top5") or [],
             "top5_official": result.get("top5_official") or [],
             "top5_unofficial": result.get("top5_unofficial") or [],
+            "top5_probable": result.get("top5_probable") or [],
+            "videos_confirmed": result.get("videos_confirmed") or [],
+            "videos_probable": result.get("videos_probable") or [],
+            "videos_unrelated": result.get("videos_unrelated") or [],
             "official_channel": result.get("official_channel"),
+            "brand": result.get("brand") or {},
             "usage": usage,
             "elapsed_sec": result.get("elapsed_sec"),
             "ok": result.get("ok"),
@@ -204,20 +211,18 @@ def main() -> None:
             for r in rows
             if (r.get("usage") or {}).get("source")
         ),
-        "tinyfish",
+        "apify_tiktok",
     )
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": src,
+        "source": src or "apify_tiktok",
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": round(total_usd, 4),
-            "source": src,
-            "dataforseo_tasks": sum(
-                int((r.get("usage") or {}).get("dataforseo_tasks") or 0) for r in rows
-            ),
-            "note": "Google first page. TinyFish first, then ScrapingBee, then DataForSEO. Views from SERP. TikTok pages are not fetched.",
+            "search_cost_usd": round(total_usd, 4),
+            "source": src or "apify_tiktok",
+            "note": "Apify apidojo/tiktok-scraper. Brand filter hides unrelated. ~$0.0075 / 25 posts.",
         },
         "rows": rows,
     }

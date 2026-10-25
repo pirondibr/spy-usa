@@ -431,6 +431,9 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
     for r in data.get("rows") or []:
         off = int(r.get("views_official") or 0)
         unoff = int(r.get("views_unofficial") or 0)
+        confirmed_n = int(r.get("confirmed_count") or r.get("about_count") or 0)
+        probable_n = int(r.get("probable_count") or 0)
+        unrelated_n = int(r.get("unrelated_count") or 0)
         rows_out.append({
             "name": r.get("name") or r.get("domain"),
             "domain": r.get("domain"),
@@ -442,12 +445,24 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
             "views_official_fmt": _fmt_views(off),
             "views_unofficial": unoff,
             "views_unofficial_fmt": _fmt_views(unoff),
-            "about_count": r.get("about_count") or 0,
+            "views_confirmed": int(r.get("views_confirmed") or (off + unoff)),
+            "views_confirmed_fmt": _fmt_views(int(r.get("views_confirmed") or (off + unoff))),
+            "views_probable": int(r.get("views_probable") or 0),
+            "views_probable_fmt": _fmt_views(int(r.get("views_probable") or 0)),
+            "about_count": confirmed_n,
             "page_count": r.get("page_count") or 0,
+            "confirmed_count": confirmed_n,
+            "probable_count": probable_n,
+            "unrelated_count": unrelated_n,
             "top5": r.get("top5") or [],
             "top5_official": r.get("top5_official") or [],
             "top5_unofficial": r.get("top5_unofficial") or [],
+            "top5_probable": r.get("top5_probable") or [],
+            "videos_confirmed": r.get("videos_confirmed") or [],
+            "videos_probable": r.get("videos_probable") or [],
+            "videos_unrelated": r.get("videos_unrelated") or [],
             "official_channel": r.get("official_channel"),
+            "brand": r.get("brand") or {},
             "query": r.get("query") or "",
             "url": r.get("search_url") or "",
             "usage": r.get("usage") or {},
@@ -455,20 +470,22 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
         })
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
     usage = data.get("usage_total") or {}
+    amb = bool((client.get("brand") or {}).get("ambiguous"))
     report["tiktok_influencers"] = {
-        "source": data.get("source") or "tinyfish",
+        "source": data.get("source") or "apify_tiktok",
         "market": data.get("market") or "US",
         "leader": client.get("name") if client else "—",
-        "total_traffic_fmt": client.get("traffic_fmt") if client else "—",
-        "unit": "views (1st Google page)",
+        "total_traffic_fmt": client.get("views_unofficial_fmt") if client else "—",
+        "unit": "confirmed other-creator views",
         "rows": rows_out,
         "usage_total": usage,
         "insight": (
-            f"TikTok Google site:tiktok.com for «{client.get('name') or '—'}»: "
-            f"official {_fmt_views(client.get('views_official'))} · "
-            f"other {_fmt_views(client.get('views_unofficial'))} · "
-            f"{client.get('about_count') or 0} posts with views "
-            f"(no TikTok page fetch; via {data.get('source') or 'tinyfish'})."
+            f"TikTok Apify «{client.get('query') or client.get('name') or '—'}»: "
+            f"{client.get('confirmed_count') or 0} confirmed · "
+            f"{client.get('probable_count') or 0} probable · "
+            f"{client.get('unrelated_count') or 0} discarded · "
+            f"other {_fmt_views(client.get('views_unofficial'))} views"
+            f"{' · ambiguous brand (review probable)' if amb else ''}."
         ),
         "analysis_title": "TikTok Influencers",
         "pro_hook": "Na versão Pro mapeamos creators e formatos que geram views no TikTok do nicho.",
@@ -1292,18 +1309,18 @@ def _run_compare_all_pipeline(
             if include_tiktok_influencers and _tt_json_missing(c_slug):
                 emit(
                     "log",
-                    line=f"[ALL] ({i + 1}/{len(companies)}) TikTok Google SERP {c_name} ({c_slug})",
+                    line=f"[ALL] ({i + 1}/{len(companies)}) TikTok Apify {c_name} ({c_slug})",
                 )
                 _emit_progress(
                     emit, set_step, "tiktok_influencers", "running",
-                    f"All: TikTok SERP {c_name} ({i + 1}/{len(companies)})",
+                    f"All: TikTok Apify {c_name} ({i + 1}/{len(companies)})",
                 )
                 try:
                     _run_script(
                         [sys.executable, str(SCRIPT_TT_INFLUENCERS), c_slug],
                         FINAL_DIR,
                         lambda line: emit("log", line=line),
-                        timeout_sec=180,
+                        timeout_sec=240,
                         env={"SPY_SITE_ONLY": "1", "SPY_MARKET": market, "SPY_COMPARE_ALL": "1"},
                     )
                 except Exception as e:
@@ -2181,19 +2198,25 @@ def run_pipeline(
         _emit_progress(emit, set_step, "instagram_influencers", "done", "Skipped")
 
     if include_tiktok_influencers:
-        if not (_tf or _sb or _dfs):
-            emit("log", line="[TT-INF] Skipped: no TinyFish / ScrapingBee / DataForSEO key")
-            _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped (no SERP key)")
+        _apify = (
+            os.environ.get("APIFY_TOKEN")
+            or os.environ.get("APIFY_API_TOKEN")
+            or os.environ.get("APIFY_API_KEY")
+            or ""
+        ).strip()
+        if not _apify:
+            emit("log", line="[TT-INF] Skipped: APIFY_TOKEN missing")
+            _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped (no Apify key)")
         else:
             extras.append({
                 "tag": "TT-INF",
                 "step": "tiktok_influencers",
                 "section": "tiktok_influencers",
                 "script": SCRIPT_TT_INFLUENCERS,
-                "timeout": 180,
+                "timeout": 240,
                 "kind": "json",
                 "priority": 50,
-                "running": "TikTok Influencers (Google site:tiktok.com)…",
+                "running": "TikTok Influencers (Apify + brand filter)…",
                 "done": "TikTok Influencers ready",
                 "attach": _attach_tiktok_influencers,
             })

@@ -361,7 +361,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.85"
+REPORT_UI_VERSION = "0.4.86"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2053,55 +2053,82 @@ def _section_tiktok_influencers(section: Optional[dict[str, Any]]) -> str:
     if not rows_data and not section.get("insight"):
         return ""
     headers = [
-        "#", "Company", "Official views", "Other views",
-        "About #", "Top official", "Top other", "Search",
+        "#", "Company", "Confirmed views", "Official", "Other",
+        "Confirmed #", "Probable", "Discarded", "Top confirmed", "Top probable", "Search",
     ]
 
-    def _top_links_cell(items: list) -> str:
+    def _top_links_cell(items: list, *, probable: bool = False) -> str:
         def _meta(t: dict) -> str:
             bits = [f"{_compact_num(t.get('views'))} views"]
-            if t.get("upload_age"):
-                bits.append(str(t["upload_age"]))
-            if t.get("channel_name"):
-                bits.append(str(t["channel_name"]))
+            if t.get("likes") not in (None, ""):
+                bits.append(f"{_compact_num(t.get('likes'))} likes")
+            if t.get("channel_name") or t.get("handle"):
+                bits.append(str(t.get("channel_name") or ("@" + str(t.get("handle")))))
+            if t.get("label") == "probable" or probable:
+                bits.append("revisar")
             return " · ".join(bits)
 
         return _top_list(items, lambda t: t.get("title") or "post", _meta)
 
     table_rows: list[list[str]] = []
+    video_blocks: list[str] = []
     for i, r in enumerate(rows_data, 1):
         name = _esc(r.get("name") or r.get("domain") or "—")
         if r.get("is_client"):
             name += ' <span class="you">you</span>'
-        top_off = list(r.get("top5_official") or [])
-        top_unoff = list(r.get("top5_unofficial") or [])
-        if not top_off and not top_unoff and r.get("top5"):
-            for t in r.get("top5") or []:
-                (top_off if t.get("is_official") else top_unoff).append(t)
+        if (r.get("brand") or {}).get("ambiguous"):
+            name += ' <span class="review-badge">ambiguous</span>'
+        top_conf = list(r.get("top5") or r.get("videos_confirmed") or [])
+        if not top_conf:
+            top_conf = list(r.get("top5_official") or []) + list(r.get("top5_unofficial") or [])
+        top_prob = list(r.get("top5_probable") or [])
         table_rows.append([
             str(i),
             name,
+            _esc(r.get("views_confirmed_fmt") or r.get("traffic_fmt") or "0"),
             _esc(r.get("views_official_fmt") or "0"),
             _esc(r.get("views_unofficial_fmt") or "0"),
-            _esc(str(r.get("about_count") or 0)),
-            _top_links_cell(top_off),
-            _top_links_cell(top_unoff),
-            _link_cell(r.get("search_url") or r.get("url"), "Google"),
+            _esc(str(r.get("confirmed_count") or r.get("about_count") or 0)),
+            _esc(str(r.get("probable_count") or 0)),
+            _esc(str(r.get("unrelated_count") or 0)),
+            _top_links_cell(top_conf),
+            _top_links_cell(top_prob, probable=True),
+            _link_cell(r.get("search_url") or r.get("url"), "TikTok"),
         ])
+        discarded = list(r.get("videos_unrelated") or [])
+        if discarded:
+            items = "".join(
+                f"<li>{_esc(d.get('title') or 'post')} "
+                f"<span class=meta>{_compact_num(d.get('views'))} views · "
+                f"{_esc(d.get('handle') or '')}</span></li>"
+                for d in discarded[:12]
+            )
+            video_blocks.append(
+                f'<details class="discarded"><summary>Ver descartados · '
+                f'{_esc(r.get("name") or "")} ({len(discarded)})</summary>'
+                f'<ol class="toplist">{items}</ol></details>'
+            )
     usage = section.get("usage_total") or {}
     hero = _esc(section.get("total_traffic_fmt") or "—")
     hero_sub = (
-        f"other-creator views · Google site:tiktok.com page 1 · "
-        f"{_esc(str(section.get('source') or usage.get('source') or 'tinyfish'))} "
+        f"confirmed other-creator views · Apify keyword search · "
+        f"{_esc(str(section.get('source') or usage.get('source') or 'apify_tiktok'))} "
         f"· leader {_esc(section.get('leader') or '—')}"
     )
     insight = section.get("insight") or ""
     analysis = section.get("analysis_title") or "TikTok Influencers"
+    limits = (
+        '<p class="muted">Amostra por relevância (25 posts), não o universo. '
+        "Posts só com hashtag viram probable. Conta com a marca só no nome não é validada "
+        "(bio não vem no Apify).</p>"
+    )
     return f"""
     <section>
       <h2>TikTok Influencers</h2>
       <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
       {_rows_table(headers, table_rows)}
+      {''.join(video_blocks)}
+      {limits}
       {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
     </section>
     """
@@ -3333,6 +3360,9 @@ th.sortable:hover .col-hide,.col-hide:focus{opacity:1}
 .hidden-chip:hover{border-color:#0f766e;color:var(--accent)}
 td.empty{color:var(--soft);text-align:center;padding:22px}
 .ok-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#D1FAE5;color:#047857;font-size:10px;font-weight:700;letter-spacing:.02em;vertical-align:middle}
+.review-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;letter-spacing:.02em;vertical-align:middle}
+details.discarded{margin:10px 0 0;font-size:13px;color:var(--muted)}
+details.discarded summary{cursor:pointer;font-weight:700}
 .you{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;
   font-weight:700;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
 .fp-mark{margin-left:2px;color:#b45309;font-weight:800;cursor:help;font-size:14px;line-height:1}
