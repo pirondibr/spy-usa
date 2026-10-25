@@ -499,7 +499,7 @@ def build_v5_payload(
             "w": str(row.get("note") or row.get("error") or ""),
         }
 
-    from run_log import apply_cost_shares
+    from run_log import apply_cost_shares, cost_rates_note
 
     log = _resolve_run_log(report, meta) or {}
     totals = dict(log.get("totals") or {})
@@ -547,6 +547,7 @@ def build_v5_payload(
             "duration": str(totals.get("sec_fmt") or ""),
             "cost": str(totals.get("cost_fmt") or ""),
             "pct": str(totals.get("cost_pct_fmt") or ""),
+            "runs_per": str(totals.get("runs_per_usd_fmt") or ""),
             "home": "/",
         },
         "companies": companies,
@@ -571,10 +572,11 @@ def build_v5_payload(
             "duration": str(totals.get("sec_fmt") or "—"),
             "cost": str(totals.get("cost_fmt") or "—"),
             "pct": str(totals.get("cost_pct_fmt") or "—"),
+            "runs_per": str(totals.get("runs_per_usd_fmt") or ""),
             "companies": len(companies),
             "steps": steps,
             "log": "\n".join(lines),
-            "rates": str(log.get("rates_note") or ""),
+            "rates": cost_rates_note(),
         },
     }
 

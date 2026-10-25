@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 # Approximate unit costs (USD). Override via env if needed.
 _SB_CREDIT_USD = float(os.environ.get("SPY_COST_SB_CREDIT", "0.0002") or 0.0002)
-_DFS_TASK_USD = float(os.environ.get("SPY_COST_DFS_TASK", "0.05") or 0.05)
+_DFS_TASK_USD = float(os.environ.get("SPY_COST_DFS_TASK", "0.09") or 0.09)
 _APIFY_DOMAIN_USD = float(os.environ.get("SPY_COST_APIFY_DOMAIN", "0.03") or 0.03)
 _APIFY_NOTE_RE = re.compile(r"×\s*(\d+)\s*domains", re.I)
 _LEGACY_APIFY_DOMAIN_USD = 0.015
@@ -108,6 +108,33 @@ def _fmt_pct(v: Optional[float]) -> str:
     return f"{int(round(v))}%"
 
 
+def _runs_per_usd(total: Optional[float]) -> Optional[float]:
+    if not isinstance(total, (int, float)) or float(total) <= 0:
+        return None
+    return round(1.0 / float(total), 2)
+
+
+def _fmt_runs_per_usd(n: Optional[float]) -> str:
+    if n is None or n <= 0:
+        return "—"
+    if n >= 10:
+        return str(int(round(n)))
+    if abs(n - round(n)) < 0.05:
+        return str(int(round(n)))
+    return f"{n:.1f}"
+
+
+def cost_rates_note() -> str:
+    return (
+        f"Estimates: ScrapingBee ${_SB_CREDIT_USD:g}/credit · "
+        f"DataForSEO live ${_DFS_TASK_USD:g}/task · "
+        f"Apify ~${_APIFY_DOMAIN_USD:g}/domain · "
+        f"TinyFish search/fetch ${_TF_SEARCH_USD:g}/${_TF_FETCH_USD:g} · "
+        f"OpenRouter ~${_OPENROUTER_CALL_USD:g}/call. "
+        "Semrush = subscription (not unit-priced)."
+    )
+
+
 def _channel_is_skipped(ch: dict[str, Any]) -> bool:
     blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
     return "skip" in blob or "pulado" in blob
@@ -151,6 +178,30 @@ def refresh_apify_step_costs(channels: list[dict[str, Any]]) -> None:
         ch["cost_note"] = f"Apify ×{n} domains × ${_APIFY_DOMAIN_USD:g}"
 
 
+def _is_dfs_volume_step(ch: dict[str, Any]) -> bool:
+    sid = str(ch.get("id") or "")
+    if sid in ("brand_dfs", "brand_growth"):
+        return True
+    blob = " ".join(str(ch.get(k) or "") for k in ("label", "cost_note", "apis_fmt")).lower()
+    return "dataforseo" in blob and "search_volume" in blob
+
+
+def refresh_dfs_step_costs(channels: list[dict[str, Any]]) -> None:
+    """Reprice Brand DataForSEO rows at the live $0.09/task rate."""
+    for ch in channels:
+        if not isinstance(ch, dict) or _channel_is_skipped(ch) or not _is_dfs_volume_step(ch):
+            continue
+        n = 1
+        note = str(ch.get("cost_note") or "")
+        m = re.search(r"(\d+)\s*brands?", note, re.I)
+        if m:
+            n = max(1, int(m.group(1)))
+        usd = round(_DFS_TASK_USD, 4)
+        ch["cost_usd"] = usd
+        ch["cost_fmt"] = _fmt_usd(usd)
+        ch["cost_note"] = f"DataForSEO search_volume live ${_DFS_TASK_USD:g}/task, {n} brands"
+
+
 def apply_cost_shares(
     channels: list[dict[str, Any]],
     totals: Optional[dict[str, Any]] = None,
@@ -158,6 +209,7 @@ def apply_cost_shares(
     """Fill cost_pct / cost_pct_fmt on each step from cost_usd vs run total."""
     totals = totals if isinstance(totals, dict) else {}
     refresh_apify_step_costs(channels)
+    refresh_dfs_step_costs(channels)
     total = 0.0
     for ch in channels:
         if not isinstance(ch, dict) or _channel_is_skipped(ch):
@@ -185,6 +237,9 @@ def apply_cost_shares(
         ch["cost_pct"] = round(pct, 1)
         ch["cost_pct_fmt"] = _fmt_pct(pct)
 
+    runs = _runs_per_usd(total if total > 0 else None)
+    totals["runs_per_usd"] = runs
+    totals["runs_per_usd_fmt"] = _fmt_runs_per_usd(runs)
     if total > 0:
         totals["cost_pct"] = 100.0
         totals["cost_pct_fmt"] = "100%"
@@ -274,7 +329,7 @@ def _estimate_step_cost(
         # One live Search Volume task (batch) ≈ one DFS task
         usd += _DFS_TASK_USD
         known = True
-        notes.append(f"DataForSEO search_volume (~{_DFS_TASK_USD:g}/task, {n} brands)")
+        notes.append(f"DataForSEO search_volume live ${_DFS_TASK_USD:g}/task, {n} brands")
         if "DataForSEO" not in apis:
             apis.append("DataForSEO")
 
@@ -470,14 +525,7 @@ class RunRecorder:
             "channels": channels,
             "time_subs": time_subs,
             "totals": totals,
-            "rates_note": (
-                f"Estimativas: ScrapingBee ${_SB_CREDIT_USD:g}/credit · "
-                f"DataForSEO ~${_DFS_TASK_USD:g}/task · "
-                f"Apify ~${_APIFY_DOMAIN_USD:g}/domain · "
-                f"TinyFish search/fetch ${_TF_SEARCH_USD:g}/${_TF_FETCH_USD:g} · "
-                f"OpenRouter ~${_OPENROUTER_CALL_USD:g}/call. "
-                "Semrush = assinatura (não unitizado)."
-            ),
+            "rates_note": cost_rates_note(),
         }
 
 

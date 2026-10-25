@@ -399,6 +399,7 @@
       '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
       (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="5" class="none">' + t("ex.none") + "</td></tr>") +
       '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + '</th><th class="num">' + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
+      (EX.runs_per ? '<p class="runlog-runs">' + t("ex.runs_per", { n: EX.runs_per }) + "</p>" : "") +
       (EX.rates ? '<p class="muted" style="margin-top:12px;font-size:12.5px;color:var(--soft)">' + esc(EX.rates) + "</p>" : "") +
       "</div>" +
       '<div class="ex-pane" data-ex-pane="log" hidden>' + (log ? "<pre>" + esc(log) + "</pre>" : '<div class="none">' + t("ex.empty") + "</div>") + "</div></div>";

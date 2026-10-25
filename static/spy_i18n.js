@@ -163,6 +163,7 @@
     "ex.pct_col": "% of total",
     "ex.status": "Status",
     "ex.total": "Total",
+    "ex.runs_per": "{n} runs per $1",
     "ex.none": "No steps.",
     "ex.empty": "Empty log for this run.",
     "st.done": "Done",
@@ -587,6 +588,7 @@
     "ex.pct_col": "% do total",
     "ex.status": "Situação",
     "ex.total": "Total",
+    "ex.runs_per": "{n} análises por US$ 1",
     "ex.none": "Sem etapas.",
     "ex.empty": "Log vazio para este run.",
     "st.done": "Feito",
@@ -934,7 +936,10 @@
       var k = el.getAttribute("data-i18n");
       if (!k) return;
       var attr = el.getAttribute("data-i18n-attr");
-      var val = t(k);
+      var vars = {};
+      var n = el.getAttribute("data-i18n-n");
+      if (n) vars.n = n;
+      var val = t(k, vars);
       if (attr) el.setAttribute(attr, val);
       else el.textContent = val;
     });

@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.88"
+REPORT_UI_VERSION = "0.4.89"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2622,11 +2622,12 @@ def exec_tabs_html(
     rates: str = "",
 ) -> str:
     """Resumo por área + log completo, em abas."""
-    from run_log import apply_cost_shares
+    from run_log import apply_cost_shares, cost_rates_note
 
     channels = [ch if isinstance(ch, dict) else {} for ch in (channels or [])]
     totals = dict(totals or {})
     apply_cost_shares(channels, totals)
+    rates = cost_rates_note()
     rows: list[str] = []
     for ch in channels:
         skipped = _step_is_skipped(ch)
@@ -2662,6 +2663,7 @@ def exec_tabs_html(
         </tr>
       </tfoot>
     </table></div>
+    {f'<p class="runlog-runs" data-i18n="ex.runs_per" data-i18n-n="{_esc(totals.get("runs_per_usd_fmt") or "—")}">{_esc((totals.get("runs_per_usd_fmt") or "—") + " runs per $1")}</p>' if totals.get("runs_per_usd_fmt") and totals.get("runs_per_usd_fmt") != "—" else ""}
     {f'<p class="muted runlog-rates">{_esc(rates)}</p>' if rates else ""}
     """
     log_pane = (
@@ -3533,6 +3535,7 @@ td[data-col="company"] a.ext{text-decoration:underline;text-underline-offset:2px
   border-radius:12px;background:#0f172a;color:#e2e8f0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   white-space:pre-wrap;word-break:break-word}
 .runlog-rates{margin:10px 0 0;font-size:12px}
+.runlog-runs{margin:12px 0 0;font-size:13.5px;font-weight:700;color:var(--text)}
 table tfoot tr.runlog-total th{background:#f1f5f9;border-top:1px solid var(--border);font-size:12px;
   text-transform:none;letter-spacing:0;color:var(--text);padding:12px}
 p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 12px;border-radius:8px}

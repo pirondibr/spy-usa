@@ -54,3 +54,4 @@ html[data-ui="v5"]{--ink:#0E1116;--ink2:#2A313B;--mut:#6B7480;--soft:#9AA3AE;--l
 #analysis-v5 .hv .tt small{display:block;margin-top:6px;font-size:11.5px;color:#9AA3AE}
 #analysis-v5 .hv small{display:block}
 @media (max-width:560px){#analysis-v5 .hv .tt{left:auto;right:0}}
+#analysis-v5 .runlog-runs{margin:14px 0 0;font-size:15px;font-weight:700;color:var(--ink)}
