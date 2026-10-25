@@ -228,9 +228,14 @@ def parse_int(value) -> int | None:
 
 
 def parse_human_number(value: str) -> int | None:
-    s = str(value or "").strip().lower().replace(" ", "")
+    s = str(value or "").strip().lower().replace("\xa0", " ").replace(" ", "")
     if not s:
         return None
+    s = (
+        s.replace("thousand", "k")
+        .replace("million", "m")
+        .replace("billion", "b")
+    )
     m = re.search(r"(\d+(?:[.,]\d+)?)(mil|mi|k|m|b)?", s)
     if not m:
         return parse_int(value)
@@ -239,7 +244,16 @@ def parse_human_number(value: str) -> int | None:
     if not suf:
         digits = re.sub(r"\D+", "", raw_num)
         return int(digits) if digits else None
-    num = float(raw_num.replace(".", "").replace(",", "."))
+    # 80.8K is 80.8 × 1000, not 808 × 1000 (dot is decimal when a suffix is present)
+    if "," in raw_num and "." in raw_num:
+        if raw_num.rfind(",") > raw_num.rfind("."):
+            num = float(raw_num.replace(".", "").replace(",", "."))
+        else:
+            num = float(raw_num.replace(",", ""))
+    elif "," in raw_num:
+        num = float(raw_num.replace(",", "."))
+    else:
+        num = float(raw_num)
     mult = 1
     if suf in ("k", "mil"):
         mult = 1_000
@@ -1531,7 +1545,14 @@ def discover_official_socials(
     return out, counts
 
 
-def _fetch_via_scrapingbee(url: str, render_js: bool = False) -> str:
+def _fetch_via_scrapingbee(
+    url: str,
+    render_js: bool = False,
+    *,
+    wait: str | None = None,
+    premium_proxy: bool = False,
+    country_code: str = "",
+) -> str:
     if not SCRAPINGBEE_API_KEY:
         raise RuntimeError("SCRAPINGBEE_API_KEY ausente")
     params = {
@@ -1539,6 +1560,12 @@ def _fetch_via_scrapingbee(url: str, render_js: bool = False) -> str:
         "url": url,
         "render_js": "true" if render_js else "false",
     }
+    if wait:
+        params["wait"] = wait
+    if premium_proxy:
+        params["premium_proxy"] = "true"
+    if country_code:
+        params["country_code"] = country_code.lower()[:2]
     r = requests.get("https://app.scrapingbee.com/api/v1/", params=params, timeout=90)
     r.raise_for_status()
     return r.text
@@ -1602,65 +1629,147 @@ def parse_instagram_followers(url: str) -> int | None:
     return None
 
 
-def parse_youtube_followers(url: str) -> int | None:
-    text = fetch_url_text(url, allow_proxy=True, prefer_proxy=True, render_js=True)
-    if not text:
-        text = fetch_url_text(url, allow_proxy=True, prefer_proxy=True, render_js=False)
-    if not text:
-        text = fetch_url_text(url, allow_proxy=True, prefer_proxy=False)
-    if not text:
+def _yt_subscriber_text_to_int(text: str) -> int | None:
+    blob = ascii_text(text or "")
+    if not blob:
         return None
-    text_ascii = ascii_text(text)
-    wanted_handle = youtube_handle_from_url(url)
-    if wanted_handle:
-        low = text_ascii.lower()
-        start = 0
-        while True:
-            idx = low.find(wanted_handle, start)
-            if idx < 0:
-                break
-            chunk = text_ascii[max(0, idx - 120):idx + 240]
-            for pattern in (
-                r'([0-9][0-9.,]*)\s*mil\s+inscritos',
-                r'([0-9][0-9.,kmb]+)\s+subscribers',
-                r'([0-9][0-9.,kmb]+)\s+inscritos',
-            ):
-                m = re.search(pattern, chunk, flags=re.IGNORECASE)
-                if m:
-                    token = m.group(1) + ("mil" if "mil" in pattern else "")
-                    n = parse_human_number(token)
-                    if n is not None:
-                        return n
-            start = idx + len(wanted_handle)
-    soup = BeautifulSoup(text, "html.parser")
-    for meta in soup.find_all("meta"):
-        content = ascii_text(meta.get("content", "") or "")
-        for pattern in (r'([0-9][0-9.,]*)\s*mil\s+inscritos', r'([0-9][0-9.,]*)\s+subscribers', r'([0-9][0-9.,]*)\s+inscritos'):
-            m = re.search(pattern, content, flags=re.IGNORECASE)
-            if m:
-                token = m.group(1) + ("mil" if "mil" in pattern else "")
-                n = parse_human_number(token)
-                if n is not None:
-                    return n
-    patterns = [
-        r'"subscriberCountText".*?"simpleText":"([^"]+)"',
-        r'([\d.,]+mil)\s+inscritos',
-        r'([\d.,kmb]+)\s+subscribers',
-        r'([\d.,kmb]+)\s+inscritos',
+    m = re.search(
+        r"([\d][\d.,]*)\s*(k|m|b|mil|thousand|million|billion)?\s*"
+        r"(subscribers?|inscrit[oa]s?)",
+        blob,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return None
+    token = m.group(1)
+    suf = (m.group(2) or "").lower()
+    if suf == "thousand":
+        suf = "k"
+    elif suf == "million":
+        suf = "m"
+    elif suf == "billion":
+        suf = "b"
+    return parse_human_number(token + suf)
+
+
+def _yt_subscribers_from_header_html(html: str) -> int | None:
+    """Read the channel header / About block only — never the first video-card count."""
+    if not html:
+        return None
+    scoped = [
+        re.compile(
+            r'"aboutChannelViewModel"\s*:\s*\{.{0,8000}?"subscriberCountText"\s*:\s*"([^"]+)"',
+            re.S,
+        ),
+        re.compile(
+            r'"c4TabbedHeaderRenderer"\s*:\s*\{.{0,16000}?"subscriberCountText"'
+            r'.{0,800}?"simpleText"\s*:\s*"([^"]+)"',
+            re.S,
+        ),
+        re.compile(
+            r'"c4TabbedHeaderRenderer"\s*:\s*\{.{0,16000}?"subscriberCountText"'
+            r'.{0,1000}?"label"\s*:\s*"([^"]+)"',
+            re.S,
+        ),
+        re.compile(
+            r'"pageHeaderViewModel".{0,24000}?"content"\s*:\s*"([^"]*(?:subscribers|inscrit)[^"]*)"',
+            re.S | re.I,
+        ),
     ]
-    for pattern in patterns:
-        m = re.search(pattern, text_ascii, flags=re.IGNORECASE)
-        if m:
-            return parse_human_number(m.group(1))
-    idx = text_ascii.lower().find("inscritos")
-    if idx >= 0:
-        chunk = text_ascii[max(0, idx - 80):idx]
-        nums = re.findall(r'([0-9][0-9.,]*)(?:\s*mil)?', chunk, flags=re.IGNORECASE)
-        if nums:
-            token = nums[-1]
-            if "mil" in chunk.lower():
-                token += "mil"
-            return parse_human_number(token)
+    for pat in scoped:
+        m = pat.search(html)
+        if not m:
+            continue
+        n = _yt_subscriber_text_to_int(m.group(1))
+        if n is not None:
+            return n
+    return None
+
+
+def _yt_subscribers_near_handle(html: str, handle: str) -> int | None:
+    if not html or not handle:
+        return None
+    text = ascii_text(html)
+    low = text.lower()
+    needle = handle.lower()
+    idx = low.find(needle)
+    if idx < 0:
+        return None
+    chunk = text[idx:idx + 500]
+    return _yt_subscriber_text_to_int(chunk)
+
+
+def _youtube_subscribers_from_google(url: str) -> int | None:
+    handle = youtube_handle_from_url(url)
+    label = (handle or url or "").strip()
+    if not label:
+        return None
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from google_serp import google_serp
+    except Exception as e:
+        print(f"[SOCIAL] youtube google fallback import failed: {e}", flush=True)
+        return None
+    market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
+    res = google_serp(label, market=market, include_domains="youtube.com")
+    handle_l = (handle or "").lower().lstrip("@")
+    for it in res.get("items") or []:
+        u = str(it.get("url") or "").lower()
+        blob = " ".join(
+            str(it.get(k) or "")
+            for k in ("title", "snippet", "extra", "extended_snippet", "pre_snippet")
+        )
+        if handle_l and handle_l not in u and handle_l not in blob.lower():
+            continue
+        if "youtube.com" not in u and "youtube.com" not in blob.lower():
+            continue
+        n = _yt_subscriber_text_to_int(blob)
+        if n is not None:
+            return n
+    return None
+
+
+def parse_youtube_followers(url: str) -> int | None:
+    """Official channel subscribers from the header / About JSON, then Google."""
+    if not url:
+        return None
+    base = normalize_youtube_url(url).rstrip("/")
+    pages = []
+    if base:
+        pages.append(base + "/about")
+        if base not in pages:
+            pages.append(base)
+    if url.rstrip("/") not in pages:
+        pages.append(url)
+    for page in pages:
+        text = ""
+        try:
+            text = _fetch_via_scrapingbee(
+                page,
+                render_js=True,
+                wait="3000",
+                premium_proxy=True,
+                country_code="us",
+            )
+        except Exception:
+            text = fetch_url_text(page, allow_proxy=True, prefer_proxy=True, render_js=True)
+        if not text:
+            continue
+        n = _yt_subscribers_from_header_html(text)
+        if n is not None:
+            print(f"[SOCIAL] youtube {page} src=header subscribers={n}", flush=True)
+            return n
+        n = _yt_subscribers_near_handle(text, youtube_handle_from_url(url))
+        if n is not None:
+            print(f"[SOCIAL] youtube {page} src=handle subscribers={n}", flush=True)
+            return n
+    n = _youtube_subscribers_from_google(url)
+    if n is not None:
+        print(f"[SOCIAL] youtube {url} src=google subscribers={n}", flush=True)
+        return n
+    print(f"[SOCIAL] youtube {url} subscribers=None", flush=True)
     return None
 
 
