@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""YouTube Influencers — Apify first-page search (no video open).
-
-Primary: apidojo/youtube-scraper keyword search (min 10 videos, ~$0.50/1k).
-Fallback: ScrapingBee native YouTube / Google SERP if Apify fails.
-"""
+"""YouTube Influencers — ScrapingBee popular search cards (title/snippet/views)."""
 
 from __future__ import annotations
 
@@ -60,7 +56,7 @@ def _cache_dir() -> Path:
         or ""
     ).strip()
     base = Path(root) if root else Path(__file__).resolve().parents[2] / "data"
-    return base / "cache" / "youtube-apify"
+    return base / "cache" / "youtube-sb"
 
 
 def _cache_key(query: str, gl: str, max_items: int, sort: str = "v") -> str:
@@ -781,7 +777,7 @@ def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, 
     cc = (country or "US").lower()[:2]
     search_url = (
         f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-        f"&hl=en&gl={cc.upper()}"
+        f"&sp=CAMSAhAB&hl=en&gl={cc.upper()}"
     )
     try:
         r = requests.get(
@@ -1145,6 +1141,34 @@ def _classify_youtube_posts(
     return confirmed, probable, unrelated, official_pool, other_pool
 
 
+def _search_video_to_post(video: dict[str, Any]) -> Optional[dict[str, Any]]:
+    vid = str(video.get("video_id") or video_id_from_url(str(video.get("url") or "")))
+    if not vid:
+        return None
+    title = str(video.get("title") or "")
+    desc = str(video.get("description") or video.get("snippet") or "")
+    handle = _handle_from_channel_url(str(video.get("channel_url") or ""))
+    name = str(video.get("channel_name") or "")
+    href = str(video.get("url") or "")
+    if not href:
+        href = f"https://www.youtube.com/watch?v={vid}"
+    return {
+        "id": vid,
+        "title": title,
+        "hashtags": [t.lstrip("#") for t in re.findall(r"#([A-Za-z0-9_]+)", title + " " + desc)],
+        "views": video.get("views"),
+        "postPage": href,
+        "uploadedAtFormatted": str(video.get("upload_age") or ""),
+        "description": desc[:800],
+        "subtitle_text": desc[:2000],
+        "channel": {
+            "username": handle or name.lstrip("@"),
+            "name": name,
+            "url": video.get("channel_url") or "",
+        },
+    }
+
+
 def analyze_company(
     company: str,
     *,
@@ -1154,14 +1178,14 @@ def analyze_company(
     query: str | None = None,
     official_hint: Optional[dict] = None,
 ) -> dict[str, Any]:
-    """YouTube influencers: quoted popular Apify search + Google SERP, then dedupe."""
+    """YouTube influencers: ScrapingBee popular search cards only (no watch pages)."""
     t_all = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
     q = (query or name or domain or "").strip()
     if not q:
         raise ValueError("company/query required")
     loc = "us" if (market or "us").lower().startswith("us") else "br"
-    hl = "en" if loc == "us" else "pt"
+    loc_sb = "US" if loc == "us" else "BR"
     hint_handle = _handle_from_channel_url(str((official_hint or {}).get("url") or ""))
     if not hint_handle:
         hint_handle = str((official_hint or {}).get("name") or "").lstrip("@").lower()
@@ -1169,175 +1193,118 @@ def analyze_company(
     max_items = _max_items()
 
     cached = False
-    cache_key = _cache_key(q, loc, max_items, "v")
-    raw = _cache_get(cache_key)
-    fetch_meta: dict[str, Any] = {"ok": True, "error": None, "elapsed_sec": 0}
-    if raw is None:
-        if has_youtube_apify():
-            raw, fetch_meta = _run_apify(q, max_items=max_items, gl=loc, hl=hl)
-            if fetch_meta.get("ok") and raw:
-                _cache_put(cache_key, raw)
-        else:
-            raw = []
-            fetch_meta = {"ok": False, "error": "APIFY_TOKEN missing"}
-    else:
+    cache_key = _cache_key(q, loc, max_items, "sb-search-v")
+    cached_posts = _cache_get(cache_key)
+    credits = 0
+    search_n = 0
+    snippet_n = 0
+    search_url = (
+        f"https://www.youtube.com/results?search_query={quote_plus(q)}"
+        f"&sp=CAMSAhAB&hl=en&gl={loc_sb}"
+    )
+    error = None
+
+    if cached_posts is not None:
         cached = True
+        posts = [p for p in cached_posts if isinstance(p, dict)]
+    else:
+        fetched = scrapingbee_youtube_search(q, country=loc_sb)
+        credits += int(fetched.get("credits") or 0)
+        search_url = str(fetched.get("search_url") or search_url)
+        videos = list(fetched.get("videos") or [])
+        if not videos:
+            print(
+                f"[YT-INF] ScrapingBee search empty ({fetched.get('error') or 'no videos'}); "
+                f"trying Google SERP",
+                flush=True,
+            )
+            google = google_youtube_search(q, market=market)
+            credits += int(google.get("credits") or 0)
+            videos = list(google.get("videos") or [])
+            if google.get("search_url"):
+                search_url = str(google.get("search_url"))
+            error = None if videos else (
+                f"{fetched.get('error') or 'search empty'} | {google.get('error') or 'google empty'}"
+            )
+        videos = sorted(videos, key=lambda v: int(v.get("views") or 0), reverse=True)
+        search_n = len(videos)
+        snippet_n = sum(1 for v in videos[:max_items] if v.get("snippet") or v.get("description"))
+        posts = [p for p in (_search_video_to_post(v) for v in videos[:max_items]) if p]
+        if posts:
+            _cache_put(cache_key, posts)
+    if not snippet_n:
+        snippet_n = sum(1 for p in posts if p.get("subtitle_text") or p.get("description"))
 
-    apify_posts = [p for p in (_item_to_post(it) for it in (raw or [])) if p]
-    google = google_youtube_search(q, market=market)
-    google_posts = [
-        p for p in (_google_video_to_post(v) for v in (google.get("videos") or [])) if p
-    ]
-    posts = _dedupe_posts(apify_posts + google_posts)
+    confirmed, probable, unrelated, official_pool, other_pool = _classify_youtube_posts(
+        posts,
+        name=name,
+        domain=domain,
+        hint_handle=hint_handle,
+        official_hint=official_hint,
+    )
 
-    if posts:
-        confirmed, probable, unrelated, official_pool, other_pool = _classify_youtube_posts(
-            posts,
-            name=name,
-            domain=domain,
-            hint_handle=hint_handle,
-            official_hint=official_hint,
-        )
+    def _top(items: list[dict], limit: int = 5) -> list[dict]:
+        return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
 
-        def _top(items: list[dict], limit: int = 5) -> list[dict]:
-            return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
-
-        buckets = {"30d": 0, "6m": 0, "1y_plus": 0, "unknown": 0}
-        for v in confirmed:
-            key = v.get("age_bucket") or "unknown"
-            buckets[key] = buckets.get(key, 0) + int(v.get("views") or 0)
-
-        billed = max(len(raw), 10) if raw and not cached else 0
-        cost = round(billed * _COST_PER_VIDEO, 6) if not cached else 0.0
-        print(
-            f"[YT-INF] q={q!r} sort=v apify={len(apify_posts)} google={len(google_posts)} "
-            f"uniq={len(posts)} confirmed={len(confirmed)} probable={len(probable)} "
-            f"unrelated={len(unrelated)} ~${cost:.4f} cached={cached}",
-            flush=True,
-        )
-        return {
-            "ok": bool(confirmed or probable or posts),
-            "company": name,
-            "domain": domain,
-            "query": q,
-            "search_url": f"https://www.youtube.com/results?search_query={quote_plus(q)}&sp=CAMSAhAB",
-            "official_channel": official_hint or (
-                official_hint_from_url(f"https://www.youtube.com/@{hint_handle}")
-                if hint_handle else None
-            ),
-            "brand": {
-                "name": cfg.get("name"),
-                "ambiguous": bool(cfg.get("ambiguous")),
-                "query": q,
-            },
-            "views_official": sum(int(v.get("views") or 0) for v in official_pool),
-            "views_unofficial": sum(int(v.get("views") or 0) for v in other_pool),
-            "views_by_age": buckets,
-            "about_count": len(confirmed),
-            "page_count": len(posts),
-            "top5": _top(confirmed or probable),
-            "top5_official": _top(official_pool),
-            "top5_unofficial": _top(other_pool),
-            "videos_about_product": confirmed,
-            "counts": {
-                "search_page": len(posts),
-                "apify": len(apify_posts),
-                "google": len(google_posts),
-                "about_product": len(confirmed),
-                "confirmed": len(confirmed),
-                "probable": len(probable),
-                "unrelated": len(unrelated),
-                "official": len(official_pool),
-                "unofficial": len(other_pool),
-            },
-            "usage": {
-                "source": "apify_youtube+google_serp",
-                "actor": ACTOR_ID,
-                "cached": cached,
-                "estimated_usd": cost,
-                "estimated_total_usd": cost,
-                "search_cost_usd": cost,
-                "posts": len(posts),
-                "apify_posts": len(apify_posts),
-                "google_posts": len(google_posts),
-                "max_items": max_items,
-                "sort": "v",
-                "gl": loc,
-                "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
-                "scrapingbee_credits": int(google.get("credits") or 0),
-                "note": (
-                    "Apify popularity (sort=v) plus Google YouTube SERP, "
-                    "deduped by video id. Brand filter confirmed/probable/unrelated."
-                ),
-            },
-            "elapsed_sec": round(time.time() - t_all, 2),
-            "error": None if posts else (
-                fetch_meta.get("error") or google.get("error") or "YouTube search returned no videos"
-            ),
-        }
+    buckets = {"30d": 0, "6m": 0, "1y_plus": 0, "unknown": 0}
+    for v in confirmed:
+        key = v.get("age_bucket") or "unknown"
+        buckets[key] = buckets.get(key, 0) + int(v.get("views") or 0)
 
     print(
-        f"[YT-INF] Apify empty ({fetch_meta.get('error') or 'no videos'}); "
-        f"falling back to ScrapingBee / Google SERP",
+        f"[YT-INF] q={q!r} sb-search={search_n or len(posts)} "
+        f"snippet={snippet_n} confirmed={len(confirmed)} probable={len(probable)} "
+        f"unrelated={len(unrelated)} credits={credits} cached={cached}",
         flush=True,
     )
-    loc_sb = "US" if loc == "us" else "BR"
-    usage = {
-        "scrapingbee_credits": 0,
-        "openrouter": bool((os.environ.get("OPENROUTER_API_KEY") or "").strip()),
-        "estimated_total_usd": 0.0,
-        "source": "youtube_native_scrapingbee",
-        "apify_error": fetch_meta.get("error"),
-    }
-
-    fetched = scrapingbee_youtube_search(q, country=loc_sb)
-    usage["scrapingbee_credits"] = int(fetched.get("credits") or 0)
-    usage["fetch_elapsed_sec"] = fetched.get("elapsed_sec")
-    usage["source"] = "youtube_native_scrapingbee"
-    if not fetched.get("videos"):
-        print(
-            f"[YT-INF] native YouTube empty ({fetched.get('error') or 'no videos'}); "
-            f"falling back to Google SERP",
-            flush=True,
-        )
-        google = google_youtube_search(q, market=market)
-        usage["scrapingbee_credits"] += int(google.get("credits") or 0)
-        usage["source"] = google.get("source") or "google_serp"
-        usage["fetch_elapsed_sec"] = round(
-            float(fetched.get("elapsed_sec") or 0) + float(google.get("elapsed_sec") or 0), 2
-        )
-        if google.get("videos"):
-            fetched = google
-        else:
-            fetched["error"] = (
-                f"{fetched.get('error') or 'native empty'} | "
-                f"{google.get('error') or 'google empty'}"
-            )
-
-    videos = list(fetched.get("videos") or [])
-    videos, llm_official = classify_about_product(
-        videos,
-        company=company,
-        product_hint=product_hint or domain,
-        domain=domain,
-    )
-    hint = official_hint or llm_official or _guess_official_channel(videos, company)
-    summary = summarize_videos(
-        videos,
-        company=company,
-        domain=domain,
-        official_hint=hint,
-    )
-
     return {
-        "ok": bool(fetched.get("ok") or videos),
-        "company": company,
+        "ok": bool(confirmed or probable or posts),
+        "company": name,
         "domain": domain,
         "query": q,
-        "search_url": fetched.get("search_url")
-        or f"https://www.youtube.com/results?search_query={quote_plus(q)}",
+        "search_url": search_url,
+        "official_channel": official_hint or (
+            official_hint_from_url(f"https://www.youtube.com/@{hint_handle}")
+            if hint_handle else None
+        ),
+        "brand": {
+            "name": cfg.get("name"),
+            "ambiguous": bool(cfg.get("ambiguous")),
+            "query": q,
+        },
+        "views_official": sum(int(v.get("views") or 0) for v in official_pool),
+        "views_unofficial": sum(int(v.get("views") or 0) for v in other_pool),
+        "views_by_age": buckets,
+        "about_count": len(confirmed),
+        "page_count": len(posts),
+        "top5": _top(confirmed or probable),
+        "top5_official": _top(official_pool),
+        "top5_unofficial": _top(other_pool),
+        "videos_about_product": confirmed,
+        "counts": {
+            "search_page": search_n or len(posts),
+            "about_product": len(confirmed),
+            "confirmed": len(confirmed),
+            "probable": len(probable),
+            "unrelated": len(unrelated),
+            "official": len(official_pool),
+            "unofficial": len(other_pool),
+            "with_snippet": snippet_n,
+        },
+        "usage": {
+            "source": "scrapingbee_youtube",
+            "cached": cached,
+            "estimated_usd": 0.0,
+            "posts": len(posts),
+            "max_items": max_items,
+            "sort": "v",
+            "gl": loc,
+            "scrapingbee_credits": credits,
+            "note": (
+                "ScrapingBee YouTube popular search cards only "
+                "(title, snippet, views, age). No watch pages."
+            ),
+        },
         "elapsed_sec": round(time.time() - t_all, 2),
-        "usage": usage,
-        "error": fetched.get("error"),
-        **summary,
+        "error": error if not posts else None,
     }

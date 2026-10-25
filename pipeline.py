@@ -318,7 +318,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
     usage = data.get("usage_total") or {}
     report["youtube_influencers"] = {
-        "source": data.get("source") or "apify_youtube",
+        "source": data.get("source") or "scrapingbee_youtube",
         "market": data.get("market") or "US",
         "leader": client.get("name") if client else "—",
         "total_traffic_fmt": client.get("traffic_fmt") if client else "—",
@@ -326,13 +326,13 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
         "rows": rows_out,
         "usage_total": usage,
         "insight": (
-            f"YouTube «{client.get('query') or client.get('name') or '—'}» popular+Google: "
+            f"YouTube «{client.get('query') or client.get('name') or '—'}» ScrapingBee popular search: "
             f"official {_fmt_views(client.get('views_official'))} · "
             f"unofficial {_fmt_views(client.get('views_unofficial'))} · "
             f"30d {_fmt_views(client.get('views_30d'))} / "
             f"6m {_fmt_views(client.get('views_6m'))} / "
             f"1y+ {_fmt_views(client.get('views_1y_plus'))} "
-            f"(brand-in-title on 1st page; Apify ~${usage.get('estimated_usd', '—')})."
+            f"(title + card snippet; SB {usage.get('scrapingbee_credits', '—')} credits)."
         ),
         "analysis_title": "YouTube Influencers",
         "pro_hook": "Na versão Pro mapeamos creators, scripts e oportunidades de menção no YouTube.",
@@ -748,9 +748,7 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         if not rows:
             return True
         src = str(data.get("source") or "").lower()
-        if "apify" not in src:
-            return True
-        if "google" not in src:
+        if "scrapingbee" not in src:
             return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
@@ -2286,25 +2284,19 @@ def run_pipeline(
     })
 
     if include_youtube_influencers:
-        _apify_yt = (
-            os.environ.get("APIFY_TOKEN")
-            or os.environ.get("APIFY_API_TOKEN")
-            or os.environ.get("APIFY_API_KEY")
-            or ""
-        ).strip()
-        if not _apify_yt:
-            emit("log", line="[YT-INF] Skipped: APIFY_TOKEN missing")
-            _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped (no Apify key)")
+        if not (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip():
+            emit("log", line="[YT-INF] Skipped: SCRAPINGBEE_API_KEY missing")
+            _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped (no ScrapingBee key)")
         else:
             extras.append({
                 "tag": "YT-INF",
                 "step": "youtube_influencers",
                 "section": "youtube_influencers",
                 "script": SCRIPT_YT_INFLUENCERS,
-                "timeout": 240,
+                "timeout": 180,
                 "kind": "json",
                 "priority": 90,
-                "running": "YouTube Influencers (Apify search)…",
+                "running": "YouTube Influencers (ScrapingBee search)…",
                 "done": "YouTube Influencers ready",
                 "attach": _attach_youtube_influencers,
             })

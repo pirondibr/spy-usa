@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Etapa YouTube Influencers (Apify first-page search) — opcional no Spy USA."""
+"""Etapa YouTube Influencers (ScrapingBee popular search cards) — opcional no Spy USA."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def main() -> None:
         # Prefer brand-ish query without TLD noise
         if not override_query:
             q = name.replace("-", " ").strip() or domain.split(".")[0]
-        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (popular+google)", flush=True)
+        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (scrapingbee search)", flush=True)
         try:
             result = analyze_company(
                 name,
@@ -207,13 +207,13 @@ def main() -> None:
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "apify_youtube+google_serp",
+        "source": "scrapingbee_youtube",
         "llm_title_filter": False,
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": round(total_usd, 6),
             "scrapingbee_credits": total_credits,
-            "note": "Apify popularity (sort=v) plus Google YouTube SERP, deduped.",
+            "note": "ScrapingBee YouTube popular search cards (title/snippet/views). No watch pages.",
         },
         "rows": rows,
     }
@@ -223,7 +223,7 @@ def main() -> None:
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[OUT] {out_path}", flush=True)
     print(
-        f"[YT-INF] TOTAL {out['elapsed_sec']}s · Apify ~${total_usd:.4f} · SB credits={total_credits}",
+        f"[YT-INF] TOTAL {out['elapsed_sec']}s · SB credits={total_credits}",
         flush=True,
     )
 

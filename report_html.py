@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.95"
+REPORT_UI_VERSION = "0.4.96"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2058,8 +2058,8 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
     usage = section.get("usage_total") or {}
     hero = _esc(section.get("total_traffic_fmt") or "—")
     hero_sub = (
-        f"product-relevant 1st page · Apify ~$"
-        f"{_esc(str(usage.get('estimated_usd', usage.get('scrapingbee_credits', '—'))))} "
+        f"product-relevant search cards · SB credits "
+        f"{_esc(str(usage.get('scrapingbee_credits', usage.get('estimated_usd', '—'))))} "
         f"· leader {_esc(section.get('leader') or '—')}"
     )
     insight = section.get("insight") or ""
