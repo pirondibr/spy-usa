@@ -7,6 +7,7 @@ when TinyFish is missing, empty, or rate-limited.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -112,6 +113,58 @@ def _item(url: str, title: str, snippet: str, position: int, extra: Optional[dic
     return row
 
 
+def _as_text(value: Any) -> str:
+    if value in (None, "", [], {}):
+        return ""
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, ensure_ascii=False)[:500]
+        except Exception:
+            return str(value)[:500]
+    return str(value)
+
+
+def _structured_views(row: dict[str, Any]) -> Optional[int]:
+    """Pull a view count from typed SERP fields, not only the word 'views'."""
+    extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+    for src in (row, extra):
+        if not isinstance(src, dict):
+            continue
+        for key in ("video_view_count", "views_count", "view_count", "views"):
+            raw = src.get(key)
+            if isinstance(raw, bool):
+                continue
+            if isinstance(raw, (int, float)) and raw > 0:
+                return int(raw)
+            if isinstance(raw, str):
+                digits = re.sub(r"[^\d]", "", raw.split()[0] if raw.strip() else "")
+                if digits and raw.strip().isdigit():
+                    return int(digits)
+    return None
+
+
+def _serp_blob(row: dict[str, Any]) -> str:
+    parts = [
+        row.get("snippet"),
+        row.get("description"),
+        row.get("breadcrumb"),
+        row.get("date"),
+        row.get("timestamp"),
+        row.get("extended_snippet"),
+        row.get("pre_snippet"),
+        row.get("highlighted"),
+        row.get("displayed_link"),
+        row.get("displayed_url"),
+        row.get("rich_snippet"),
+        row.get("rich_snippets"),
+        row.get("extra"),
+    ]
+    extra = row.get("extra")
+    if isinstance(extra, dict):
+        parts.extend(extra.values())
+    return " · ".join(_as_text(p) for p in parts if _as_text(p))
+
+
 def _tinyfish(query: str, *, market: str, include_domains: Optional[str]) -> dict[str, Any]:
     global _tf_skip_until, _tf_skip_reason
     key = _tf_key()
@@ -174,6 +227,11 @@ def _tinyfish(query: str, *, market: str, include_domains: Optional[str]) -> dic
             str(row.get("title") or ""),
             str(row.get("snippet") or row.get("description") or ""),
             int(row.get("position") or i),
+            extra={
+                "description": str(row.get("snippet") or row.get("description") or ""),
+                "breadcrumb": _serp_blob(row),
+                "views": _structured_views(row),
+            },
         ))
     return {
         "ok": bool(items),
@@ -264,7 +322,8 @@ def _scrapingbee(query: str, *, market: str) -> dict[str, Any]:
             int(row.get("position") or len(items) + 1),
             extra={
                 "description": str(row.get("description") or row.get("snippet") or ""),
-                "breadcrumb": breadcrumb,
+                "breadcrumb": " · ".join(x for x in (breadcrumb, _serp_blob(row)) if x),
+                "views": _structured_views(row),
                 "is_video": "tiktok.com" in url.lower() or "video" in str(row.get("type") or "").lower(),
             },
         ))
@@ -333,10 +392,17 @@ def _dataforseo(query: str, *, market: str) -> dict[str, Any]:
                     int(node.get("rank_absolute") or node.get("rank_group") or len(items) + 1),
                     extra={
                         "description": str(node.get("description") or node.get("snippet") or ""),
-                        "breadcrumb": str(node.get("breadcrumb") or ""),
+                        "breadcrumb": " · ".join(
+                            x for x in (
+                                str(node.get("breadcrumb") or ""),
+                                str(node.get("timestamp") or ""),
+                                _serp_blob(node),
+                            ) if x
+                        ),
                         "extended_snippet": str(node.get("extended_snippet") or ""),
                         "pre_snippet": str(node.get("pre_snippet") or ""),
                         "highlighted": str(node.get("highlighted") or ""),
+                        "views": _structured_views(node),
                         "is_video": video or tiktok,
                     },
                 ))
@@ -375,7 +441,7 @@ def google_serp(
         return {"ok": False, "items": [], "error": "empty query", "source": ""}
     tried: list[str] = []
     last: dict[str, Any] = {"ok": False, "items": [], "error": "no provider", "source": ""}
-    fallback: Optional[dict[str, Any]] = None
+    last_with_items: Optional[dict[str, Any]] = None
     cost_acc = 0.0
     credits_acc = 0
     for name, fn in (
@@ -393,19 +459,27 @@ def google_serp(
         if credits_acc:
             last["credits_total"] = credits_acc
         items = last.get("items") or []
-        if items and fallback is None:
-            fallback = dict(last)
         usable = bool(accept(items)) if callable(accept) else bool(items)
+        if items:
+            last_with_items = last
+        if callable(accept):
+            print(
+                f"[SERP] {name} items={len(items)} accept={usable} "
+                f"err={last.get('error') or '—'}",
+                flush=True,
+            )
         if last.get("ok") and usable:
             return last
-    if fallback is not None:
-        fallback["providers_tried"] = list(tried)
-        fallback["query"] = q
-        fallback["cost_usd_total"] = round(cost_acc, 6)
+    # When TinyFish has results but no views, keep the last provider that returned items
+    # (usually DataForSEO) instead of the first view-less page.
+    if last_with_items is not None:
+        last_with_items["providers_tried"] = list(tried)
+        last_with_items["query"] = q
+        last_with_items["cost_usd_total"] = round(cost_acc, 6)
         if credits_acc:
-            fallback["credits_total"] = credits_acc
-        fallback["rotated"] = True
-        return fallback
+            last_with_items["credits_total"] = credits_acc
+        last_with_items["rotated"] = True
+        return last_with_items
     last["query"] = q
     last["providers_tried"] = tried
     last["cost_usd_total"] = round(cost_acc, 6)

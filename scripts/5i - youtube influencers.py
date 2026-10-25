@@ -172,6 +172,8 @@ def main() -> None:
             f"off_views={result.get('views_official')} "
             f"unoff_views={result.get('views_unofficial')} "
             f"sb_credits={usage.get('scrapingbee_credits')} "
+            f"src={usage.get('source') or '—'} "
+            f"err={result.get('error') or '—'} "
             f"t={result.get('elapsed_sec')}s",
             flush=True,
         )

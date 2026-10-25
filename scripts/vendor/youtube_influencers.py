@@ -357,6 +357,111 @@ def _guess_official_channel(videos: list[dict], query: str) -> Optional[dict]:
     return best if best_score >= 10 else None
 
 
+_VIEW_RE = re.compile(
+    r"([\d]+(?:[.,]\d+)?)\s*([KkMmBb])?\+?\s*views?",
+    flags=re.I,
+)
+_AGE_RE = re.compile(
+    r"(\d+\s*(?:second|minute|hour|day|week|month|year|sec|min|hr|d|w|mo|yr|y)s?\s+ago|yesterday|today)",
+    flags=re.I,
+)
+
+
+def _parse_views_blob(*parts: Any) -> Optional[int]:
+    blob = " · ".join(str(p) for p in parts if p)
+    if not blob:
+        return None
+    m = _VIEW_RE.search(blob)
+    if not m:
+        return None
+    raw = (m.group(1) or "").replace(",", ".")
+    try:
+        n = float(raw)
+    except ValueError:
+        return None
+    if n <= 0:
+        return None
+    mult = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}.get((m.group(2) or "").lower(), 1)
+    return int(n * mult)
+
+
+def google_youtube_search(query: str, *, market: str = "us") -> dict[str, Any]:
+    """Page-1 Google for YouTube videos when native YouTube scrape fails."""
+    t0 = time.time()
+    search_url = f"https://www.google.com/search?q={quote_plus(query + ' site:youtube.com')}&hl=en"
+    try:
+        from google_serp import google_serp
+        fetched = google_serp(
+            query,
+            market=market,
+            include_domains="youtube.com",
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"Google SERP fallback failed: {e}"[:300],
+            "elapsed_sec": round(time.time() - t0, 2),
+            "credits": 0,
+            "videos": [],
+            "official_channel": None,
+            "search_url": search_url,
+            "source": "google_serp",
+        }
+    videos: list[dict] = []
+    seen: set[str] = set()
+    for it in fetched.get("items") or []:
+        url = normalize_watch_url(str(it.get("url") or ""))
+        vid = video_id_from_url(url)
+        if not vid or vid in seen:
+            continue
+        low = url.lower()
+        if "youtube.com" not in low and "youtu.be" not in low:
+            continue
+        if "/watch" not in low and "/shorts/" not in low and "youtu.be/" not in low:
+            continue
+        seen.add(vid)
+        title = str(it.get("title") or "").strip()
+        channel = ""
+        if title.lower().endswith(" - youtube"):
+            parts = [p.strip() for p in title.rsplit(" - ", 2) if p.strip()]
+            if len(parts) >= 2 and parts[-1].lower() == "youtube":
+                title = parts[0]
+                if len(parts) == 3:
+                    channel = parts[1]
+        blob = " ".join(
+            str(it.get(k) or "")
+            for k in ("breadcrumb", "snippet", "description", "extended_snippet", "pre_snippet")
+        )
+        views = it.get("views") if isinstance(it.get("views"), (int, float)) else None
+        if not views:
+            views = _parse_views_blob(blob, title)
+        age_m = _AGE_RE.search(blob)
+        videos.append({
+            "kind": "video",
+            "title": title,
+            "url": url if "/shorts/" in low else f"https://www.youtube.com/watch?v={vid}",
+            "video_id": vid,
+            "snippet": str(it.get("snippet") or it.get("description") or ""),
+            "upload_age": age_m.group(0) if age_m else "",
+            "views": int(views) if views else None,
+            "views_text": str(views) if views else "",
+            "channel_name": channel,
+            "channel_url": "",
+            "source": fetched.get("source") or "google_serp",
+            "is_short": "/shorts/" in low,
+        })
+    return {
+        "ok": bool(videos),
+        "error": None if videos else (fetched.get("error") or "Google SERP returned no YouTube videos"),
+        "elapsed_sec": round(time.time() - t0, 2),
+        "credits": int(fetched.get("credits_total") or fetched.get("credits") or 0),
+        "videos": videos,
+        "official_channel": None,
+        "search_url": search_url,
+        "source": fetched.get("source") or "google_serp",
+    }
+
+
 def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, Any]:
     """Fetch native YouTube search HTML via ScrapingBee (render_js) and parse cards."""
     t0 = time.time()
@@ -376,7 +481,7 @@ def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, 
                 "country_code": cc,
                 "wait": "2500",
             },
-            timeout=120,
+            timeout=80,
         )
     except requests.Timeout:
         return {
@@ -710,6 +815,26 @@ def analyze_company(
     fetched = scrapingbee_youtube_search(q, country=loc)
     usage["scrapingbee_credits"] = int(fetched.get("credits") or 0)
     usage["fetch_elapsed_sec"] = fetched.get("elapsed_sec")
+    usage["source"] = "youtube_native_scrapingbee"
+    if not fetched.get("videos"):
+        print(
+            f"[YT-INF] native YouTube empty ({fetched.get('error') or 'no videos'}); "
+            f"falling back to Google SERP",
+            flush=True,
+        )
+        google = google_youtube_search(q, market=market)
+        usage["scrapingbee_credits"] += int(google.get("credits") or 0)
+        usage["source"] = google.get("source") or "google_serp"
+        usage["fetch_elapsed_sec"] = round(
+            float(fetched.get("elapsed_sec") or 0) + float(google.get("elapsed_sec") or 0), 2
+        )
+        if google.get("videos"):
+            fetched = google
+        else:
+            fetched["error"] = (
+                f"{fetched.get('error') or 'native empty'} | "
+                f"{google.get('error') or 'google empty'}"
+            )
 
     videos = list(fetched.get("videos") or [])
     videos, llm_official = classify_about_product(

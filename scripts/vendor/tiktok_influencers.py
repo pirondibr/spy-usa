@@ -99,11 +99,20 @@ def _item_view_blob(it: dict[str, Any]) -> str:
     )
 
 
+def _item_views(it: dict[str, Any]) -> Optional[int]:
+    raw = it.get("views")
+    if isinstance(raw, bool):
+        raw = None
+    if isinstance(raw, (int, float)) and raw > 0:
+        return int(raw)
+    return parse_views_text(_item_view_blob(it), it.get("title"), it.get("url"))
+
+
 def _has_tiktok_views(items: list[dict[str, Any]]) -> bool:
     for it in items or []:
         if not is_tiktok_url(str(it.get("url") or "")):
             continue
-        if parse_views_text(_item_view_blob(it)) is not None:
+        if _item_views(it) is not None:
             return True
     return False
 
@@ -160,14 +169,16 @@ def analyze_company(
             str(it.get(k) or "")
             for k in ("extended_snippet", "pre_snippet", "highlighted", "snippet")
         )
-        views = parse_views_text(breadcrumb, extra, desc, title)
+        views = _item_views(it)
+        if views is None:
+            views = parse_views_text(breadcrumb, extra, desc, title)
         if not is_tiktok_url(url):
             skipped_not_post += 1
             continue
         if views is None:
             skipped_no_views += 1
             continue
-        if not (is_tiktok_post(url) or it.get("is_video")):
+        if not (is_tiktok_post(url) or it.get("is_video") or "/video/" in url.lower()):
             skipped_not_post += 1
             continue
         blob = f"{title} {desc}"
