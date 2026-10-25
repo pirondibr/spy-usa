@@ -107,18 +107,17 @@ def build_find_v2_payload(
     if not domain:
         domain = site_host or _host(str(briefing.get("url") or meta.get("url") or ""))
     rows: list[dict[str, Any]] = []
-    you_row: Optional[dict[str, Any]] = None
     for i, c in enumerate(comps):
         dom = str(c.get("domain") or "").strip().lower()
         if not dom:
             continue
         is_you = bool(c.get("is_client"))
-        lvl = _lvl(c)
+        lvl = 3 if is_you else _lvl(c)
         motivo = str(c.get("motivo") or "").strip()
         off = ""
         if (not is_you) and lvl == 1 and motivo and motivo not in ("—", "-", "n/a"):
             off = motivo
-        item = {
+        rows.append({
             "n": str(c.get("name") or dom),
             "d": dom,
             "t": _row_title(c),
@@ -130,15 +129,10 @@ def build_find_v2_payload(
             "niche": str(c.get("nicho") or "").strip(),
             "off": off,
             "added": bool(c.get("manual")),
-            "you": is_you,
-            "color": "#0E1116" if is_you else PAL[i % len(PAL)],
-        }
-        if is_you:
-            you_row = item
-        else:
-            rows.append(item)
-    if you_row is None and domain:
-        you_row = {
+            "color": PAL[i % len(PAL)],
+        })
+    if domain and not any(r.get("d") == domain for r in rows):
+        rows.append({
             "n": client,
             "d": domain,
             "t": "",
@@ -150,11 +144,8 @@ def build_find_v2_payload(
             "niche": _briefing_nicho(briefing),
             "off": "",
             "added": False,
-            "you": True,
-            "color": "#0E1116",
-        }
-    if you_row:
-        rows = [you_row] + rows
+            "color": PAL[0],
+        })
     return {
         "meta": {
             "client": client,

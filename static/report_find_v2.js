@@ -10,20 +10,12 @@
   var loc = function () { return I ? I.locale() : "en-US"; };
 
   var META = D.meta || {};
-  var ALL = (D.rows || []).slice();
-  var YOU = ALL.find(function (r) { return r && r.you; }) || null;
-  var R = ALL.filter(function (r) { return r && !r.you; });
+  var R = (D.rows || []).slice();
   var ME = {
-    n: (YOU && YOU.n) || META.client || "WinnerTracker",
-    d: String((YOU && YOU.d) || META.domain || "").toLowerCase(),
-    visits: (YOU && YOU.v != null) ? YOU.v : META.visits
+    n: META.client || "WinnerTracker",
+    d: String(META.domain || "").toLowerCase(),
+    visits: META.visits
   };
-  if (YOU) {
-    YOU.n = YOU.n || ME.n;
-    YOU.d = String(YOU.d || ME.d).toLowerCase();
-    if (YOU.v == null) YOU.v = ME.visits;
-    if (!YOU.color) YOU.color = "#0E1116";
-  }
   var MAX = Number(META.max) || 3;
   var RUN = String(META.run_id || "");
   var PAL = ["#0F6B5C", "#4A6FA5", "#C2702E", "#7B5BB0", "#2E9C8A", "#B5476B", "#5B6470", "#8A6100"];
@@ -77,7 +69,7 @@
   var busy = false;
   try {
     var stored = JSON.parse(localStorage.getItem("spy-cmp-sel:" + RUN) || "null");
-    if (Array.isArray(stored)) sel = stored.filter(function (d) { return d !== ME.d && R.some(function (r) { return r.d === d; }); }).slice(0, MAX);
+    if (Array.isArray(stored)) sel = stored.filter(function (d) { return R.some(function (r) { return r.d === d; }); }).slice(0, MAX);
   } catch (e) {}
 
   function brandCell(r) {
@@ -99,7 +91,7 @@
       "<small>" + t("find.brand.tip_s") + "</small></span></span>";
   }
 
-  var mxv = Math.max.apply(null, R.map(function (r) { return r.v || 0; }).concat([YOU && YOU.v ? YOU.v : 0, 1]));
+  var mxv = Math.max.apply(null, R.map(function (r) { return r.v || 0; }).concat([1]));
   function visitCell(r) {
     if (r.added) return '<span class="vb"><span class="na">' + t("find.vis.added") + "</span></span>";
     if (!r.v) return '<span class="vb"><span class="na">' + t("find.vis.na") + "</span></span>";
@@ -140,21 +132,6 @@
       "<div><span>" + t("find.kpi.you", { name: esc(ME.n) }) + '</span><b class="num">' + fmt(ME.visits) + "<small>" + t("find.kpi.visits") + "</small></b></div>";
   }
 
-  function youRowHtml() {
-    if (!YOU) return "";
-    var title = YOU.t || t("find.title.none");
-    var srcs = (YOU.src || []).map(srcName).join(" + ");
-    return '<tr class="c you" title="' + esc(t("find.you_tip")) + '">' +
-      '<td style="width:36px"><span class="you-lock" aria-hidden="true">●</span></td>' +
-      "<td><span class=\"co\">" + av(YOU) + '<span class="nmw"><b>' + esc(YOU.n) +
-      ' <span class="you-mark">' + t("find.you") + "</span></b><span class=\"dm\">" + esc(YOU.d) + "</span></span></span></td>" +
-      "<td>" + visitCell(YOU) + "</td>" +
-      '<td class="hs">' + brandCell(YOU) + "</td>" +
-      '<td class="hm r num">' + (YOU.since == null ? "—" : esc(YOU.since)) + "</td>" +
-      '<td class="hm nc"><span class="niche">' + esc(YOU.niche || "—") + "</span></td>" +
-      '<td class="hm ttc"><span class="tip" tabindex="0" aria-label="' + t("find.title.lab") + ": " + esc(title) + '"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.9v.1" stroke-linecap="round"/></svg><span class="tsn">' + esc(title) + '</span><span class="tt" role="tooltip"><b>' + t("find.title.lab") + "</b>" + esc(title) + "<small>" + t("find.title.via", { src: srcs || "—" }) + "</small></span></span></td></tr>";
-  }
-
   function rowHtml(r, flat) {
     var LV = lvPack();
     var SHORT = shortPack();
@@ -182,7 +159,7 @@
     });
     var gr = function (r) { var g = yoy(r); return g === Infinity ? 1e9 : (g == null ? -1e9 : g); };
     var key = { traffic: function (r) { return -(r.v || 0); }, brand: function (r) { return -(r.b ? r.b[0] : -1); }, grow: function (r) { return -gr(r); }, "new": function (r) { return -(r.since || 0); } }[sort];
-    var h = "<thead><tr><th></th><th>" + t("find.th.company") + "</th><th>" + t("find.th.visits") + '</th><th class="hs">' + t("find.th.brand") + '</th><th class="hm r">' + t("find.th.since") + '</th><th class="hm">' + t("find.th.niche") + '</th><th class="hm">' + t("find.th.title") + "</th></tr></thead><tbody>" + youRowHtml();
+    var h = "<thead><tr><th></th><th>" + t("find.th.company") + "</th><th>" + t("find.th.visits") + '</th><th class="hs">' + t("find.th.brand") + '</th><th class="hm r">' + t("find.th.since") + '</th><th class="hm">' + t("find.th.niche") + '</th><th class="hm">' + t("find.th.title") + "</th></tr></thead><tbody>";
     var sorted = function (arr) {
       return arr.slice().sort(function (a, b) { return key(a) - key(b) || String(a.n).localeCompare(String(b.n)); });
     };
@@ -247,7 +224,6 @@
 
   function toggle(d) {
     if (busy) return;
-    if (!d || d === ME.d) return;
     if (sel.indexOf(d) >= 0) sel = sel.filter(function (x) { return x !== d; });
     else if (sel.length < MAX) sel = sel.concat([d]);
     renderList();
@@ -270,7 +246,7 @@
     if (!sel.length || busy) return;
     busy = true;
     renderBar();
-    var urls = [ME.d].concat(sel).join("\n");
+    var urls = [ME.d].concat(sel.filter(function (d) { return d !== ME.d; })).join("\n");
     fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
