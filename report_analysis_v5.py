@@ -172,6 +172,7 @@ def build_v5_payload(
         yt_prof = _row_for_company(section("youtube"), company) or {}
         ig_prof = _row_for_company(section("instagram"), company) or {}
         tt_prof = _row_for_company(section("tiktok"), company) or {}
+        li_prof = _row_for_company(section("linkedin_profile"), company) or {}
         companies.append({
             "k": k,
             "name": crow.get("name") or company.get("name") or "—",
@@ -181,6 +182,7 @@ def build_v5_payload(
             "yt_url": str(yt_prof.get("url") or ""),
             "ig_url": str(ig_prof.get("url") or ""),
             "tt_url": str(tt_prof.get("url") or ""),
+            "li_url": str(li_prof.get("url") or ""),
             "visits": _num(crow.get("visits")) or 0,
             "vg": float(crow.get("vg") or 0),
             "months": months,
@@ -412,6 +414,32 @@ def build_v5_payload(
             "w": str(row.get("note") or ""),
         }
 
+    # linkedin (official company page + ads library)
+    linkedin: dict[str, Any] = {}
+    li_sec = section("linkedin_profile")
+    li_ads = section("linkedin")
+    for company, co in zip(raw_cos, companies):
+        row = _row_for_company(li_sec, company) or {}
+        arow = _row_for_company(li_ads, company) or {}
+        profile = str(row.get("url") or co.get("li_url") or "")
+        handle = ""
+        if profile:
+            import re as _re
+            m = _re.search(r"linkedin\.com/company/([^/?#]+)", profile, flags=_re.I)
+            handle = (m.group(1) if m else "").strip("/")
+        linkedin[co["k"]] = {
+            "followers": row.get("followers_fmt") or row.get("traffic_fmt") or None,
+            "kind": str(row.get("kind") or ""),
+            "title": str(row.get("title") or ""),
+            "snippet": str(row.get("snippet") or "")[:180],
+            "profile": profile,
+            "h": handle or None,
+            "search": str(row.get("search_url") or ""),
+            "ads": arow.get("value_fmt") or arow.get("linkedin_ads_fmt") or arow.get("count_fmt") or None,
+            "ads_url": _summary_channel_url("linkedin", li_ads, arow, market=market),
+            "w": str(row.get("note") or row.get("error") or ""),
+        }
+
     from run_log import apply_cost_shares
 
     log = _resolve_run_log(report, meta) or {}
@@ -477,6 +505,7 @@ def build_v5_payload(
         "youtube": youtube,
         "instagram": instagram,
         "tiktok": tiktok,
+        "linkedin": linkedin,
         "reddit": reddit,
         "exec": {
             "duration": str(totals.get("sec_fmt") or "—"),

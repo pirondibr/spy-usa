@@ -23,6 +23,7 @@
   var YT = D.youtube || {};
   var IG = D.instagram || {};
   var TT = D.tiktok || {};
+  var LI = D.linkedin || {};
   var RD = D.reddit || {};
   var EX = D.exec || {};
   var META = D.meta || {};
@@ -165,7 +166,7 @@
   var sel = ME.k;
   var flt = "all";
   var rkSel = "visits";
-  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, rd: ME.k };
+  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, li: ME.k, rd: ME.k };
   var FIXED = ["perfil", "canais"];
   var open = null;
   try { open = localStorage.getItem("spy-min-tab"); } catch (e) {}
@@ -181,6 +182,7 @@
       { id: "yt", t: t("p.yt"), d: t("p.yt_d"), grp: "det" },
       { id: "ig", t: t("p.ig"), d: t("p.ig_d"), grp: "det" },
       { id: "tt", t: t("p.tt"), d: t("p.tt_d"), grp: "det" },
+      { id: "li", t: t("p.li"), d: t("p.li_d"), grp: "det" },
       { id: "rd", t: t("p.rd"), d: t("p.rd_d"), grp: "det" },
       { id: "exec", t: t("p.exec"), d: t("p.exec_d"), grp: "det" },
     ];
@@ -578,6 +580,21 @@
       '<div class="note">' + (r.search ? '<a class="lnk" href="' + esc(r.search) + '" target="_blank" rel="noopener">' + t("rd.search") + "</a>" : "") + "<span>" + t("rd.note") + "</span></div>";
   }
 
+  function renderLI() {
+    var c = CO.find(function (x) { return x.k === tabCo.li; }) || ME;
+    var r = LI[c.k] || {};
+    $("v6-pb-li").innerHTML = '<div class="mx"><table class="tb"><thead><tr><th>' + t("li.company") + "</th><th>" + t("li.followers") + "</th><th>" + t("li.kind") + "</th><th>" + t("li.ads") + "</th></tr></thead><tbody>" +
+      CO.map(function (k) {
+        var z = LI[k.k] || {};
+        return '<tr class="' + (k.k === c.k ? "on" : "") + '" data-tco="li:' + k.k + '">' + nmCell(k, z.profile || k.li_url) + '<td class="num"><b>' + esc(z.followers || t("nc")) + "</b>" + (z.w ? ' <span class="wf" title="' + esc(z.w) + '">!</span>' : "") + '</td><td>' + esc(z.kind || "—") + '</td><td class="num">' + (z.ads_url ? '<a href="' + esc(z.ads_url) + '" target="_blank" rel="noopener">' + esc(z.ads || "—") + "</a>" : esc(z.ads || "—")) + "</td></tr>";
+      }).join("") + "</tbody></table></div>" +
+      '<div class="det-h"><span>' + t("li.about") + "</span>" + coSeg("li") + "</div>" + warnBox(r.w) +
+      (r.title || r.snippet
+        ? '<div class="note" style="display:block"><b>' + esc(r.title || "—") + "</b>" + (r.snippet ? "<div>" + esc(r.snippet) + "</div>" : "") + "</div>"
+        : '<div class="none">' + t("li.empty") + "</div>") +
+      '<div class="note">' + (r.profile || r.h ? '<a class="lnk" href="' + esc(r.profile || ("https://www.linkedin.com/company/" + r.h)) + '" target="_blank" rel="noopener">' + t("li.profile") + (r.h ? " /" + esc(r.h) : "") + " ↗</a>" : "") + (r.search ? '<a class="lnk" href="' + esc(r.search) + '" target="_blank" rel="noopener">' + t("li.search") + "</a>" : "") + (r.ads_url ? '<a class="lnk" href="' + esc(r.ads_url) + '" target="_blank" rel="noopener">' + t("li.ads_lib") + "</a>" : "") + "<span>" + t("li.note") + "</span></div>";
+  }
+
   function renderAds() {
     var paid = CH.filter(function (ch) { return ch.g === "paid"; });
     $("v6-pb-ads").innerHTML = paid.map(function (ch) {
@@ -613,6 +630,7 @@
     renderYT();
     renderIG();
     renderTT();
+    renderLI();
     renderRD();
     renderExec();
   }
@@ -630,7 +648,7 @@
       if (tc && root.contains(tc)) {
         var parts = tc.dataset.tco.split(":");
         tabCo[parts[0]] = parts[1];
-        ({ yt: renderYT, ig: renderIG, tt: renderTT, rd: renderRD })[parts[0]]();
+        ({ yt: renderYT, ig: renderIG, tt: renderTT, li: renderLI, rd: renderRD })[parts[0]]();
         return;
       }
       var fl = e.target.closest("[data-flt]");
