@@ -149,7 +149,9 @@ textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px
 .jobs .jh b{font-size:15px}
 .jobs .bar{height:6px;border-radius:99px;background:var(--band);overflow:hidden}
 .jobs .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
-.jobs-step{margin:10px 0 0;font-size:13.5px;color:var(--ink2)}
+.jobs .bar.over i{background:linear-gradient(90deg,#C2410C,#F59E0B)}
+.jobs-clock{margin:8px 0 0;font-size:12.5px;color:var(--soft);font-variant-numeric:tabular-nums}
+.jobs-step{margin:6px 0 0;font-size:13.5px;color:var(--ink2)}
 .jobs .log{max-height:160px;overflow:auto;font-size:12.5px;color:var(--mut);white-space:pre-wrap;margin-top:10px;background:var(--tint);border-radius:10px;padding:10px 12px}
 .jobs .log:empty{display:none}
 .jobs .err{margin:10px 0 0;font-size:13.5px;color:#B42318}
@@ -253,6 +255,7 @@ textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px
   <div class="jobs" id="jobs" aria-live="polite">
     <div class="jh"><b id="jobs-title">Working…</b><span class="est" id="jobs-meta"></span></div>
     <div class="bar"><i id="jobs-bar"></i></div>
+    <p class="jobs-clock" id="jobs-clock"></p>
     <p class="jobs-step" id="jobs-step"></p>
     <div class="log" id="jobs-log"></div>
     <p class="err" id="jobs-err"></p>

@@ -132,7 +132,9 @@
       background: linear-gradient(90deg, var(--teal), #14b8a6);
       transition: width .35s ease;
     }
+    .bar.over > i { background: linear-gradient(90deg, #c2410c, #f59e0b); }
     .step { font-size: 14px; margin: 0 0 6px; }
+    .clock { font-size: 12px; color: var(--muted); margin: -6px 0 10px; font-variant-numeric: tabular-nums; }
     .meta { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
     .log {
       margin-top: 12px;
@@ -365,6 +367,7 @@
     <div class="status" id="status">
       <p class="step" id="stepLabel">Starting…</p>
       <div class="bar"><i id="bar"></i></div>
+      <p class="clock" id="clock"></p>
       <p class="meta" id="meta"></p>
       <div class="log" id="log"></div>
       <p class="err" id="err"></p>
@@ -391,6 +394,67 @@
     const loc = () => (window.SpyI18n ? window.SpyI18n.locale() : "en-US");
     const TOTAL = 10;
     let progressTotal = TOTAL;
+    function fmtClock(sec) {
+      sec = Math.max(0, Math.round(Number(sec) || 0));
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      if (m >= 60) {
+        const h = Math.floor(m / 60);
+        return h + ":" + String(m % 60).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+      }
+      return m + ":" + String(s).padStart(2, "0");
+    }
+    const runProg = {
+      done: 0, total: 0, eta: 0, t0: Date.now(), live: "", timer: null,
+      reset() {
+        this.done = 0; this.total = 0; this.eta = 0; this.t0 = Date.now(); this.live = "";
+        this.stop();
+        this.paint();
+        this.timer = setInterval(() => this.paint(), 1000);
+      },
+      stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } },
+      onMeta(msg) {
+        if (msg.total_steps) this.total = Number(msg.total_steps) || this.total;
+        if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+        this.t0 = Date.now();
+        this.paint();
+      },
+      onProgress(msg) {
+        if (msg.total) this.total = Number(msg.total) || this.total;
+        if (typeof msg.done_count === "number") this.done = msg.done_count;
+        if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+        const label = msg.label || msg.step_id || "";
+        const detail = msg.detail || "";
+        this.live = detail ? `${label}: ${detail}` : label;
+        this.paint();
+      },
+      paint() {
+        const elapsed = (Date.now() - this.t0) / 1000;
+        const pct = this.eta > 0 ? Math.round((elapsed / this.eta) * 1000) / 10 : 0;
+        const bar = $("bar");
+        if (bar) {
+          bar.style.width = Math.min(100, Math.max(2, pct)) + "%";
+          if (bar.parentElement) bar.parentElement.classList.toggle("over", pct > 100);
+        }
+        const clock = $("clock");
+        if (clock) {
+          const time = this.eta ? `${fmtClock(elapsed)} / ${fmtClock(this.eta)}` : fmtClock(elapsed);
+          clock.textContent = this.eta ? `${time} · ${pct}%` : time;
+        }
+        const step = $("stepLabel");
+        if (step) {
+          const head = this.total ? `${this.done}/${this.total} steps` : "";
+          step.textContent = this.live
+            ? `${head || "0/0 steps"} — ${this.live}`
+            : (head || t("home.queuing"));
+        }
+      },
+      finish(text) {
+        this.stop();
+        this.paint();
+        if ($("stepLabel") && text) $("stepLabel").textContent = text;
+      },
+    };
     let activeTab = "analyze";
     let historyTab = "analyze";
     let allRuns = [];
@@ -561,6 +625,8 @@
       setBusy(true);
       $("stepLabel").textContent = t("home.queuing");
       $("bar").style.width = "2%";
+      if ($("clock")) $("clock").textContent = "";
+      runProg.reset();
       if (es) { es.close(); es = null; }
     }
 
@@ -576,6 +642,7 @@
 
     function watchJob(job) {
       return new Promise((resolve) => {
+        runProg.reset();
         const streamUrl = job.stream || `/api/jobs/${job.job_id}/stream`;
         const source = new EventSource(streamUrl);
         es = source;
@@ -587,13 +654,15 @@
             $("log").textContent += msg.line + "\n";
             $("log").scrollTop = $("log").scrollHeight;
           }
+          if (msg.type === "pipeline_meta") {
+            runProg.onMeta(msg);
+          }
           if (msg.type === "progress") {
             if (msg.total) progressTotal = Number(msg.total) || progressTotal;
-            const pct = Math.min(98, Math.round((Number(msg.index || 0) / progressTotal) * 100));
-            $("bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100 / progressTotal)) : pct) + "%";
-            $("stepLabel").textContent = `${msg.progress_label || ""} — ${msg.label || msg.step_id}: ${msg.detail || msg.state}`;
+            runProg.onProgress(msg);
           }
           if (msg.type === "error") {
+            runProg.stop();
             $("err").textContent = msg.message || "Error";
             source.close();
             resolve({ ok: false, job });
@@ -604,8 +673,8 @@
           }
           if (msg.type === "finished" || (msg.type === "done" && msg.html_url)) {
             const url = msg.html_url || `/runs/${job.job_id}/report.html`;
+            runProg.finish(`Done — ${job.company || job.job_id}`);
             $("bar").style.width = "100%";
-            $("stepLabel").textContent = `Done — ${job.company || job.job_id}`;
             attachDone(job.job_id, url);
             source.close();
             resolve({ ok: true, job, url });

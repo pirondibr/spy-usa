@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import os
 import subprocess
 import sys
@@ -79,6 +80,106 @@ STEP_DEFS = [
     {"id": "linkedin_profile", "label": "LinkedIn Profile", "index": 18, "eta_live": 20},
 ]
 TOTAL_STEPS = len(STEP_DEFS)
+
+_STEP_CLOCK: contextvars.ContextVar[Optional["StepClock"]] = contextvars.ContextVar(
+    "spy_step_clock", default=None,
+)
+
+_OPTIONAL_STEP_FLAGS = {
+    "google_ads": "include_google_ads",
+    "linkedin": "include_linkedin",
+    "youtube_influencers": "include_youtube_influencers",
+    "instagram_influencers": "include_instagram_influencers",
+    "tiktok_influencers": "include_tiktok_influencers",
+    "twitter_influencers": "include_twitter_influencers",
+    "reddit": "include_reddit",
+    "twitter": "include_twitter",
+    "linkedin_profile": "include_linkedin_profile",
+}
+
+
+def _planned_analysis_steps(**flags: Any) -> list[dict]:
+    out: list[dict] = []
+    for s in STEP_DEFS:
+        flag = _OPTIONAL_STEP_FLAGS.get(s["id"])
+        if flag and not flags.get(flag):
+            continue
+        out.append(s)
+    return out
+
+
+def _fmt_clock(seconds: float) -> str:
+    sec = max(0, int(round(seconds)))
+    m, s = divmod(sec, 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+class StepClock:
+    """Count finished steps (not catalog order) + elapsed vs projected time."""
+
+    def __init__(self, steps: list[dict]):
+        self.steps = [dict(s) for s in steps]
+        self.ids = {s["id"] for s in self.steps}
+        self.done: set[str] = set()
+        self.t0 = time.time()
+        self.eta_total = sum(int(s.get("eta_live") or 60) for s in self.steps)
+
+    def mark(self, step_id: str, state: str) -> None:
+        if state == "done" and step_id in self.ids:
+            self.done.add(step_id)
+
+    def lookup(self, step_id: str) -> Optional[dict]:
+        return next((s for s in self.steps if s["id"] == step_id), None)
+
+    def snapshot(self) -> dict[str, Any]:
+        elapsed = max(0.0, time.time() - self.t0)
+        eta = self.eta_total
+        pct = round(100.0 * elapsed / max(1, eta), 1)
+        n_done = len(self.done)
+        n_total = len(self.steps)
+        return {
+            "done_count": n_done,
+            "total": n_total,
+            "index": n_done,
+            "progress_label": f"{n_done}/{n_total} steps",
+            "elapsed_sec": int(round(elapsed)),
+            "eta_seconds": eta,
+            "eta_label": _fmt_eta(eta) if eta else "",
+            "time_label": f"{_fmt_clock(elapsed)} / {_fmt_clock(eta)}",
+            "pct": pct,
+        }
+
+    def meta_payload(self) -> dict[str, Any]:
+        return {
+            "total_steps": len(self.steps),
+            "eta_seconds": self.eta_total,
+            "eta_label": _fmt_eta(self.eta_total) if self.eta_total else "",
+            "steps": [
+                {
+                    "id": s["id"],
+                    "label": s.get("label") or s["id"],
+                    "eta_live": int(s.get("eta_live") or 60),
+                }
+                for s in self.steps
+            ],
+        }
+
+
+def _bind_step_clock(steps: list[dict], *, replace: bool = True) -> tuple["StepClock", Any]:
+    existing = _STEP_CLOCK.get()
+    if existing is not None and not replace:
+        return existing, None
+    clock = StepClock(steps)
+    token = _STEP_CLOCK.set(clock)
+    return clock, token
+
+
+def _unbind_step_clock(token: Any) -> None:
+    if token is not None:
+        _STEP_CLOCK.reset(token)
 
 
 def _load_brand_dfs(slug: str) -> Optional[dict]:
@@ -1132,11 +1233,26 @@ def _emit_progress(
     steps: Optional[list[dict]] = None,
 ) -> None:
     defs = steps or STEP_DEFS
+    clock = _STEP_CLOCK.get()
     meta = next((s for s in defs if s["id"] == step_id), None)
-    index = int(meta["index"]) if meta else 0
+    if meta is None and clock is not None:
+        meta = clock.lookup(step_id)
+    set_step(step_id, state, detail)
+    if clock is not None:
+        clock.mark(step_id, state)
+        snap = clock.snapshot()
+        emit(
+            "progress",
+            step_id=step_id,
+            state=state,
+            detail=detail,
+            label=(meta or {}).get("label") or step_id,
+            **snap,
+        )
+        return
+    index = int(meta["index"]) if meta and meta.get("index") is not None else 0
     total = len(defs) if steps else TOTAL_STEPS
     eta = int(meta.get("eta_live") or 60) if meta else 60
-    set_step(step_id, state, detail)
     emit(
         "progress",
         step_id=step_id,
@@ -1144,10 +1260,11 @@ def _emit_progress(
         detail=detail,
         index=index,
         total=total,
+        done_count=index,
         label=meta["label"] if meta else step_id,
         eta_seconds=eta,
         eta_label=_fmt_eta(eta),
-        progress_label=f"Step {index}/{total}",
+        progress_label=f"{index}/{total} steps",
     )
 
 
@@ -1295,6 +1412,19 @@ def _run_compare_all_pipeline(
     emit = _wrap_emit_logger(emit, recorder)
     set_step = _wrap_set_step_timer(ui_set_step, recorder)
 
+    all_steps = [
+        {"id": "briefing_concorrentes", "label": "All caches", "eta_live": 30},
+    ]
+    for i, company in enumerate(companies):
+        has_cache = bool(find_metricas_xlsx(company["slug"]))
+        all_steps.append({
+            "id": f"all_{i}",
+            "label": company["name"],
+            "eta_live": 420 if force or not has_cache else 25,
+        })
+    all_steps.append({"id": "all_merge", "label": "Merge reports", "eta_live": 30})
+    clock, _token = _bind_step_clock(all_steps)
+
     emit(
         "pipeline_meta",
         mode="live",
@@ -1310,8 +1440,7 @@ def _run_compare_all_pipeline(
         include_reddit=include_reddit,
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
-        total_steps=TOTAL_STEPS,
-        eta_label=f"All · {len(companies)} empresas (cache merge)",
+        **clock.meta_payload(),
     )
     _emit_progress(
         emit, set_step, "briefing_concorrentes", "running",
@@ -1320,7 +1449,8 @@ def _run_compare_all_pipeline(
 
     def _child_emit(event: str, **payload: Any) -> None:
         # Nested individual runs must not finish/close the parent All job
-        if event in ("done", "pipeline_meta"):
+        # or reset the parent step clock with catalog indexes.
+        if event in ("done", "pipeline_meta", "progress"):
             return
         emit(event, **payload)
 
@@ -1332,6 +1462,10 @@ def _run_compare_all_pipeline(
         c_name = company["name"]
         has_cache = bool(find_metricas_xlsx(c_slug))
         need_fetch = bool(force) or not has_cache
+        _emit_progress(
+            emit, set_step, f"all_{i}", "running",
+            f"All: {c_name} ({i + 1}/{len(companies)})",
+        )
         if need_fetch:
             emit(
                 "log",
@@ -1339,10 +1473,6 @@ def _run_compare_all_pipeline(
                     f"[ALL] ({i + 1}/{len(companies)}) Fetching {c_name} ({c_slug})"
                     + (" · force" if force else " · no cache")
                 ),
-            )
-            _emit_progress(
-                emit, set_step, "briefing_concorrentes", "running",
-                f"All: fetching {c_name} ({i + 1}/{len(companies)})",
             )
             child = ParsedInput(
                 company=c_name,
@@ -1450,13 +1580,14 @@ def _run_compare_all_pipeline(
                     emit("log", line=f"[ALL] WARN X influencers refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
+        _emit_progress(emit, set_step, f"all_{i}", "done", f"{c_name} ready")
 
     _emit_progress(
         emit, set_step, "briefing_concorrentes", "done",
         f"All: {len(companies)} empresas · fetched={fetched} cached={cached}",
     )
     emit("log", line=f"[ALL] Merging {len(companies)} company reports…")
-    _emit_progress(emit, set_step, "seo", "running", "Merging All report…")
+    _emit_progress(emit, set_step, "all_merge", "running", "Merging All report…")
 
     attach_fns = [_attach_all_sidecars]
     per_reports: list[dict] = []
@@ -1542,6 +1673,7 @@ def _run_compare_all_pipeline(
     else:
         attach_run_log(report, recorder)
 
+    _emit_progress(emit, set_step, "all_merge", "done", "Merged")
     emit("done", report=report, html_url=html_url)
     return report
 
@@ -1771,6 +1903,7 @@ def run_competitors_only_pipeline(
     recorder = RunRecorder()
     emit = _wrap_emit_logger(emit, recorder)
     set_step = _wrap_set_step_timer(set_step, recorder)
+    clock, _token = _bind_step_clock(steps)
 
     def on_log(line: str) -> None:
         emit("log", line=line)
@@ -1807,8 +1940,7 @@ def run_competitors_only_pipeline(
         competitors_only=True,
         include_brand_growth=include_brand_growth,
         include_similarweb_alto=include_similarweb_alto,
-        total_steps=len(steps),
-        eta_label="~3–8 min",
+        **clock.meta_payload(),
     )
 
     if force:
@@ -1996,6 +2128,18 @@ def run_pipeline(
     recorder = RunRecorder()
     emit = _wrap_emit_logger(emit, recorder)
     set_step = _wrap_set_step_timer(set_step, recorder)
+    planned = _planned_analysis_steps(
+        include_google_ads=include_google_ads,
+        include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
+        include_instagram_influencers=include_instagram_influencers,
+        include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
+    )
+    clock, _token = _bind_step_clock(planned, replace=False)
 
     def on_log(line: str) -> None:
         emit("log", line=line)
@@ -2022,6 +2166,24 @@ def run_pipeline(
             compare_all=compare_all,
             competitors_only=False,
         )
+
+    emit(
+        "pipeline_meta",
+        mode="live",
+        market=market.upper(),
+        site_only=site_only,
+        compare_all=compare_all,
+        include_google_ads=include_google_ads,
+        include_linkedin=include_linkedin,
+        include_youtube_influencers=include_youtube_influencers,
+        include_instagram_influencers=include_instagram_influencers,
+        include_tiktok_influencers=include_tiktok_influencers,
+        include_twitter_influencers=include_twitter_influencers,
+        include_reddit=include_reddit,
+        include_twitter=include_twitter,
+        include_linkedin_profile=include_linkedin_profile,
+        **clock.meta_payload(),
+    )
 
     if force:
         clear_slug_cache(slug)
@@ -2086,25 +2248,6 @@ def run_pipeline(
             attach_run_log(report, recorder)
         emit("done", report=report, html_url=f"/runs/{run_id}/report.html" if run_id else "")
         return report
-
-    emit(
-        "pipeline_meta",
-        mode="live",
-        market=market.upper(),
-        site_only=site_only,
-        compare_all=compare_all,
-        include_google_ads=include_google_ads,
-        include_linkedin=include_linkedin,
-        include_youtube_influencers=include_youtube_influencers,
-        include_instagram_influencers=include_instagram_influencers,
-        include_tiktok_influencers=include_tiktok_influencers,
-        include_twitter_influencers=include_twitter_influencers,
-        include_reddit=include_reddit,
-        include_twitter=include_twitter,
-        include_linkedin_profile=include_linkedin_profile,
-        total_steps=TOTAL_STEPS,
-        eta_label="~3–8 min" if site_only else "~10–15 min",
-    )
 
     # 1) Briefing + optional competitors
     if site_only:

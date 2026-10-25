@@ -151,6 +151,67 @@
   let es = null;
   let busy = false;
   let progressTotal = 10;
+  function fmtClock(sec) {
+    sec = Math.max(0, Math.round(Number(sec) || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (m >= 60) {
+      const h = Math.floor(m / 60);
+      return h + ":" + String(m % 60).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    }
+    return m + ":" + String(s).padStart(2, "0");
+  }
+  const runProg = {
+    done: 0, total: 0, eta: 0, t0: Date.now(), live: "", timer: null,
+    reset() {
+      this.done = 0; this.total = 0; this.eta = 0; this.t0 = Date.now(); this.live = "";
+      this.stop();
+      this.paint();
+      this.timer = setInterval(() => this.paint(), 1000);
+    },
+    stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } },
+    onMeta(msg) {
+      if (msg.total_steps) this.total = Number(msg.total_steps) || this.total;
+      if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+      this.t0 = Date.now();
+      this.paint();
+    },
+    onProgress(msg) {
+      if (msg.total) this.total = Number(msg.total) || this.total;
+      if (typeof msg.done_count === "number") this.done = msg.done_count;
+      if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+      const label = msg.label || msg.step_id || "";
+      const detail = msg.detail || "";
+      this.live = detail ? `${label}: ${detail}` : label;
+      this.paint();
+    },
+    paint() {
+      const elapsed = (Date.now() - this.t0) / 1000;
+      const pct = this.eta > 0 ? Math.round((elapsed / this.eta) * 1000) / 10 : 0;
+      const bar = $("jobs-bar");
+      if (bar) {
+        bar.style.width = Math.min(100, Math.max(2, pct)) + "%";
+        if (bar.parentElement) bar.parentElement.classList.toggle("over", pct > 100);
+      }
+      const clock = $("jobs-clock");
+      if (clock) {
+        const time = this.eta ? `${fmtClock(elapsed)} / ${fmtClock(this.eta)}` : fmtClock(elapsed);
+        clock.textContent = this.eta ? `${time} · ${pct}%` : time;
+      }
+      const step = $("jobs-step");
+      if (step) {
+        const head = this.total ? `${this.done}/${this.total} steps` : "";
+        step.textContent = this.live
+          ? `${head || "0/0 steps"} — ${this.live}`
+          : (head || "Queuing…");
+      }
+    },
+    finish(text) {
+      this.stop();
+      this.paint();
+      if ($("jobs-step") && text) $("jobs-step").textContent = text;
+    },
+  };
 
   function renderRuns() {
     const q = $("q").value.trim().toLowerCase();
@@ -223,6 +284,8 @@
     $("jobs-log").textContent = "";
     $("jobs-bar").style.width = "2%";
     $("jobs-step").textContent = "Queuing…";
+    if ($("jobs-clock")) $("jobs-clock").textContent = "";
+    runProg.reset();
     $("jobs").scrollIntoView({ behavior: "smooth", block: "nearest" });
     if (es) { es.close(); es = null; }
   }
@@ -235,6 +298,7 @@
 
   function watchJob(job) {
     return new Promise((resolve) => {
+      runProg.reset();
       const streamUrl = job.stream || `/api/jobs/${job.job_id}/stream`;
       const source = new EventSource(streamUrl);
       es = source;
@@ -246,24 +310,27 @@
           $("jobs-log").textContent += msg.line + "\n";
           $("jobs-log").scrollTop = $("jobs-log").scrollHeight;
         }
+        if (msg.type === "pipeline_meta") {
+          runProg.onMeta(msg);
+        }
         if (msg.type === "progress") {
           if (msg.total) progressTotal = Number(msg.total) || progressTotal;
-          const pct = Math.min(98, Math.round((Number(msg.index || 0) / progressTotal) * 100));
-          $("jobs-bar").style.width = (msg.state === "done" ? Math.min(100, pct + Math.round(100 / progressTotal)) : pct) + "%";
-          $("jobs-step").textContent = `${msg.progress_label || ""} — ${msg.label || msg.step_id || ""}: ${msg.detail || msg.state || ""}`.replace(/^ — /, "");
+          runProg.onProgress(msg);
         }
         if (msg.type === "error") {
+          runProg.stop();
           $("jobs-err").textContent = msg.message || "Error";
           source.close();
           resolve({ ok: false, job });
         }
         if (msg.type === "report_ready" && msg.html_url) {
-          $("jobs-step").textContent = msg.detail || "Report ready — finishing extras…";
+          runProg.live = msg.detail || "Report ready — finishing extras…";
+          runProg.paint();
         }
         if (msg.type === "finished" || (msg.type === "done" && msg.html_url)) {
           const url = msg.html_url || `/runs/${job.job_id}/report.html`;
+          runProg.finish(`Done — ${job.company || job.job_id}`);
           $("jobs-bar").style.width = "100%";
-          $("jobs-step").textContent = `Done — ${job.company || job.job_id}`;
           source.close();
           resolve({ ok: true, job, url });
         }
@@ -287,12 +354,13 @@
           const j = await r.json();
           if (j.status === "done" && (j.html_url || true)) {
             const url = j.html_url || `/runs/${jobId}/report.html`;
+            runProg.finish("Done");
             $("jobs-bar").style.width = "100%";
-            $("jobs-step").textContent = "Done";
             resolve({ ok: true, job: { job_id: jobId, company: j.company, url: j.url }, url });
             return;
           }
           if (j.status === "error") {
+            runProg.stop();
             $("jobs-err").textContent = j.error || "Error";
             resolve({ ok: false, job: { job_id: jobId } });
             return;
@@ -338,6 +406,7 @@
         }
         loadRuns();
       }
+      runProg.stop();
       $("jobs-bar").style.width = "100%";
       $("jobs-title").textContent = results.length ? "Done" : "Finished";
       $("jobs-step").textContent = list.length > 1
@@ -349,6 +418,7 @@
       setBusy(false);
       loadRuns();
     } catch (err) {
+      runProg.stop();
       $("jobs-err").textContent = err.message || String(err);
       msgEl.className = "msg err";
       msgEl.textContent = err.message || String(err);
