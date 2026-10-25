@@ -355,10 +355,14 @@ def build_v5_payload(
             "w": str(row.get("note") or ""),
         }
 
+    from run_log import apply_cost_shares
+
     log = _resolve_run_log(report, meta) or {}
-    totals = log.get("totals") or {}
+    totals = dict(log.get("totals") or {})
+    log_channels = [ch for ch in (log.get("channels") or []) if isinstance(ch, dict)]
+    apply_cost_shares(log_channels, totals)
     steps = []
-    for ch in log.get("channels") or []:
+    for ch in log_channels:
         blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
         skipped = "skip" in blob or "pulado" in blob
         status = str(ch.get("status") or "").strip().lower()
@@ -372,6 +376,7 @@ def build_v5_payload(
             "label": str(ch.get("label") or ch.get("id") or "—"),
             "time": str(ch.get("sec_fmt") or "—"),
             "cost": str(ch.get("cost_fmt") or "—"),
+            "pct": str(ch.get("cost_pct_fmt") or "—"),
             "apis": str(ch.get("apis_fmt") or "—"),
             "status": sit,
             "skipped": skipped,
@@ -397,6 +402,7 @@ def build_v5_payload(
             "run_id": run_id,
             "duration": str(totals.get("sec_fmt") or ""),
             "cost": str(totals.get("cost_fmt") or ""),
+            "pct": str(totals.get("cost_pct_fmt") or ""),
             "home": "/",
         },
         "companies": companies,
@@ -417,6 +423,7 @@ def build_v5_payload(
         "exec": {
             "duration": str(totals.get("sec_fmt") or "—"),
             "cost": str(totals.get("cost_fmt") or "—"),
+            "pct": str(totals.get("cost_pct_fmt") or "—"),
             "companies": len(companies),
             "steps": steps,
             "log": "\n".join(lines),

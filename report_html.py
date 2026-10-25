@@ -360,7 +360,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.64"
+REPORT_UI_VERSION = "0.4.65"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2401,7 +2401,11 @@ def exec_tabs_html(
     rates: str = "",
 ) -> str:
     """Resumo por área + log completo, em abas."""
-    totals = totals or {}
+    from run_log import apply_cost_shares
+
+    channels = [ch if isinstance(ch, dict) else {} for ch in (channels or [])]
+    totals = dict(totals or {})
+    apply_cost_shares(channels, totals)
     rows: list[str] = []
     for ch in channels:
         skipped = _step_is_skipped(ch)
@@ -2411,20 +2415,28 @@ def exec_tabs_html(
             f"<td>{_esc(ch.get('label') or ch.get('id') or '—')}</td>"
             f'<td class="r num">{_esc(ch.get("sec_fmt") or "—")}</td>'
             f'<td class="r num">{_esc(ch.get("cost_fmt") or "—")}</td>'
+            f'<td class="r num">{_esc(ch.get("cost_pct_fmt") or "—")}</td>'
             f'<td class="{"muted" if skipped else ""}">{_esc(st)}</td></tr>'
         )
     if not rows:
-        rows.append('<tr><td class="empty" colspan="4">Sem etapas neste run.</td></tr>')
+        rows.append('<tr><td class="empty" colspan="5" data-i18n="ex.none">No steps.</td></tr>')
     n_log = len([ln for ln in (log_text or "").splitlines() if ln.strip()])
     summary = f"""
     <div class="tw"><table>
-      <thead><tr><th>Área</th><th class="r">Tempo</th><th class="r">Custo</th><th>Situação</th></tr></thead>
+      <thead><tr>
+        <th data-i18n="ex.area">Area</th>
+        <th class="r" data-i18n="ex.time_col">Time</th>
+        <th class="r" data-i18n="ex.cost_col">Cost</th>
+        <th class="r" data-i18n="ex.pct_col">% of total</th>
+        <th data-i18n="ex.status">Status</th>
+      </tr></thead>
       <tbody>{''.join(rows)}</tbody>
       <tfoot>
         <tr class="runlog-total">
-          <th>Total</th>
+          <th data-i18n="ex.total">Total</th>
           <th class="r num">{_esc(totals.get("sec_fmt") or "—")}</th>
           <th class="r num">{_esc(totals.get("cost_fmt") or "—")}</th>
+          <th class="r num">{_esc(totals.get("cost_pct_fmt") or "—")}</th>
           <th></th>
         </tr>
       </tfoot>

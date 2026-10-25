@@ -92,6 +92,66 @@ def _fmt_usd(v: Optional[float]) -> str:
     return f"${v:.2f}"
 
 
+def _fmt_pct(v: Optional[float]) -> str:
+    if v is None:
+        return "—"
+    if v <= 0:
+        return "0%"
+    if v < 1:
+        return f"{v:.1f}%"
+    return f"{int(round(v))}%"
+
+
+def _channel_is_skipped(ch: dict[str, Any]) -> bool:
+    blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
+    return "skip" in blob or "pulado" in blob
+
+
+def apply_cost_shares(
+    channels: list[dict[str, Any]],
+    totals: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Fill cost_pct / cost_pct_fmt on each step from cost_usd vs run total."""
+    totals = totals if isinstance(totals, dict) else {}
+    total = totals.get("cost_usd")
+    if not isinstance(total, (int, float)) or float(total) <= 0:
+        total = 0.0
+        for ch in channels:
+            if not isinstance(ch, dict) or _channel_is_skipped(ch):
+                continue
+            v = ch.get("cost_usd")
+            if isinstance(v, (int, float)) and float(v) > 0:
+                total += float(v)
+        if total > 0:
+            totals["cost_usd"] = round(total, 4)
+            if not totals.get("cost_fmt"):
+                totals["cost_fmt"] = _fmt_usd(total)
+
+    for ch in channels:
+        if not isinstance(ch, dict):
+            continue
+        if _channel_is_skipped(ch):
+            ch["cost_pct"] = None
+            ch["cost_pct_fmt"] = "—"
+            continue
+        v = ch.get("cost_usd")
+        if not isinstance(v, (int, float)) or total <= 0:
+            ch["cost_pct"] = None
+            ch["cost_pct_fmt"] = "—"
+            continue
+        pct = 100.0 * float(v) / float(total)
+        ch["cost_pct"] = round(pct, 1)
+        ch["cost_pct_fmt"] = _fmt_pct(pct)
+
+    if total > 0:
+        totals["cost_pct"] = 100.0
+        totals["cost_pct_fmt"] = "100%"
+    else:
+        totals.setdefault("cost_pct", None)
+        totals.setdefault("cost_pct_fmt", "—")
+    return totals
+
+
 def _section_usage(report: dict[str, Any], step_id: str) -> dict[str, Any]:
     key = STEP_TO_SECTION.get(step_id, step_id)
     section = report.get(key)
@@ -332,17 +392,19 @@ class RunRecorder:
         ]
 
         total_sec = now - self.started_at
+        totals = {
+            "sec": round(total_sec, 2),
+            "sec_fmt": _fmt_sec(total_sec),
+            "cost_usd": round(total_cost, 4) if cost_known else None,
+            "cost_fmt": _fmt_usd(total_cost if cost_known else None),
+        }
+        apply_cost_shares(channels, totals)
         return {
             "lines": self.lines[-2000:],  # cap stored log
             "line_count": len(self.lines),
             "channels": channels,
             "time_subs": time_subs,
-            "totals": {
-                "sec": round(total_sec, 2),
-                "sec_fmt": _fmt_sec(total_sec),
-                "cost_usd": round(total_cost, 4) if cost_known else None,
-                "cost_fmt": _fmt_usd(total_cost if cost_known else None),
-            },
+            "totals": totals,
             "rates_note": (
                 f"Estimativas: ScrapingBee ${_SB_CREDIT_USD:g}/credit · "
                 f"DataForSEO ~${_DFS_TASK_USD:g}/task · "
