@@ -63,8 +63,8 @@ def _cache_dir() -> Path:
     return base / "cache" / "youtube-apify"
 
 
-def _cache_key(query: str, gl: str, max_items: int) -> str:
-    raw = "|".join([query.lower(), gl, str(max_items), date.today().isoformat()])
+def _cache_key(query: str, gl: str, max_items: int, sort: str = "v") -> str:
+    raw = "|".join([query.lower(), gl, str(max_items), sort, date.today().isoformat()])
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
 
 
@@ -120,7 +120,7 @@ def _run_apify(
         "uploadDate": "all",
         "duration": "all",
         "features": "all",
-        "sort": "r",
+        "sort": "v",
         "maxItems": max_items,
     }
     headers = {
@@ -1050,7 +1050,7 @@ def analyze_company(
     max_items = _max_items()
 
     cached = False
-    cache_key = _cache_key(q, loc, max_items)
+    cache_key = _cache_key(q, loc, max_items, "v")
     raw = _cache_get(cache_key)
     fetch_meta: dict[str, Any] = {"ok": True, "error": None, "elapsed_sec": 0}
     if raw is None:
@@ -1110,7 +1110,7 @@ def analyze_company(
         billed = max(len(raw), 10) if raw and not cached else 0
         cost = round(billed * _COST_PER_VIDEO, 6) if not cached else 0.0
         print(
-            f"[YT-INF] apify q={q!r} items={len(raw)} confirmed={len(confirmed)} "
+            f"[YT-INF] apify q={q!r} sort=v items={len(raw)} confirmed={len(confirmed)} "
             f"probable={len(probable)} unrelated={len(unrelated)} "
             f"~${cost:.4f} cached={cached}",
             flush=True,
@@ -1157,11 +1157,12 @@ def analyze_company(
                 "search_cost_usd": cost,
                 "posts": len(raw or []),
                 "max_items": max_items,
+                "sort": "v",
                 "gl": loc,
                 "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
                 "scrapingbee_credits": 0,
                 "note": (
-                    "Apify apidojo/youtube-scraper keyword search. "
+                    "Apify apidojo/youtube-scraper keyword search, sort=v (popular). "
                     "First page, no video open. Brand filter confirmed/probable/unrelated."
                 ),
             },
