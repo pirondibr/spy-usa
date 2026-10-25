@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Optional  # noqa: F401 — Any used in helpers
 
@@ -873,6 +874,81 @@ def _run_script(
     if proc.returncode != 0:
         hint = ("\n--- last lines ---\n" + "\n".join(tail[-20:])) if tail else ""
         raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(cmd)}{hint}")
+
+
+def _extra_workers(n: int) -> int:
+    raw = (os.environ.get("SPY_EXTRA_WORKERS") or "3").strip()
+    try:
+        want = int(raw)
+    except ValueError:
+        want = 3
+    return max(1, min(want, 3, n))
+
+
+def _run_independent_extras(
+    extras: list[dict[str, Any]],
+    *,
+    slug: str,
+    client_name: str,
+    script_env: dict[str, str],
+    emit: EmitFn,
+    set_step: EmitFn,
+    on_log: Callable[[str], None],
+    report: dict,
+    tag_report: Callable[[dict], dict],
+) -> dict:
+    """Run JSON extras that do not share an XLSX. Cap at 3 to stay kind to Render + APIs."""
+    lock = threading.Lock()
+
+    def _safe_log(line: str) -> None:
+        with lock:
+            on_log(line)
+
+    def _one(ex: dict[str, Any]) -> tuple[dict[str, Any], Optional[str], float]:
+        t0 = time.time()
+        with lock:
+            _emit_progress(emit, set_step, ex["step"], "running", ex["running"])
+            emit("log", line=f"[PARALLEL] start {ex['tag']}")
+        err = None
+        try:
+            _run_script(
+                [sys.executable, str(ex["script"]), slug],
+                FINAL_DIR,
+                _safe_log,
+                timeout_sec=ex["timeout"],
+                env=script_env,
+            )
+        except Exception as e:
+            err = str(e)
+        return ex, err, round(time.time() - t0, 2)
+
+    if not extras:
+        return report
+    workers = _extra_workers(len(extras))
+    names = ", ".join(ex["tag"] for ex in extras)
+    emit("log", line=f"[PARALLEL] {len(extras)} extras · {workers} workers · {names}")
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_one, ex) for ex in extras]
+        for fut in as_completed(futs):
+            ex, err, elapsed = fut.result()
+            if err:
+                emit("log", line=f"[{ex['tag']}] Partial failure: {err}")
+            emit("log", line=f"[PARALLEL] done {ex['tag']} in {elapsed}s")
+            report = ex["attach"](report, slug)
+            report = tag_report(report)
+            emit(
+                "partial",
+                section=ex["section"],
+                data=report.get(ex["section"]) or {},
+                client=client_name,
+            )
+            _emit_progress(emit, set_step, ex["step"], "done", ex["done"])
+    emit(
+        "log",
+        line=f"[PARALLEL] extras wall {round(time.time() - t0, 2)}s (vs sequential sum of each extra)",
+    )
+    return report
 
 
 def _fmt_eta(seconds: int) -> str:
@@ -2078,181 +2154,135 @@ def run_pipeline(
         emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
         _emit_progress(emit, set_step, sid, "done", f"{sid} ready")
 
-    # 10) YouTube Influencers (optional) — ScrapingBee fetch + ytInitialData parse
+    # 10–14) Independent extras — own JSON files, up to 3 at a time
+    _tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
+    _sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
+    _dfs = bool(
+        (os.environ.get("DATAFORSEO_USER") or os.environ.get("DATAFORSEO_LOGIN") or "").strip()
+        and (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
+    )
+    extras: list[dict[str, Any]] = []
+
     if include_youtube_influencers:
-        if not (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip():
+        if not _sb:
             emit("log", line="[YT-INF] Skipped: SCRAPINGBEE_API_KEY missing")
             _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped (no ScrapingBee key)")
         else:
-            _emit_progress(
-                emit, set_step, "youtube_influencers", "running",
-                "YouTube Influencers (ScrapingBee + parse)...",
-            )
-            try:
-                _run_script(
-                    [sys.executable, str(SCRIPT_YT_INFLUENCERS), slug],
-                    FINAL_DIR,
-                    on_log,
-                    timeout_sec=240,
-                    env=script_env,
-                )
-            except Exception as e:
-                emit("log", line=f"[YT-INF] Partial failure: {e}")
-            report = _attach_youtube_influencers(report, slug)
-            report = _tag_report(report)
-            emit(
-                "partial",
-                section="youtube_influencers",
-                data=report.get("youtube_influencers") or {},
-                client=client_name,
-            )
-            _emit_progress(emit, set_step, "youtube_influencers", "done", "YouTube Influencers ready")
+            extras.append({
+                "tag": "YT-INF",
+                "step": "youtube_influencers",
+                "section": "youtube_influencers",
+                "script": SCRIPT_YT_INFLUENCERS,
+                "timeout": 240,
+                "running": "YouTube Influencers (ScrapingBee + parse)...",
+                "done": "YouTube Influencers ready",
+                "attach": _attach_youtube_influencers,
+            })
     else:
         _emit_progress(emit, set_step, "youtube_influencers", "done", "Skipped")
 
-    # 11) Instagram Influencers (optional) — Search + Fetch download
     if include_instagram_influencers:
-        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+        if not _tf:
             emit("log", line="[IG-INF] Skipped: TINYFISH_API_KEY missing")
             _emit_progress(emit, set_step, "instagram_influencers", "done", "Skipped (no TinyFish key)")
         else:
-            _emit_progress(
-                emit, set_step, "instagram_influencers", "running",
-                "Instagram Influencers (Search + page download)...",
-            )
-            try:
-                _run_script(
-                    [sys.executable, str(SCRIPT_IG_INFLUENCERS), slug],
-                    FINAL_DIR,
-                    on_log,
-                    timeout_sec=600,
-                    env=script_env,
-                )
-            except Exception as e:
-                emit("log", line=f"[IG-INF] Partial failure: {e}")
-            report = _attach_instagram_influencers(report, slug)
-            report = _tag_report(report)
-            emit(
-                "partial",
-                section="instagram_influencers",
-                data=report.get("instagram_influencers") or {},
-                client=client_name,
-            )
-            _emit_progress(emit, set_step, "instagram_influencers", "done", "Instagram Influencers ready")
+            extras.append({
+                "tag": "IG-INF",
+                "step": "instagram_influencers",
+                "section": "instagram_influencers",
+                "script": SCRIPT_IG_INFLUENCERS,
+                "timeout": 600,
+                "running": "Instagram Influencers (Search + page download)...",
+                "done": "Instagram Influencers ready",
+                "attach": _attach_instagram_influencers,
+            })
     else:
         _emit_progress(emit, set_step, "instagram_influencers", "done", "Skipped")
 
-    # 11b) TikTok Influencers (optional) — Google SERP page 1, no TikTok fetch
     if include_tiktok_influencers:
-        _tt_tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
-        _tt_sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
-        _tt_dfs = bool(
-            (os.environ.get("DATAFORSEO_USER") or os.environ.get("DATAFORSEO_LOGIN") or "").strip()
-            and (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
-        )
-        if not (_tt_tf or _tt_sb or _tt_dfs):
+        if not (_tf or _sb or _dfs):
             emit("log", line="[TT-INF] Skipped: no TinyFish / ScrapingBee / DataForSEO key")
             _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped (no SERP key)")
         else:
-            _emit_progress(
-                emit, set_step, "tiktok_influencers", "running",
-                "TikTok Influencers (Google site:tiktok.com)…",
-            )
-            try:
-                _run_script(
-                    [sys.executable, str(SCRIPT_TT_INFLUENCERS), slug],
-                    FINAL_DIR,
-                    on_log,
-                    timeout_sec=180,
-                    env=script_env,
-                )
-            except Exception as e:
-                emit("log", line=f"[TT-INF] Partial failure: {e}")
-            report = _attach_tiktok_influencers(report, slug)
-            report = _tag_report(report)
-            emit(
-                "partial",
-                section="tiktok_influencers",
-                data=report.get("tiktok_influencers") or {},
-                client=client_name,
-            )
-            _emit_progress(emit, set_step, "tiktok_influencers", "done", "TikTok Influencers ready")
+            extras.append({
+                "tag": "TT-INF",
+                "step": "tiktok_influencers",
+                "section": "tiktok_influencers",
+                "script": SCRIPT_TT_INFLUENCERS,
+                "timeout": 180,
+                "running": "TikTok Influencers (Google site:tiktok.com)…",
+                "done": "TikTok Influencers ready",
+                "attach": _attach_tiktok_influencers,
+            })
     else:
         _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped")
 
-    # 12) Reddit mentions (optional)
     if include_reddit:
-        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+        if not _tf:
             emit("log", line="[REDDIT] Skipped: TINYFISH_API_KEY missing")
             _emit_progress(emit, set_step, "reddit", "done", "Skipped (no TinyFish key)")
         else:
-            _emit_progress(emit, set_step, "reddit", "running", "Reddit (site:reddit.com + comments)...")
-            try:
-                _run_script(
-                    [sys.executable, str(SCRIPT_REDDIT), slug],
-                    FINAL_DIR, on_log, timeout_sec=240, env=script_env,
-                )
-            except Exception as e:
-                emit("log", line=f"[REDDIT] Partial failure: {e}")
-            report = _attach_reddit(report, slug)
-            report = _tag_report(report)
-            emit("partial", section="reddit", data=report.get("reddit") or {}, client=client_name)
-            _emit_progress(emit, set_step, "reddit", "done", "Reddit ready")
+            extras.append({
+                "tag": "REDDIT",
+                "step": "reddit",
+                "section": "reddit",
+                "script": SCRIPT_REDDIT,
+                "timeout": 240,
+                "running": "Reddit (site:reddit.com + comments)...",
+                "done": "Reddit ready",
+                "attach": _attach_reddit,
+            })
     else:
         _emit_progress(emit, set_step, "reddit", "done", "Skipped")
 
-    # 13) Twitter / X profile (optional)
     if include_twitter:
-        if not (os.environ.get("TINYFISH_API_KEY") or "").strip():
+        if not _tf:
             emit("log", line="[TW] Skipped: TINYFISH_API_KEY missing")
             _emit_progress(emit, set_step, "twitter", "done", "Skipped (no TinyFish key)")
         else:
-            _emit_progress(emit, set_step, "twitter", "running", "Twitter/X profile...")
-            try:
-                _run_script(
-                    [sys.executable, str(SCRIPT_TWITTER), slug],
-                    FINAL_DIR, on_log, timeout_sec=180, env=script_env,
-                )
-            except Exception as e:
-                emit("log", line=f"[TW] Partial failure: {e}")
-            report = _attach_twitter(report, slug)
-            report = _tag_report(report)
-            emit("partial", section="twitter", data=report.get("twitter") or {}, client=client_name)
-            _emit_progress(emit, set_step, "twitter", "done", "Twitter ready")
+            extras.append({
+                "tag": "TW",
+                "step": "twitter",
+                "section": "twitter",
+                "script": SCRIPT_TWITTER,
+                "timeout": 180,
+                "running": "Twitter/X profile...",
+                "done": "Twitter ready",
+                "attach": _attach_twitter,
+            })
     else:
         _emit_progress(emit, set_step, "twitter", "done", "Skipped")
 
-    # 14) LinkedIn company/profile (optional)
     if include_linkedin_profile:
-        _li_tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
-        _li_sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
-        _li_dfs = bool(
-            (os.environ.get("DATAFORSEO_USER") or os.environ.get("DATAFORSEO_LOGIN") or "").strip()
-            and (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
-        )
-        if not (_li_tf or _li_sb or _li_dfs):
+        if not (_tf or _sb or _dfs):
             emit("log", line="[LI] Skipped: no TinyFish / ScrapingBee / DataForSEO key")
             _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped (no SERP key)")
         else:
-            _emit_progress(emit, set_step, "linkedin_profile", "running", "LinkedIn profile...")
-            try:
-                _run_script(
-                    [sys.executable, str(SCRIPT_LI_PROFILE), slug],
-                    FINAL_DIR, on_log, timeout_sec=120, env=script_env,
-                )
-            except Exception as e:
-                emit("log", line=f"[LI] Partial failure: {e}")
-            report = _attach_linkedin_profile(report, slug)
-            report = _tag_report(report)
-            emit(
-                "partial",
-                section="linkedin_profile",
-                data=report.get("linkedin_profile") or {},
-                client=client_name,
-            )
-            _emit_progress(emit, set_step, "linkedin_profile", "done", "LinkedIn Profile ready")
+            extras.append({
+                "tag": "LI",
+                "step": "linkedin_profile",
+                "section": "linkedin_profile",
+                "script": SCRIPT_LI_PROFILE,
+                "timeout": 120,
+                "running": "LinkedIn profile...",
+                "done": "LinkedIn Profile ready",
+                "attach": _attach_linkedin_profile,
+            })
     else:
         _emit_progress(emit, set_step, "linkedin_profile", "done", "Skipped")
+
+    if extras:
+        report = _run_independent_extras(
+            extras,
+            slug=slug,
+            client_name=client_name,
+            script_env=script_env,
+            emit=emit,
+            set_step=set_step,
+            on_log=on_log,
+            report=report,
+            tag_report=_tag_report,
+        )
 
     html_url = ""
     if run_id:
