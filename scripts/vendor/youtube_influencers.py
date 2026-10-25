@@ -200,6 +200,7 @@ def _item_to_post(item: dict[str, Any]) -> Optional[dict[str, Any]]:
         "postPage": url,
         "uploadedAtFormatted": str(publish),
         "description": str(item.get("description") or "")[:400],
+        "subtitle_text": str(item.get("description") or item.get("text") or "")[:800],
         "channel": {
             "username": handle,
             "name": ch.get("name") or "",
@@ -207,6 +208,82 @@ def _item_to_post(item: dict[str, Any]) -> Optional[dict[str, Any]]:
             "id": ch.get("id") or "",
         },
     }
+
+
+def quoted_brand_query(brand: str, domain: str = "") -> str:
+    """Exact-phrase YouTube/Google query: \"trendtrack\"."""
+    raw = (brand or "").strip()
+    if raw.startswith('"') and raw.endswith('"') and len(raw) >= 3:
+        return raw
+    token = re.sub(r"\s+ai$", "", raw, flags=re.I).strip()
+    if not token:
+        token = (domain or "").split(".")[0].strip()
+    token = (token.split()[0] if token else "").strip().strip('"')
+    return f'"{token}"' if token else ""
+
+
+def _google_video_to_post(video: dict[str, Any]) -> Optional[dict[str, Any]]:
+    vid = str(video.get("video_id") or video_id_from_url(str(video.get("url") or "")))
+    url = str(video.get("url") or "")
+    if vid and not url:
+        url = f"https://www.youtube.com/watch?v={vid}"
+    if not vid:
+        vid = video_id_from_url(url)
+    if not vid:
+        return None
+    title = str(video.get("title") or "")
+    snippet = str(video.get("snippet") or "")
+    handle = _handle_from_channel_url(str(video.get("channel_url") or ""))
+    name = str(video.get("channel_name") or "")
+    return {
+        "id": vid,
+        "title": title,
+        "hashtags": [t.lstrip("#") for t in re.findall(r"#([A-Za-z0-9_]+)", title)],
+        "views": video.get("views"),
+        "postPage": url if "/shorts/" in url.lower() else f"https://www.youtube.com/watch?v={vid}",
+        "uploadedAtFormatted": str(video.get("upload_age") or ""),
+        "description": snippet[:400],
+        "subtitle_text": snippet[:800],
+        "channel": {
+            "username": handle or name.lstrip("@"),
+            "name": name,
+            "url": video.get("channel_url") or "",
+        },
+    }
+
+
+def _views_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _dedupe_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    leftover: list[dict[str, Any]] = []
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        pid = str(post.get("id") or video_id_from_url(str(post.get("postPage") or "")))
+        if not pid:
+            leftover.append(post)
+            continue
+        post["id"] = pid
+        prev = by_id.get(pid)
+        if not prev:
+            by_id[pid] = post
+            continue
+        if _views_int(post.get("views")) > _views_int(prev.get("views")):
+            if not post.get("subtitle_text"):
+                post["subtitle_text"] = prev.get("subtitle_text") or ""
+            if not (post.get("channel") or {}).get("url"):
+                post["channel"] = prev.get("channel") or post.get("channel")
+            by_id[pid] = post
+        else:
+            if not prev.get("subtitle_text") and post.get("subtitle_text"):
+                prev["subtitle_text"] = post.get("subtitle_text")
+    return list(by_id.values()) + leftover
 
 
 def _row_to_video(row: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
@@ -1026,6 +1103,48 @@ def summarize_videos(
     }
 
 
+def _classify_youtube_posts(
+    posts: list[dict[str, Any]],
+    *,
+    name: str,
+    domain: str,
+    hint_handle: str,
+    official_hint: Optional[dict],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    classified = classify_all(
+        posts,
+        name,
+        with_subtitles=False,
+        domain=domain,
+        official_handle=hint_handle,
+    )
+    by_id = {str(p.get("id") or ""): p for p in posts if p.get("id")}
+    videos = [
+        _row_to_video(row, by_id.get(str(row.get("id") or ""), {}))
+        for row in classified
+    ]
+    for v in videos:
+        v["is_official"] = bool(v.get("is_official")) or is_official_channel(
+            str(v.get("channel_name") or ""),
+            str(v.get("channel_url") or ""),
+            name,
+            domain,
+            official_hint,
+        )
+        days = v.get("age_days")
+        if days is None:
+            days = _iso_to_days(str(v.get("upload_age") or ""))
+            v["age_days"] = days
+        v["age_bucket"] = age_bucket(days)
+        v["views"] = _views_of(v) or 0
+    confirmed = [v for v in videos if v.get("label") == "confirmed"]
+    probable = [v for v in videos if v.get("label") == "probable"]
+    unrelated = [v for v in videos if v.get("label") == "unrelated"]
+    official_pool = [v for v in confirmed if v.get("is_official")]
+    other_pool = [v for v in confirmed if not v.get("is_official")]
+    return confirmed, probable, unrelated, official_pool, other_pool
+
+
 def analyze_company(
     company: str,
     *,
@@ -1035,10 +1154,10 @@ def analyze_company(
     query: str | None = None,
     official_hint: Optional[dict] = None,
 ) -> dict[str, Any]:
-    """Full YouTube Influencers pass for one company (first search page)."""
+    """YouTube influencers: quoted popular Apify search + Google SERP, then dedupe."""
     t_all = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
-    q = (query or name or domain or "").strip()
+    q = quoted_brand_query(query or name, domain)
     if not q:
         raise ValueError("company/query required")
     loc = "us" if (market or "us").lower().startswith("us") else "br"
@@ -1064,40 +1183,21 @@ def analyze_company(
     else:
         cached = True
 
-    posts = [p for p in (_item_to_post(it) for it in (raw or [])) if p]
-    if posts:
-        classified = classify_all(
-            posts,
-            name,
-            with_subtitles=False,
-            domain=domain,
-            official_handle=hint_handle,
-        )
-        by_id = {str(p.get("id") or ""): p for p in posts if p.get("id")}
-        videos = [
-            _row_to_video(row, by_id.get(str(row.get("id") or ""), {}))
-            for row in classified
-        ]
-        for v in videos:
-            v["is_official"] = bool(v.get("is_official")) or is_official_channel(
-                str(v.get("channel_name") or ""),
-                str(v.get("channel_url") or ""),
-                name,
-                domain,
-                official_hint,
-            )
-            days = v.get("age_days")
-            if days is None:
-                days = _iso_to_days(str(v.get("upload_age") or ""))
-                v["age_days"] = days
-            v["age_bucket"] = age_bucket(days)
-            v["views"] = _views_of(v) or 0
+    apify_posts = [p for p in (_item_to_post(it) for it in (raw or [])) if p]
+    google = google_youtube_search(q, market=market)
+    google_posts = [
+        p for p in (_google_video_to_post(v) for v in (google.get("videos") or [])) if p
+    ]
+    posts = _dedupe_posts(apify_posts + google_posts)
 
-        confirmed = [v for v in videos if v.get("label") == "confirmed"]
-        probable = [v for v in videos if v.get("label") == "probable"]
-        unrelated = [v for v in videos if v.get("label") == "unrelated"]
-        official_pool = [v for v in confirmed if v.get("is_official")]
-        other_pool = [v for v in confirmed if not v.get("is_official")]
+    if posts:
+        confirmed, probable, unrelated, official_pool, other_pool = _classify_youtube_posts(
+            posts,
+            name=name,
+            domain=domain,
+            hint_handle=hint_handle,
+            official_hint=official_hint,
+        )
 
         def _top(items: list[dict], limit: int = 5) -> list[dict]:
             return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
@@ -1110,17 +1210,17 @@ def analyze_company(
         billed = max(len(raw), 10) if raw and not cached else 0
         cost = round(billed * _COST_PER_VIDEO, 6) if not cached else 0.0
         print(
-            f"[YT-INF] apify q={q!r} sort=v items={len(raw)} confirmed={len(confirmed)} "
-            f"probable={len(probable)} unrelated={len(unrelated)} "
-            f"~${cost:.4f} cached={cached}",
+            f"[YT-INF] q={q!r} sort=v apify={len(apify_posts)} google={len(google_posts)} "
+            f"uniq={len(posts)} confirmed={len(confirmed)} probable={len(probable)} "
+            f"unrelated={len(unrelated)} ~${cost:.4f} cached={cached}",
             flush=True,
         )
         return {
-            "ok": bool(confirmed or probable or (fetch_meta.get("ok") and raw)),
+            "ok": bool(confirmed or probable or posts),
             "company": name,
             "domain": domain,
             "query": q,
-            "search_url": f"https://www.youtube.com/results?search_query={quote_plus(q)}",
+            "search_url": f"https://www.youtube.com/results?search_query={quote_plus(q)}&sp=CAMSAhAB",
             "official_channel": official_hint or (
                 official_hint_from_url(f"https://www.youtube.com/@{hint_handle}")
                 if hint_handle else None
@@ -1134,13 +1234,15 @@ def analyze_company(
             "views_unofficial": sum(int(v.get("views") or 0) for v in other_pool),
             "views_by_age": buckets,
             "about_count": len(confirmed),
-            "page_count": len(raw or []),
+            "page_count": len(posts),
             "top5": _top(confirmed or probable),
             "top5_official": _top(official_pool),
             "top5_unofficial": _top(other_pool),
             "videos_about_product": confirmed,
             "counts": {
-                "search_page": len(raw or []),
+                "search_page": len(posts),
+                "apify": len(apify_posts),
+                "google": len(google_posts),
                 "about_product": len(confirmed),
                 "confirmed": len(confirmed),
                 "probable": len(probable),
@@ -1149,25 +1251,29 @@ def analyze_company(
                 "unofficial": len(other_pool),
             },
             "usage": {
-                "source": "apify_youtube",
+                "source": "apify_youtube+google_serp",
                 "actor": ACTOR_ID,
                 "cached": cached,
                 "estimated_usd": cost,
                 "estimated_total_usd": cost,
                 "search_cost_usd": cost,
-                "posts": len(raw or []),
+                "posts": len(posts),
+                "apify_posts": len(apify_posts),
+                "google_posts": len(google_posts),
                 "max_items": max_items,
                 "sort": "v",
                 "gl": loc,
                 "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
-                "scrapingbee_credits": 0,
+                "scrapingbee_credits": int(google.get("credits") or 0),
                 "note": (
-                    "Apify apidojo/youtube-scraper keyword search, sort=v (popular). "
-                    "First page, no video open. Brand filter confirmed/probable/unrelated."
+                    "Quoted Apify popularity (sort=v) plus Google YouTube SERP, "
+                    "deduped by video id. Brand filter confirmed/probable/unrelated."
                 ),
             },
             "elapsed_sec": round(time.time() - t_all, 2),
-            "error": None if (raw or cached) else (fetch_meta.get("error") or "YouTube Apify returned no videos"),
+            "error": None if posts else (
+                fetch_meta.get("error") or google.get("error") or "YouTube search returned no videos"
+            ),
         }
 
     print(

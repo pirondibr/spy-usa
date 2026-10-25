@@ -326,7 +326,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
         "rows": rows_out,
         "usage_total": usage,
         "insight": (
-            f"YouTube 1st-page search for «{client.get('name') or '—'}»: "
+            f"YouTube «{client.get('query') or client.get('name') or '—'}» popular+Google: "
             f"official {_fmt_views(client.get('views_official'))} · "
             f"unofficial {_fmt_views(client.get('views_unofficial'))} · "
             f"30d {_fmt_views(client.get('views_30d'))} / "
@@ -749,6 +749,11 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
             return True
         src = str(data.get("source") or "").lower()
         if "apify" not in src:
+            return True
+        if "google" not in src:
+            return True
+        q = str((rows[0] or {}).get("query") or "")
+        if not (q.startswith('"') and q.endswith('"')):
             return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
