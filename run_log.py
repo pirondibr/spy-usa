@@ -564,8 +564,81 @@ class RunRecorder:
         }
 
 
+def _as_view_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        digits = re.sub(r"[^\d]", "", str(value or ""))
+        return int(digits) if digits else 0
+
+
+def _slim_pulled_video(
+    item: dict[str, Any],
+    *,
+    platform: str,
+    company: str,
+) -> dict[str, Any]:
+    desc = str(
+        item.get("description")
+        or item.get("snippet")
+        or item.get("subtitle_text")
+        or item.get("text")
+        or ""
+    ).replace("\n", " ")
+    return {
+        "platform": platform,
+        "company": company,
+        "title": str(item.get("title") or "")[:240],
+        "description": desc[:400],
+        "views": _as_view_int(item.get("views")),
+        "age": str(item.get("upload_age") or item.get("age") or ""),
+        "channel": str(item.get("channel_name") or item.get("handle") or ""),
+        "url": str(item.get("url") or item.get("postPage") or ""),
+        "label": str(item.get("label") or ""),
+    }
+
+
+def _row_pulled_videos(row: dict[str, Any]) -> list[dict[str, Any]]:
+    fetched = row.get("videos_fetched")
+    if isinstance(fetched, list) and fetched:
+        return [x for x in fetched if isinstance(x, dict)]
+    out: list[dict[str, Any]] = []
+    keys = (
+        ("videos_confirmed", "videos_probable", "videos_unrelated")
+        if (row.get("videos_confirmed") or row.get("videos_unrelated"))
+        else ("videos_about_product", "videos_probable", "videos_unrelated")
+    )
+    for key in keys:
+        for item in row.get(key) or []:
+            if isinstance(item, dict):
+                out.append(item)
+    return out
+
+
+def collect_api_pulls(report: Optional[dict[str, Any]] = None) -> dict[str, list[dict[str, Any]]]:
+    """YouTube + TikTok items returned by the API before the brand cut."""
+    report = report or {}
+    youtube: list[dict[str, Any]] = []
+    tiktok: list[dict[str, Any]] = []
+    for row in (report.get("youtube_influencers") or {}).get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        company = str(row.get("name") or row.get("domain") or "")
+        for item in _row_pulled_videos(row):
+            youtube.append(_slim_pulled_video(item, platform="youtube", company=company))
+    for row in (report.get("tiktok_influencers") or {}).get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        company = str(row.get("name") or row.get("domain") or "")
+        for item in _row_pulled_videos(row):
+            tiktok.append(_slim_pulled_video(item, platform="tiktok", company=company))
+    return {"youtube": youtube, "tiktok": tiktok}
+
+
 def attach_run_log(report: dict[str, Any], recorder: RunRecorder) -> dict[str, Any]:
-    report["run_log"] = recorder.finalize(report)
+    payload = recorder.finalize(report)
+    payload["api_pulls"] = collect_api_pulls(report)
+    report["run_log"] = payload
     return report
 
 

@@ -392,17 +392,41 @@
       }
       return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + '</td><td class="num">' + esc(r.pct || "—") + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(stL(r.status || "done")) + "</td></tr>";
     };
+    var pulls = EX.pulls || {};
+    var ytPull = pulls.youtube || [];
+    var ttPull = pulls.tiktok || [];
+    var nPulls = ytPull.length + ttPull.length;
+    var cutL = function (lab) {
+      lab = String(lab || "").toLowerCase();
+      if (lab === "confirmed") return t("ex.kept");
+      if (lab === "probable") return t("ex.probable");
+      if (lab === "unrelated") return t("ex.discarded");
+      return lab ? esc(lab) : t("ex.pulled");
+    };
+    var pullTable = function (title, items) {
+      if (!items.length) return "<h3 class=\"ex-pull-h\">" + esc(title) + "</h3><div class=\"none\">" + t("ex.pull_none") + "</div>";
+      return "<h3 class=\"ex-pull-h\">" + esc(title) + " · " + items.length + "</h3><div class=\"mx\"><table class=\"tb\"><thead><tr><th>#</th><th>" + t("yt.company") + "</th><th>" + t("ex.th_title") + "</th><th>" + t("ex.th_desc") + "</th><th>" + t("ex.th_views") + "</th><th>" + t("ex.th_age") + "</th><th>" + t("ex.th_channel") + "</th><th>" + t("ex.th_cut") + "</th></tr></thead><tbody>" +
+        items.map(function (it, i) {
+          var href = it.url || "";
+          var titleCell = href
+            ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(it.title || "—") + "</a>"
+            : esc(it.title || "—");
+          return '<tr class="' + (String(it.label || "").toLowerCase() === "unrelated" ? "sk" : "") + '"><td class="num">' + (i + 1) + "</td><td>" + esc(it.company || "—") + "</td><td>" + titleCell + '</td><td class="desc">' + esc(it.description || "—") + '</td><td class="num">' + esc(it.views == null ? "—" : fmt(it.views)) + "</td><td>" + esc(it.age || "—") + "</td><td>" + esc(it.channel || "—") + "</td><td>" + cutL(it.label) + "</td></tr>";
+        }).join("") + "</tbody></table></div>";
+    };
     $("pb-exec").innerHTML = '<div class="kv3"><div><span>' + t("ex.time") + "</span><b>" + esc(EX.duration || "—") + "</b></div><div><span>" + t("ex.cost") + "</span><b>" + esc(EX.cost || "—") + "</b></div><div><span>" + t("ex.cos") + "</span><b>" + esc(String(EX.companies || CO.length)) + "</b></div><div><span>" + t("ex.steps") + "</span><b>" + steps.length + "</b></div></div>" +
       '<div class="ex-switch"><div class="ex-tabs" role="tablist" aria-label="' + t("ex.aria") + '">' +
       '<button type="button" data-ex="resumo" aria-pressed="true">' + t("ex.summary") + "</button>" +
-      '<button type="button" data-ex="log" aria-pressed="false">' + t("ex.log") + (nLog ? " · " + nLog : "") + "</button></div>" +
+      '<button type="button" data-ex="log" aria-pressed="false">' + t("ex.log") + (nLog ? " · " + nLog : "") + "</button>" +
+      '<button type="button" data-ex="pulls" aria-pressed="false">' + t("ex.pulls") + (nPulls ? " · " + nPulls : "") + "</button></div>" +
       '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
       (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="5" class="none">' + t("ex.none") + "</td></tr>") +
       '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + '</th><th class="num">' + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
       (EX.runs_per ? '<p class="runlog-runs">' + t("ex.runs_per", { n: EX.runs_per }) + "</p>" : "") +
       (EX.rates ? '<p class="muted" style="margin-top:12px;font-size:12.5px;color:var(--soft)">' + esc(EX.rates) + "</p>" : "") +
       "</div>" +
-      '<div class="ex-pane" data-ex-pane="log" hidden>' + (log ? "<pre>" + esc(log) + "</pre>" : '<div class="none">' + t("ex.empty") + "</div>") + "</div></div>";
+      '<div class="ex-pane" data-ex-pane="log" hidden>' + (log ? "<pre>" + esc(log) + "</pre>" : '<div class="none">' + t("ex.empty") + "</div>") + "</div>" +
+      '<div class="ex-pane" data-ex-pane="pulls" hidden><p class="muted">' + t("ex.pulls_p") + "</p>" + pullTable(t("ex.pull_yt"), ytPull) + pullTable(t("ex.pull_tt"), ttPull) + "</div></div>";
   }
 
   var coSeg = function (tab) {

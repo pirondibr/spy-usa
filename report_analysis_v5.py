@@ -499,7 +499,7 @@ def build_v5_payload(
             "w": str(row.get("note") or row.get("error") or ""),
         }
 
-    from run_log import apply_cost_shares, cost_rates_note
+    from run_log import apply_cost_shares, collect_api_pulls, cost_rates_note
 
     log = _resolve_run_log(report, meta) or {}
     totals = dict(log.get("totals") or {})
@@ -577,6 +577,7 @@ def build_v5_payload(
             "steps": steps,
             "log": "\n".join(lines),
             "rates": cost_rates_note(),
+            "pulls": log.get("api_pulls") if isinstance(log.get("api_pulls"), dict) else collect_api_pulls(report),
         },
     }
 

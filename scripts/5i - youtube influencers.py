@@ -202,6 +202,9 @@ def main() -> None:
             "ok": result.get("ok"),
             "error": result.get("error"),
             "videos_about_product": result.get("videos_about_product") or [],
+            "videos_probable": result.get("videos_probable") or [],
+            "videos_unrelated": result.get("videos_unrelated") or [],
+            "videos_fetched": result.get("videos_fetched") or [],
         })
 
     out = {

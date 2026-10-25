@@ -197,6 +197,7 @@ def main() -> None:
             "videos_confirmed": result.get("videos_confirmed") or [],
             "videos_probable": result.get("videos_probable") or [],
             "videos_unrelated": result.get("videos_unrelated") or [],
+            "videos_fetched": result.get("videos_fetched") or [],
             "official_channel": result.get("official_channel"),
             "brand": result.get("brand") or {},
             "usage": usage,

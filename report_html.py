@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.97"
+REPORT_UI_VERSION = "0.4.98"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2614,12 +2614,66 @@ def analysis_add_form_html(
     </form>"""
 
 
+def _pull_label(label: str) -> str:
+    key = (label or "").strip().lower()
+    if key == "confirmed":
+        return "kept"
+    if key == "probable":
+        return "probable"
+    if key == "unrelated":
+        return "discarded"
+    return label or "pulled"
+
+
+def _pulls_table_html(title: str, items: list[dict[str, Any]]) -> str:
+    if not items:
+        return (
+            f'<h3 class="ex-pull-h">{_esc(title)}</h3>'
+            f'<p class="muted">Nenhum vídeo puxado nesta run.</p>'
+        )
+    rows: list[str] = []
+    for i, it in enumerate(items, 1):
+        label = _pull_label(str(it.get("label") or ""))
+        href = str(it.get("url") or "")
+        title_txt = str(it.get("title") or "—")
+        title_cell = (
+            f'<a href="{_esc(href)}" target="_blank" rel="noopener">{_esc(title_txt)}</a>'
+            if href else _esc(title_txt)
+        )
+        cut_cls = "sk" if label == "discarded" else ""
+        rows.append(
+            f'<tr class="{cut_cls}">'
+            f'<td class="idx">{i}</td>'
+            f'<td>{_esc(it.get("company") or "—")}</td>'
+            f"<td>{title_cell}</td>"
+            f'<td class="desc">{_esc(it.get("description") or "—")}</td>'
+            f'<td class="num">{_esc(_compact_num(it.get("views")))}</td>'
+            f'<td>{_esc(it.get("age") or "—")}</td>'
+            f'<td>{_esc(it.get("channel") or "—")}</td>'
+            f'<td>{_esc(label)}</td>'
+            f"</tr>"
+        )
+    return f"""
+    <h3 class="ex-pull-h">{_esc(title)} · {len(items)}</h3>
+    <div class="tw table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Company</th><th>Title</th><th>Description</th>
+          <th class="r">Views</th><th>Age</th><th>Channel</th><th>Filter</th>
+        </tr></thead>
+        <tbody>{''.join(rows)}</tbody>
+      </table>
+    </div>
+    """
+
+
 def exec_tabs_html(
     *,
     channels: list[dict[str, Any]],
     totals: Optional[dict[str, Any]] = None,
     log_text: str = "",
     rates: str = "",
+    api_pulls: Optional[dict[str, Any]] = None,
 ) -> str:
     """Resumo por área + log completo, em abas."""
     from run_log import apply_cost_shares, cost_rates_note
@@ -2671,19 +2725,33 @@ def exec_tabs_html(
         if (log_text or "").strip()
         else '<p class="muted">Log vazio para este run.</p>'
     )
+    pulls = api_pulls if isinstance(api_pulls, dict) else {}
+    yt_items = [x for x in (pulls.get("youtube") or []) if isinstance(x, dict)]
+    tt_items = [x for x in (pulls.get("tiktok") or []) if isinstance(x, dict)]
+    n_pulls = len(yt_items) + len(tt_items)
+    pulls_pane = (
+        f'<p class="muted">Vídeos que a API devolveu antes do corte da marca.</p>'
+        f'{_pulls_table_html("YouTube", yt_items)}'
+        f'{_pulls_table_html("TikTok", tt_items)}'
+    )
     return f"""
     <div class="ex-switch">
       <div class="ex-tabs" role="tablist" aria-label="Execução">
         <button type="button" data-ex="resumo" aria-pressed="true">Resumo</button>
         <button type="button" data-ex="log" aria-pressed="false">Log{f" · {n_log}" if n_log else ""}</button>
+        <button type="button" data-ex="pulls" aria-pressed="false">Puxados{f" · {n_pulls}" if n_pulls else ""}</button>
       </div>
       <div class="ex-pane" data-ex-pane="resumo">{summary}</div>
       <div class="ex-pane" data-ex-pane="log" hidden>{log_pane}</div>
+      <div class="ex-pane" data-ex-pane="pulls" hidden>{pulls_pane}</div>
     </div>
     """
 
 
-def _section_run_log(payload: Optional[dict[str, Any]]) -> str:
+def _section_run_log(
+    payload: Optional[dict[str, Any]],
+    report: Optional[dict[str, Any]] = None,
+) -> str:
     if not payload:
         return ""
     channels = payload.get("channels") or []
@@ -2692,6 +2760,11 @@ def _section_run_log(payload: Optional[dict[str, Any]]) -> str:
         return ""
     log_text = "\n".join(str(x) for x in lines)
     n = payload.get("line_count") or len(lines)
+    pulls = payload.get("api_pulls") if isinstance(payload.get("api_pulls"), dict) else None
+    if not pulls and report:
+        from run_log import collect_api_pulls
+
+        pulls = collect_api_pulls(report)
     return f"""
     <section>
       <h2>Log da execução</h2>
@@ -2701,6 +2774,7 @@ def _section_run_log(payload: Optional[dict[str, Any]]) -> str:
           totals=payload.get("totals") or {},
           log_text=log_text,
           rates=str(payload.get("rates_note") or "").strip(),
+          api_pulls=pulls,
       )}
     </section>
     """
@@ -2931,7 +3005,7 @@ def render_report_html(
     for key, label, _ in blocks:
         toc[SECTION_GROUPS.get(key, "overview")].append(f'<a href="#sec-{key}">{_esc(label)}</a>')
     run_log_payload = _resolve_run_log(report, meta)
-    run_log_html = _section_run_log(run_log_payload)
+    run_log_html = _section_run_log(run_log_payload, report)
     if run_log_html:
         toc["overview"].append('<a href="#sec-runlog">Log</a>')
     toc_html = "".join(
@@ -3574,6 +3648,8 @@ p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 1
 .ex-tabs button[aria-pressed="true"]{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(15,23,42,.08)}
 .ex-pane[hidden]{display:none}
 .ex-pane table tr.sk td{color:var(--muted)}
+.ex-pull-h{margin:18px 0 8px;font-size:14px}
+.ex-pane td.desc{max-width:360px;white-space:normal;color:var(--muted);font-size:12px}
 @media print{
   .topbar,.toc,.ui-switch{display:none!important}
   .layout{display:block;padding:0}

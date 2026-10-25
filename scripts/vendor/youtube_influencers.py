@@ -305,6 +305,9 @@ def _row_to_video(row: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
         "flags": row.get("flags") or [],
         "about_product": row.get("label") == "confirmed",
         "about_reason": ",".join(row.get("reasons") or []) or row.get("label"),
+        "description": str(
+            post.get("subtitle_text") or post.get("description") or ""
+        )[:400],
     }
 
 
@@ -1131,7 +1134,7 @@ def _classify_youtube_posts(
     domain: str,
     hint_handle: str,
     official_hint: Optional[dict],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     classified = classify_all(
         posts,
         name,
@@ -1163,7 +1166,7 @@ def _classify_youtube_posts(
     unrelated = [v for v in videos if v.get("label") == "unrelated"]
     official_pool = [v for v in confirmed if v.get("is_official")]
     other_pool = [v for v in confirmed if not v.get("is_official")]
-    return confirmed, probable, unrelated, official_pool, other_pool
+    return confirmed, probable, unrelated, official_pool, other_pool, videos
 
 
 def _search_video_to_post(video: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -1257,7 +1260,7 @@ def analyze_company(
     if not snippet_n:
         snippet_n = sum(1 for p in posts if p.get("subtitle_text") or p.get("description"))
 
-    confirmed, probable, unrelated, official_pool, other_pool = _classify_youtube_posts(
+    confirmed, probable, unrelated, official_pool, other_pool, fetched = _classify_youtube_posts(
         posts,
         name=name,
         domain=domain,
@@ -1303,6 +1306,9 @@ def analyze_company(
         "top5_official": _top(official_pool),
         "top5_unofficial": _top(other_pool),
         "videos_about_product": confirmed,
+        "videos_probable": probable,
+        "videos_unrelated": unrelated,
+        "videos_fetched": fetched,
         "counts": {
             "search_page": search_n or len(posts),
             "about_product": len(confirmed),

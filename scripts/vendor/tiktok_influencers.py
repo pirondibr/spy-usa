@@ -183,6 +183,12 @@ def _row_to_video(row: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
         "reasons": row.get("reasons") or [],
         "flags": row.get("flags") or [],
         "about_reason": ",".join(row.get("reasons") or []) or row.get("label"),
+        "description": str(
+            post.get("text")
+            or post.get("subtitle_text")
+            or post.get("description")
+            or ""
+        )[:400],
     }
 
 
@@ -279,6 +285,7 @@ def analyze_company(
         "videos_confirmed": confirmed,
         "videos_probable": probable,
         "videos_unrelated": unrelated,
+        "videos_fetched": videos,
         "counts": {
             "search_page": len(posts),
             "about_product": len(confirmed),

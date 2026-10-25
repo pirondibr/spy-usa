@@ -18,6 +18,8 @@ html[data-ui="v5"]{--ink:#0E1116;--ink2:#2A313B;--mut:#6B7480;--soft:#9AA3AE;--l
 #analysis-v5 .ex-tabs button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,17,22,.1)}
 #analysis-v5 .ex-pane[hidden]{display:none}
 #analysis-v5 .ex-pane table tr.sk td{color:var(--soft)}
+#analysis-v5 .ex-pull-h{margin:18px 0 8px;font-size:14px;font-weight:600}
+#analysis-v5 .ex-pane td.desc{white-space:normal;text-align:left;max-width:280px;color:var(--soft);font-size:12.5px}
 #analysis-v5 .ex-pane tfoot th{border-top:1px solid var(--line);font-size:12.5px}
 #analysis-v5 .ex-pane pre{margin:0;max-height:420px;overflow:auto;padding:14px 16px;background:#0E1116;color:#D7DCE2;border-radius:10px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
 #analysis-v5 .analysis-add{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0 0}
