@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""LinkedIn Ad Library — fluxo simples (1 pagina).
+"""LinkedIn Ad Library — keyword search + Ctrl+F (1 pagina).
 
-URL: https://www.linkedin.com/ad-library/search?accountOwner=<empresa>
-(sem filtro de pais)
+URL: https://www.linkedin.com/ad-library/search?keyword=<empresa>
+Fallback: accountOwner=<empresa>
 
 1) Baixa a pagina via ScrapingBee premium proxy (render_js=false)
-2) Ctrl+F: confere se o nome da empresa aparece
+2) Ctrl+F: conta quantas vezes o nome da empresa aparece no HTML
 3) Le o total do H1: "1,728 ads match your search criteria"
+4) Mostra name-hits / ads total
 
 ScrapingBee com render_js=true e bloqueado/timeout no LinkedIn; sem JS passa.
 O HTML ja vem server-side renderizado com os cards e o H1.
@@ -38,7 +39,48 @@ def payer_url(name: str) -> str:
 
 
 def keyword_url(keyword: str) -> str:
-    return account_owner_url(keyword)
+    return f"{AD_LIBRARY_BASE}?keyword={quote_plus(keyword.strip())}"
+
+
+def _ctrl_f_count(html: str, needles: list[str]) -> tuple[int, str]:
+    """Case-insensitive substring count on visible-ish HTML (browser Ctrl+F)."""
+    if not html or not needles:
+        return 0, ""
+    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+    text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
+    text = re.sub(r"(?is)<!--.*?-->", " ", text)
+    best_n = 0
+    best = ""
+    for needle in needles:
+        n = (needle or "").strip()
+        if len(n) < 3:
+            continue
+        count = len(re.findall(re.escape(n), text, flags=re.IGNORECASE))
+        if count > best_n:
+            best_n = count
+            best = n
+    return best_n, best
+
+
+def _needles_for(company: str) -> list[str]:
+    q = re.sub(r"\s+", " ", (company or "").strip())
+    q = re.split(r"[|\-–—:·•/]", q)[0].strip()
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(term: str) -> None:
+        t = re.sub(r"\s+", " ", (term or "").strip())
+        key = t.lower()
+        if len(t) < 3 or key in seen:
+            return
+        seen.add(key)
+        out.append(t)
+
+    _add(q)
+    first = q.split(" ", 1)[0] if q else ""
+    if first and len(first) >= 4:
+        _add(first)
+    return out
 
 
 def parse_result_count(text: str) -> Optional[int]:
@@ -138,44 +180,85 @@ def fetch_ad_library_html(url: str) -> tuple[str, int]:
     raise RuntimeError(str(last_err) if last_err else "ScrapingBee falhou")
 
 
+def _fmt_dual(ctrl_f: Optional[int], total: Optional[int]) -> str:
+    if ctrl_f is None and total is None:
+        return ""
+    left = "—" if ctrl_f is None else str(int(ctrl_f))
+    right = "—" if total is None else str(int(total))
+    return f"{left}/{right}"
+
+
 def lookup_company_via_payer_flow(company_name: str) -> dict[str, Any]:
-    """accountOwner -> Ctrl+F nome -> total de anuncios (1 pagina)."""
-    q = (company_name or "").strip()
-    url = account_owner_url(q) if q else ""
+    """Keyword search -> Ctrl+F company name -> H1 ads total. accountOwner fallback."""
+    raw = (company_name or "").strip()
+    q = re.split(r"[|\-–—:·•/]", raw)[0].strip() or raw
+    needles = _needles_for(q)
+    short = needles[-1] if len(needles) > 1 else ""
+    keyword = keyword_url(q) if q else ""
     base = {
         "linkedin_ads": None,
+        "linkedin_ads_total": None,
+        "linkedin_ads_ctrl": None,
+        "linkedin_ads_fmt": "",
         "linkedin_payer": "",
         "linkedin_advertiser": "",
-        "linkedin_search_url": url,
+        "linkedin_search_url": keyword,
         "linkedin_detail_url": "",
-        "linkedin_keyword_url": url,
+        "linkedin_keyword_url": keyword,
         "spb_credits": 0,
         "backend": "scrapingbee",
         "name_found": False,
+        "method": "",
     }
     if not q:
         return base
 
-    print(f"[LI] accountOwner '{q}' -> {url}", flush=True)
-    try:
-        html, credits = fetch_ad_library_html(url)
-    except Exception as e:
-        print(f"[LI] falha: {e}", flush=True)
-        base["error"] = str(e)
+    attempts: list[tuple[str, str]] = [("keyword", keyword)]
+    if short and short.lower() != q.lower():
+        attempts.append(("keyword_short", keyword_url(short)))
+    attempts.append(("accountOwner", account_owner_url(q)))
+
+    last_err = ""
+    credits_all = 0
+    for label, url in attempts:
+        if not url:
+            continue
+        print(f"[LI] {label} '{q}' -> {url}", flush=True)
+        try:
+            html, credits = fetch_ad_library_html(url)
+        except Exception as e:
+            last_err = str(e)
+            print(f"[LI] {label} falha: {e}", flush=True)
+            continue
+        credits_all += credits
+        h1 = _extract_h1(html)
+        total = parse_result_count(h1) or parse_result_count(html)
+        ctrl, needle = _ctrl_f_count(html, needles)
+        found = ctrl > 0 or _name_appears(html, q)
+        print(
+            f"[LI] {label} h1='{h1}' ctrl+f={ctrl} needle='{needle or q}' "
+            f"total={total} found={found}",
+            flush=True,
+        )
+        if not found and total in (None, 0):
+            continue
+        base["spb_credits"] = credits_all
+        base["linkedin_search_url"] = url
+        base["linkedin_keyword_url"] = keyword or url
+        base["linkedin_ads_ctrl"] = ctrl
+        base["linkedin_ads_total"] = total
+        base["linkedin_ads_fmt"] = _fmt_dual(ctrl, total)
+        base["linkedin_ads"] = total if total is not None else ctrl
+        base["linkedin_advertiser"] = q
+        base["name_found"] = found
+        base["method"] = label
         return base
 
-    base["spb_credits"] = credits
-    h1 = _extract_h1(html)
-    found = _name_appears(html, q)
-    total = parse_result_count(h1) or parse_result_count(html)
-
-    if not found:
-        print(f"[LI] nome '{q}' nao aparece na pagina | h1='{h1}'", flush=True)
-        base["linkedin_ads"] = 0
-        return base
-
-    print(f"[LI] '{q}' encontrado | h1='{h1}' | total={total}", flush=True)
-    base["linkedin_ads"] = total
-    base["linkedin_advertiser"] = q
-    base["name_found"] = True
+    base["spb_credits"] = credits_all
+    if last_err:
+        base["error"] = last_err
+    print(f"[LI] nome '{q}' nao confirmado em keyword/accountOwner", flush=True)
+    base["linkedin_ads"] = 0
+    base["linkedin_ads_ctrl"] = 0
+    base["linkedin_ads_fmt"] = _fmt_dual(0, 0)
     return base

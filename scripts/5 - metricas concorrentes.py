@@ -203,7 +203,10 @@ def _extract_google_result_urls(html_text: str) -> list[str]:
 def company_query_for_competitor(comp: dict) -> str:
     """Nome legivel para LinkedIn/Meta: title > company > dominio."""
     for key in ("company", "name", "title"):
-        title = re.split(r"[|\-:]", str(comp.get(key, "") or ""))[0].strip()
+        title = re.split(r"[|\-–—:·•/]", str(comp.get(key, "") or ""))[0].strip()
+        title = re.sub(r"\s+", " ", title)
+        if len(title.split()) > 6:
+            title = " ".join(title.split()[:4])
         title_fold = compact(title)
         if title and len(title_fold) >= 3 and not title.lower().startswith("http"):
             return title
@@ -1294,14 +1297,146 @@ def normalize_tiktok_url(url: str) -> str:
     return url
 
 
+def _extract_llm_json(text: str) -> dict:
+    raw = (text or "").strip()
+    m = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
+    if m:
+        raw = m.group(1).strip()
+    raw = re.sub(r"^[^{\[]*", "", raw)
+    raw = re.sub(r"[^}\]]*$", "", raw)
+    data = json.loads(raw)
+    return data if isinstance(data, dict) else {}
+
+
+def _validate_social_url(platform: str, url: str) -> str:
+    """Keep profile/channel URLs only — drop videos, posts, and search pages."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("@") and " " not in raw:
+        handle = raw
+        if platform == "youtube":
+            raw = f"https://www.youtube.com/{handle}"
+        elif platform == "tiktok":
+            raw = f"https://www.tiktok.com/{handle}"
+        elif platform == "instagram":
+            raw = f"https://www.instagram.com/{handle.lstrip('@')}/"
+    low = raw.lower()
+    if platform == "youtube":
+        if "youtube.com" not in low and "youtu.be" not in low:
+            return ""
+        if "/watch" in low or "youtu.be/" in low or "/shorts/" in low or "/playlist" in low:
+            return ""
+        return normalize_youtube_url(raw)
+    if platform == "instagram":
+        if "instagram.com" not in low:
+            return ""
+        return normalize_instagram_url(raw)
+    if platform == "tiktok":
+        if "tiktok.com" not in low:
+            return ""
+        parsed = urlparse(raw)
+        parts = [p for p in parsed.path.split("/") if p]
+        if not parts or not parts[0].startswith("@") or any(p.lower() == "video" for p in parts):
+            return ""
+        return normalize_tiktok_url(raw)
+    return ""
+
+
+def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str, str]:
+    """Ask Gemini (OpenRouter) for official YT / IG / TikTok accounts."""
+    empty = {"youtube": "", "instagram": "", "tiktok": ""}
+    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not key or not (company or domain):
+        return empty
+    model = (os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash").strip()
+    prompt = (
+        "Find the official social-media accounts for this company.\n\n"
+        f"Company: {company or domain}\n"
+        f"Website: {site_url or domain}\n"
+        f"Domain: {domain}\n\n"
+        "Return JSON only, no markdown:\n"
+        '{"youtube":"https://www.youtube.com/@handle","instagram":"https://www.instagram.com/handle/",'
+        '"tiktok":"https://www.tiktok.com/@handle"}\n\n'
+        "Rules:\n"
+        "- Only the company's own official account, never a fan page, article, or a single video/post.\n"
+        "- Use an empty string when you are not confident.\n"
+        "- Prefer the handle that matches the brand name.\n"
+    )
+    try:
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 400,
+                "temperature": 0.1,
+            },
+            timeout=45,
+        )
+        r.raise_for_status()
+        raw = (((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+        data = _extract_llm_json(raw)
+    except Exception as e:
+        print(f"[SOCIAL] gemini failed: {e}", flush=True)
+        return empty
+    out = dict(empty)
+    for key_name in out:
+        out[key_name] = str(data.get(key_name) or "").strip()
+    return out
+
+
+def search_social_profile_google(platform: str, company_name: str, site_url: str = "") -> str:
+    """Page-1 Google for the official profile (TinyFish → ScrapingBee → DataForSEO)."""
+    label = (company_name or social_search_label(site_url) or "").strip()
+    if not label:
+        return ""
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from google_serp import google_serp
+    except Exception as e:
+        print(f"[SOCIAL] google_serp import failed: {e}", flush=True)
+        return ""
+    market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
+    domain = {"youtube": "youtube.com", "instagram": "instagram.com", "tiktok": "tiktok.com"}.get(platform, "")
+    queries = [f"{label} official {platform}", f"{label} {platform}"]
+    first_valid = ""
+    for query in queries:
+        try:
+            res = google_serp(query, market=market, include_domains=domain or None)
+        except Exception as e:
+            print(f"[SOCIAL] google '{query}' failed: {e}", flush=True)
+            continue
+        for item in res.get("items") or []:
+            url = _validate_social_url(platform, str(item.get("url") or ""))
+            if not url:
+                continue
+            if not first_valid:
+                first_valid = url
+            if platform == "instagram" and instagram_matches_brand(url, label, site_url):
+                return url
+            handle = ""
+            parts = [p for p in urlparse(url).path.split("/") if p]
+            if parts:
+                handle = parts[0].lstrip("@")
+            token = normalize_token(label)
+            if token and len(token) >= 3 and token in normalize_token(handle):
+                return url
+        src = res.get("source") or "?"
+        print(f"[SOCIAL] google '{query}' src={src} first={first_valid or '—'}", flush=True)
+    return first_valid
+
+
 def social_links_from_homepage(url: str, company_name: str = "") -> dict[str, str]:
+    """Scrape homepage <a href> only — Google fallback lives in discover_official_socials."""
     out = {"instagram": "", "youtube": "", "tiktok": ""}
     if not url:
         return out
     html = fetch_url_text(root_url(url), allow_proxy=True)
     if not html:
-        if company_name:
-            out["instagram"] = search_instagram_profile(company_name, url)
         return out
     soup = BeautifulSoup(html, "html.parser")
     for a in soup.find_all("a", href=True):
@@ -1313,10 +1448,55 @@ def social_links_from_homepage(url: str, company_name: str = "") -> dict[str, st
             out["youtube"] = normalize_youtube_url(href)
         elif not out["tiktok"] and "tiktok.com" in low:
             out["tiktok"] = normalize_tiktok_url(href)
-    if company_name and (not out["instagram"] or not instagram_matches_brand(out["instagram"], company_name, url)):
-        searched = search_instagram_profile(company_name, url)
-        if searched:
-            out["instagram"] = searched
+    return out
+
+
+def discover_official_socials(company_name: str, site_url: str, domain: str = "") -> dict[str, str]:
+    """Official YT / IG / TikTok: Gemini first, then homepage, then Google."""
+    label = (company_name or social_search_label(site_url) or domain or "").strip()
+    out = {"instagram": "", "youtube": "", "tiktok": ""}
+    src = {k: "" for k in out}
+
+    llm = _llm_official_socials(label, site_url, domain)
+    for key_name in out:
+        url = _validate_social_url(key_name, llm.get(key_name) or "")
+        if url:
+            out[key_name] = url
+            src[key_name] = "gemini"
+    print(
+        f"[SOCIAL] gemini {label}: yt={out['youtube'] or '—'} "
+        f"ig={out['instagram'] or '—'} tt={out['tiktok'] or '—'}",
+        flush=True,
+    )
+
+    missing = [k for k, v in out.items() if not v]
+    if missing and site_url:
+        web = social_links_from_homepage(site_url, label)
+        for key_name in missing:
+            url = _validate_social_url(key_name, web.get(key_name) or "")
+            if url:
+                out[key_name] = url
+                src[key_name] = "website"
+        print(
+            f"[SOCIAL] website {label}: yt={out['youtube'] or '—'} "
+            f"ig={out['instagram'] or '—'} tt={out['tiktok'] or '—'}",
+            flush=True,
+        )
+
+    missing = [k for k, v in out.items() if not v]
+    if missing and label:
+        for key_name in missing:
+            url = search_social_profile_google(key_name, label, site_url)
+            if url:
+                out[key_name] = url
+                src[key_name] = "google"
+        print(
+            f"[SOCIAL] google {label}: yt={out['youtube'] or '—'} "
+            f"ig={out['instagram'] or '—'} tt={out['tiktok'] or '—'}",
+            flush=True,
+        )
+
+    print(f"[SOCIAL] official {label} sources={src}", flush=True)
     return out
 
 
@@ -1528,7 +1708,7 @@ def parse_linkedin_result_count(text: str) -> int | None:
 
 
 def lookup_linkedin_ads(query: str) -> dict:
-    """LinkedIn Ads: Empresa/anunciante -> confere nome -> total de anuncios."""
+    """LinkedIn Ads: keyword search + Ctrl+F name + H1 total (ScrapingBee)."""
     q = (query or "").strip()
     if not q:
         return {
@@ -1584,7 +1764,13 @@ def build_metric_rows(
         base_url = comp.get("url") or comp.get("domain", "")
         if collect_social:
             print(f"[SOCIAL] ({i}/{n}) {dom} ...", flush=True)
-            socials = social_links_from_homepage(base_url, social_search_label(base_url))
+            social_name = (
+                comp.get("company")
+                or comp.get("title")
+                or social_search_label(base_url)
+                or dom
+            )
+            socials = discover_official_socials(str(social_name), base_url, dom)
             t_links = time.time()
             instagram_followers = parse_instagram_followers(socials["instagram"]) if socials["instagram"] else None
             youtube_followers = parse_youtube_followers(socials["youtube"]) if socials["youtube"] else None
@@ -1622,6 +1808,10 @@ def build_metric_rows(
             "google_ads": google.get("google_ads"),
             "google_ads_url": google.get("google_ads_url", ""),
             "linkedin_ads": linkedin.get("linkedin_ads"),
+            "linkedin_ads_total": linkedin.get("linkedin_ads_total"),
+            "linkedin_ads_ctrl": linkedin.get("linkedin_ads_ctrl"),
+            "linkedin_ads_fmt": linkedin.get("linkedin_ads_fmt")
+            or _fmt_meta_dual(linkedin.get("linkedin_ads_ctrl"), linkedin.get("linkedin_ads_total")),
             "linkedin_ads_url": linkedin.get("linkedin_search_url", ""),
             "instagram_url": socials["instagram"] or meta.get("instagram_url") or "",
             "youtube_url": socials["youtube"],
@@ -1744,6 +1934,7 @@ def load_existing_channel_map(xlsx_path: Path) -> dict[str, dict]:
             "page_id": col("Meta Page ID") or "",
             "method": col("Meta Method") or "",
             "linkedin_ads": col("Linkedin Ads", "LinkedIn Ads"),
+            "linkedin_ads_fmt": col("Linkedin Ads", "LinkedIn Ads") or "",
             "linkedin_search_url": col("Linkedin Ads URL", "LinkedIn Ads URL") or "",
             "instagram_url": col("Instagram URL") or "",
             "youtube_url": col("YouTube URL", "Youtube URL") or "",
@@ -1856,7 +2047,7 @@ def write_metrics_xlsx(
     ws.append(["Fonte nacional", str(national_xlsx)])
     ws.append(["Meta Ads", "Keyword search: Ctrl+F name hits (official) / total results (unofficial)"])
     ws.append(["Google Ads", "Busca direta por empresa na Google Ads Transparency"])
-    ws.append(["LinkedIn Ads", "ScrapingBee + LinkedIn Ad Library (accountOwner + h1 total)"])
+    ws.append(["LinkedIn Ads", "Keyword search: Ctrl+F name hits / H1 ads total (ScrapingBee)"])
     ws.append(["Data", datetime.now().strftime("%d/%m/%Y %H:%M")])
     ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 90
@@ -1897,7 +2088,8 @@ def write_metrics_xlsx(
             i, row["domain"], row["similaridade"], row["perfil"], row["fonte"],
             row["seo_atual"], row["marca_atual"],
             (row.get("meta_ads_fmt") or _fmt_meta_dual(row.get("meta_ads"), row.get("meta_ads_total")) or row.get("meta_ads")),
-            row["google_ads"], row["linkedin_ads"],
+            row["google_ads"],
+            (row.get("linkedin_ads_fmt") or _fmt_meta_dual(row.get("linkedin_ads_ctrl"), row.get("linkedin_ads_total")) or row.get("linkedin_ads")),
             row["meta_ads_url"],
             "sim" if row.get("meta_confirmed") else "nao",
             row.get("meta_ig") or "",

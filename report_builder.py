@@ -117,7 +117,7 @@ def _linkedin_ad_library_url(name: str = "", existing: str = "") -> str:
     q = (name or "").strip()
     if not q:
         return "https://www.linkedin.com/ad-library/search"
-    return f"https://www.linkedin.com/ad-library/search?accountOwner={quote(q)}"
+    return f"https://www.linkedin.com/ad-library/search?keyword={quote(q)}"
 
 # Fallbacks quando Metricas Canais omite o cliente (export incompleto).
 # Valores alinhados ao radar_v2_chatguru de exemplo na pasta do projeto.
@@ -954,6 +954,7 @@ def build_report_from_xlsx(
                 continue
             dom_key = domain.lower()
             meta_ctrl, meta_total = _parse_meta_dual(_get(row, idx, "meta ads"))
+            li_ctrl, li_total = _parse_meta_dual(_get(row, idx, "linkedin ads", "linkedin ads"))
             entities.append({
                 "domain": domain,
                 "name": _domain_label(domain),
@@ -972,7 +973,10 @@ def build_report_from_xlsx(
                 "meta_ig": str(_get(row, idx, "meta ig") or "").strip(),
                 "meta_page_id": str(_get(row, idx, "meta page id") or "").strip(),
                 "meta_method": str(_get(row, idx, "meta method") or "").strip(),
-                "linkedin_ads": _safe_int(_get(row, idx, "linkedin ads", "linkedin ads")),
+                "linkedin_ads": li_total if li_total is not None else li_ctrl,
+                "linkedin_ads_ctrl": li_ctrl,
+                "linkedin_ads_total": li_total,
+                "linkedin_ads_fmt": _fmt_meta_dual(li_ctrl, li_total) if (li_ctrl is not None or li_total is not None) else "",
                 "linkedin_ads_url": str(_get(row, idx, "linkedin ads url", "linkedin ads url") or ""),
                 "instagram_followers": _safe_int(_get(
                     row, idx,
@@ -1369,12 +1373,15 @@ def build_report_from_xlsx(
             raw_url = str(e.get(url_field) or "").strip()
             if url_field == "linkedin_ads_url":
                 raw_url = _linkedin_ad_library_url(e.get("name") or e.get("domain") or "", raw_url)
+            dual_fmt = str(e.get("linkedin_ads_fmt") or "").strip() if field == "linkedin_ads" else ""
             table.append({
                 "name": e["name"],
                 "domain": e["domain"],
                 "site_url": _site_url(e),
                 "value": val,
-                "value_fmt": _fmt_int(val) if (val or 0) > 0 else ("n/d" if str(e.get(url_field) or "").strip() else "0"),
+                "value_fmt": dual_fmt or (
+                    _fmt_int(val) if (val or 0) > 0 else ("n/d" if str(e.get(url_field) or "").strip() else "0")
+                ),
                 "bar": max(bar, 1) if (val or 0) > 0 else 1,
                 "url": raw_url,
                 "is_client": bool(e.get("is_client")),
@@ -1480,6 +1487,10 @@ def build_report_from_xlsx(
     linkedin_section = _count_section(
         "linkedin_ads", "linkedin_ads_url", "LinkedIn Ads", "anúncios",
         "Na versão Pro aprofundamos mensagens B2B e anúncios LinkedIn do líder do nicho.",
+    )
+    linkedin_section["insight"] = (
+        "LinkedIn Ads: busca o nome da empresa na Ad Library (ScrapingBee), "
+        "depois Ctrl+F o nome na página baixada. O número é hits do nome / total do H1."
     )
     ig_section = _count_section(
         "instagram_followers", "instagram_url", "Instagram", "seguidores",
