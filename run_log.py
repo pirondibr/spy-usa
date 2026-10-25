@@ -186,6 +186,31 @@ def _is_dfs_volume_step(ch: dict[str, Any]) -> bool:
     return "dataforseo" in blob and "search_volume" in blob
 
 
+_EST_USD_NOTE_RE = re.compile(r"estimated(?:_total)?_usd\s*=\s*([0-9.]+)", re.I)
+
+
+def refresh_duplicate_usage_costs(channels: list[dict[str, Any]]) -> None:
+    """Undo old logs that added estimated_usd + search_cost_usd (same number)."""
+    for ch in channels:
+        if not isinstance(ch, dict) or _channel_is_skipped(ch):
+            continue
+        sid = str(ch.get("id") or "")
+        if sid not in ("twitter_influencers", "tiktok_influencers", "youtube_influencers"):
+            continue
+        note = str(ch.get("cost_note") or "")
+        m = _EST_USD_NOTE_RE.search(note)
+        if not m:
+            continue
+        est = float(m.group(1))
+        stored = ch.get("cost_usd")
+        if est <= 0 or not isinstance(stored, (int, float)):
+            continue
+        if abs(float(stored) - 2.0 * est) < 0.0008:
+            ch["cost_usd"] = round(est, 4)
+            ch["cost_fmt"] = _fmt_usd(est)
+            ch["cost_note"] = f"Apify billed ${est:g}"
+
+
 def refresh_dfs_step_costs(channels: list[dict[str, Any]]) -> None:
     """Reprice Brand DataForSEO rows at the live $0.09/task rate."""
     for ch in channels:
@@ -210,6 +235,7 @@ def apply_cost_shares(
     totals = totals if isinstance(totals, dict) else {}
     refresh_apify_step_costs(channels)
     refresh_dfs_step_costs(channels)
+    refresh_duplicate_usage_costs(channels)
     total = 0.0
     for ch in channels:
         if not isinstance(ch, dict) or _channel_is_skipped(ch):
@@ -296,16 +322,25 @@ def _estimate_step_cost(
     usd = 0.0
     known = False
 
-    # Explicit USD from vendor payloads
+    # One vendor total only. X/TikTok/YouTube store the same figure on
+    # estimated_usd and search_cost_usd — summing both doubled Apify.
+    picked_total = None
+    picked_key = ""
     for k in ("estimated_total_usd", "estimated_usd", "cost_usd", "total_cost_usd"):
         if isinstance(usage.get(k), (int, float)):
-            usd += float(usage[k])
-            known = True
-            notes.append(f"{k}={usage[k]}")
-    for k in ("search_cost_usd", "fetch_cost_usd"):
-        if isinstance(usage.get(k), (int, float)) and float(usage[k]) > 0:
-            usd += float(usage[k])
-            known = True
+            picked_total = float(usage[k])
+            picked_key = k
+            break
+    if picked_total is not None:
+        usd += picked_total
+        known = True
+        notes.append(f"{picked_key}={picked_total}")
+    else:
+        for k in ("search_cost_usd", "fetch_cost_usd"):
+            if isinstance(usage.get(k), (int, float)) and float(usage[k]) > 0:
+                usd += float(usage[k])
+                known = True
+                notes.append(f"{k}={usage[k]}")
 
     sb = usage.get("scrapingbee_credits")
     if sb is None:
