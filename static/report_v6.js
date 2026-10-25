@@ -433,7 +433,7 @@
       CO.map(function (c) {
         return "<tr>" + nmCell(c) + '<td class="num"><b>' + (c.visits ? num(c.visits) : "—") + '</b></td><td class="num ' + (c.vg >= 0 ? "up" : "dn") + '">' + pct(c.vg) + '</td><td class="num">' + (c.bounce == null ? "—" : dec1(c.bounce) + "%") + '</td><td class="num">' + (c.ppv == null ? "—" : Number(c.ppv).toFixed(2).replace(".", dec())) + '</td><td class="num">' + esc(c.time || "—") + "</td></tr>";
       }).join("") + "</tbody></table></div>" +
-      '<div class="sub-h">' + t("tr.brand") + '</div><div class="mx brand-mx"><table class="tb"><thead><tr><th>' + t("tr.company") + "</th><th class="brc">' + t("find.th.brand") + "</th><th>" + t("tr.sem") + "</th></tr></thead><tbody>" +
+      '<div class="sub-h">' + t("tr.brand") + '</div><div class="mx brand-mx"><table class="tb"><thead><tr><th>' + t("tr.company") + '</th><th class="brc">' + t("find.th.brand") + '</th><th>' + t("tr.sem") + '</th></tr></thead><tbody>' +
       CO.map(function (c) {
         return "<tr>" + nmCell(c) + '<td class="brc">' + brandCell(c) + '</td><td class="num">' + (c.sem == null ? "—" : fmt(c.sem)) + (c.semg == null ? "" : ' <span class="' + (c.semg >= 0 ? "up" : "dn") + '" style="font-size:12.5px">' + pct(c.semg) + "</span>") + "</td></tr>";
       }).join("") + "</tbody></table></div>" +
