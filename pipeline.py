@@ -752,9 +752,6 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
             return True
         if "google" not in src:
             return True
-        q = str((rows[0] or {}).get("query") or "")
-        if not (q.startswith('"') and q.endswith('"')):
-            return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
         return False

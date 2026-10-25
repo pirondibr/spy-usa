@@ -1157,7 +1157,7 @@ def analyze_company(
     """YouTube influencers: quoted popular Apify search + Google SERP, then dedupe."""
     t_all = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
-    q = quoted_brand_query(query or name, domain)
+    q = (query or name or domain or "").strip()
     if not q:
         raise ValueError("company/query required")
     loc = "us" if (market or "us").lower().startswith("us") else "br"
@@ -1266,7 +1266,7 @@ def analyze_company(
                 "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
                 "scrapingbee_credits": int(google.get("credits") or 0),
                 "note": (
-                    "Quoted Apify popularity (sort=v) plus Google YouTube SERP, "
+                    "Apify popularity (sort=v) plus Google YouTube SERP, "
                     "deduped by video id. Brand filter confirmed/probable/unrelated."
                 ),
             },

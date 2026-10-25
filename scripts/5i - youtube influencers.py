@@ -139,7 +139,7 @@ def main() -> None:
         # Prefer brand-ish query without TLD noise
         if not override_query:
             q = name.replace("-", " ").strip() or domain.split(".")[0]
-        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (quoted+popular+google)", flush=True)
+        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (popular+google)", flush=True)
         try:
             result = analyze_company(
                 name,
@@ -213,7 +213,7 @@ def main() -> None:
         "usage_total": {
             "estimated_usd": round(total_usd, 6),
             "scrapingbee_credits": total_credits,
-            "note": "Quoted Apify popularity (sort=v) plus Google YouTube SERP, deduped.",
+            "note": "Apify popularity (sort=v) plus Google YouTube SERP, deduped.",
         },
         "rows": rows,
     }
