@@ -11,7 +11,9 @@ from typing import Any, Optional
 # Approximate unit costs (USD). Override via env if needed.
 _SB_CREDIT_USD = float(os.environ.get("SPY_COST_SB_CREDIT", "0.0002") or 0.0002)
 _DFS_TASK_USD = float(os.environ.get("SPY_COST_DFS_TASK", "0.05") or 0.05)
-_APIFY_DOMAIN_USD = float(os.environ.get("SPY_COST_APIFY_DOMAIN", "0.015") or 0.015)
+_APIFY_DOMAIN_USD = float(os.environ.get("SPY_COST_APIFY_DOMAIN", "0.03") or 0.03)
+_APIFY_NOTE_RE = re.compile(r"×\s*(\d+)\s*domains", re.I)
+_LEGACY_APIFY_DOMAIN_USD = 0.015
 _TF_FETCH_USD = float(os.environ.get("SPY_COST_TF_FETCH", "0.0") or 0.0)
 _TF_SEARCH_USD = float(os.environ.get("SPY_COST_TF_SEARCH", "0.0") or 0.0)
 _OPENROUTER_CALL_USD = float(os.environ.get("SPY_COST_OPENROUTER_CALL", "0.01") or 0.01)
@@ -107,25 +109,59 @@ def _channel_is_skipped(ch: dict[str, Any]) -> bool:
     return "skip" in blob or "pulado" in blob
 
 
+def _apify_domain_count(ch: dict[str, Any]) -> Optional[int]:
+    m = _APIFY_NOTE_RE.search(str(ch.get("cost_note") or ""))
+    if m:
+        return max(1, int(m.group(1)))
+    usd = ch.get("cost_usd")
+    if isinstance(usd, (int, float)) and float(usd) > 0 and _LEGACY_APIFY_DOMAIN_USD > 0:
+        n = int(round(float(usd) / _LEGACY_APIFY_DOMAIN_USD))
+        if n > 0:
+            return n
+    return None
+
+
+def _is_apify_step(ch: dict[str, Any]) -> bool:
+    sid = str(ch.get("id") or "")
+    if sid in ("similarweb", "similarweb_alto"):
+        return True
+    apis = ch.get("apis") or []
+    if isinstance(apis, str):
+        apis = [apis]
+    return "Apify" in apis or "Apify" in str(ch.get("apis_fmt") or "")
+
+
+def refresh_apify_step_costs(channels: list[dict[str, Any]]) -> None:
+    """Reprice SimilarWeb rows at the live Apify rate ($0.03/domain by default)."""
+    for ch in channels:
+        if not isinstance(ch, dict) or _channel_is_skipped(ch) or not _is_apify_step(ch):
+            continue
+        n = _apify_domain_count(ch)
+        if not n:
+            continue
+        usd = round(n * _APIFY_DOMAIN_USD, 4)
+        ch["cost_usd"] = usd
+        ch["cost_fmt"] = _fmt_usd(usd)
+        ch["cost_note"] = f"Apify ×{n} domains × ${_APIFY_DOMAIN_USD:g}"
+
+
 def apply_cost_shares(
     channels: list[dict[str, Any]],
     totals: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Fill cost_pct / cost_pct_fmt on each step from cost_usd vs run total."""
     totals = totals if isinstance(totals, dict) else {}
-    total = totals.get("cost_usd")
-    if not isinstance(total, (int, float)) or float(total) <= 0:
-        total = 0.0
-        for ch in channels:
-            if not isinstance(ch, dict) or _channel_is_skipped(ch):
-                continue
-            v = ch.get("cost_usd")
-            if isinstance(v, (int, float)) and float(v) > 0:
-                total += float(v)
-        if total > 0:
-            totals["cost_usd"] = round(total, 4)
-            if not totals.get("cost_fmt"):
-                totals["cost_fmt"] = _fmt_usd(total)
+    refresh_apify_step_costs(channels)
+    total = 0.0
+    for ch in channels:
+        if not isinstance(ch, dict) or _channel_is_skipped(ch):
+            continue
+        v = ch.get("cost_usd")
+        if isinstance(v, (int, float)) and float(v) > 0:
+            total += float(v)
+    if total > 0:
+        totals["cost_usd"] = round(total, 4)
+        totals["cost_fmt"] = _fmt_usd(total)
 
     for ch in channels:
         if not isinstance(ch, dict):
@@ -167,6 +203,24 @@ def _n_rows(report: dict[str, Any], step_id: str) -> int:
     if not isinstance(section, dict):
         return 0
     return len(section.get("rows") or [])
+
+
+def _n_similarweb_alto(report: dict[str, Any]) -> int:
+    n = 0
+    for key in ("competitors", "competitors_raw"):
+        rows = report.get(key) or []
+        if not isinstance(rows, list):
+            continue
+        found = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if row.get("similarweb_visits") not in (None, ""):
+                found += 1
+        if found:
+            n = found
+            break
+    return n
 
 
 def _estimate_step_cost(
@@ -218,8 +272,11 @@ def _estimate_step_cost(
         if "DataForSEO" not in apis:
             apis.append("DataForSEO")
 
-    if step_id == "similarweb":
-        n = max(1, _n_rows(report, step_id))
+    if step_id in ("similarweb", "similarweb_alto"):
+        n = _n_rows(report, step_id)
+        if step_id == "similarweb_alto" and n <= 0:
+            n = _n_similarweb_alto(report)
+        n = max(1, n)
         usd += n * _APIFY_DOMAIN_USD
         known = True
         notes.append(f"Apify ×{n} domains × ${_APIFY_DOMAIN_USD:g}")
