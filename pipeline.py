@@ -541,7 +541,10 @@ def _load_tiktok_influencers(slug: str) -> Optional[dict]:
 
 
 def _tt_json_missing(slug: str) -> bool:
-    return _load_tiktok_influencers(slug) is None
+    data = _load_tiktok_influencers(slug)
+    if data is None:
+        return True
+    return str(data.get("brand_filter") or "") != "v2_neg_strong_brand"
 
 
 def _attach_tiktok_influencers(report: dict, slug: str) -> dict:

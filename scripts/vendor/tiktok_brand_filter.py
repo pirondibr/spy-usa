@@ -71,7 +71,8 @@ BRANDS: dict[str, dict[str, Any]] = {
         "domain": "arcads.ai",
         "handle_official": "arcads",
         "ambiguous": False,
-        "pos": [],
+        # Creators say "Arcade MCP" meaning Arcads; ASR also hears Arcads as arcade.
+        "pos": ["mcp", "ugc", "claude", "ads", "avatar", "actor", "astra", "ai"],
         "neg": ["arcade", "arcades", "fliperama", "arcadegame"],
     },
     "cursor": {
@@ -221,10 +222,17 @@ def _hashtags(post: dict[str, Any]) -> list[str]:
     raw = post.get("hashtags") or []
     if isinstance(raw, str):
         raw = re.findall(r"#?([A-Za-z0-9_]+)", raw)
-    out = []
+    out: list[str] = []
+    seen: set[str] = set()
     for h in raw:
         s = str(h or "").lstrip("#").lower()
-        if s:
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    for h in re.findall(r"#([A-Za-z0-9_]+)", _title(post)):
+        s = h.lower()
+        if s and s not in seen:
+            seen.add(s)
             out.append(s)
     return out
 
@@ -393,14 +401,21 @@ def classify(
     if neg_hit:
         score -= 40
 
+    # Title/domain/mention beat a near-homophone negative (arcade vs Arcads,
+    # including TikTok auto-captions that transcribe Arcads as "arcade").
+    strong_brand = bool(in_title or in_domain or in_mention or official)
     if impersonator:
         label = "unrelated"
         score = min(score, 0)
     elif not appeared:
         label = "unrelated"
         score = min(score, 0)
-    elif neg_hit and (ambiguous or not official):
-        label = "unrelated"
+    elif neg_hit and not strong_brand and (ambiguous or not official):
+        if (not ambiguous) and in_hashtag and pos_hit:
+            label = "confirmed"
+            reasons.append("alias_with_context")
+        else:
+            label = "unrelated"
     elif official or in_domain:
         label = "confirmed"
     elif not ambiguous and (in_title or in_speech or in_mention):

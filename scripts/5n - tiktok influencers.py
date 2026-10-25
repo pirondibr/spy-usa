@@ -225,6 +225,7 @@ def main() -> None:
             "source": src or "apify_tiktok",
             "note": "Apify apidojo/tiktok-scraper. Brand filter hides unrelated. ~$0.0075 / 25 posts.",
         },
+        "brand_filter": "v2_neg_strong_brand",
         "rows": rows,
     }
     out_dir = METRICAS_DIR / slug
