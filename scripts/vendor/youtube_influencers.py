@@ -20,7 +20,8 @@ from tiktok_brand_filter import classify_all, resolve_brand
 ACTOR_ID = "1p1aa7gcSydPkAE0d"
 APIFY_SYNC_URL = f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items"
 _COST_PER_VIDEO = 0.50 / 1000
-_MAX_DEFAULT = 10
+_MAX_DEFAULT = 20
+_YT_SORT_VIEWS = "CAM%3D"
 
 SCRAPINGBEE_URL = "https://app.scrapingbee.com/api/v1/"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -46,7 +47,7 @@ def _max_items() -> int:
         n = int(raw)
     except ValueError:
         n = _MAX_DEFAULT
-    return max(10, min(50, n))
+    return max(20, min(50, n))
 
 
 def _cache_dir() -> Path:
@@ -490,15 +491,22 @@ def _runs_text(obj: Any) -> str:
 
 
 def _extract_yt_initial_data(html: str) -> Optional[dict]:
-    idx = (html or "").find("ytInitialData")
+    blob = html or ""
+    m = re.search(r"var ytInitialData = (\{.*?\});</script>", blob, flags=re.S)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+    idx = blob.find("ytInitialData")
     if idx < 0:
         return None
-    start = html.find("{", idx)
+    start = blob.find("{", idx)
     if start < 0:
         return None
     depth = 0
     end = None
-    for i, ch in enumerate(html[start:], start):
+    for i, ch in enumerate(blob[start:], start):
         if ch == "{":
             depth += 1
         elif ch == "}":
@@ -509,9 +517,32 @@ def _extract_yt_initial_data(html: str) -> Optional[dict]:
     if not end:
         return None
     try:
-        return json.loads(html[start:end])
+        return json.loads(blob[start:end])
     except Exception:
         return None
+
+
+def _card_snippet(vr: dict) -> str:
+    """Search-card description lives in detailedMetadataSnippets, not descriptionSnippet."""
+    chunks: list[str] = []
+    for block in vr.get("detailedMetadataSnippets") or []:
+        if not isinstance(block, dict):
+            continue
+        text = _runs_text(block.get("snippetText"))
+        if text:
+            chunks.append(text.replace("\n", " "))
+    if chunks:
+        return " ".join(chunks)
+    return _runs_text(vr.get("descriptionSnippet"))
+
+
+def _youtube_search_url(query: str, *, for_scrapingbee: bool = False) -> str:
+    """Popular sort. Double-encode % so requests+ScrapingBee leave YouTube with CAM%3D."""
+    url = "https://www.youtube.com/results?search_query=" + quote_plus(query)
+    sp = _YT_SORT_VIEWS
+    if for_scrapingbee:
+        sp = sp.replace("%", "%25")
+    return f"{url}&sp={sp}"
 
 
 def _channel_from_renderer(vr: dict) -> tuple[str, str]:
@@ -550,7 +581,7 @@ def _parse_videos_from_yt_data(data: dict) -> list[dict]:
                     vr.get("shortViewCountText")
                 )
                 age = _runs_text(vr.get("publishedTimeText"))
-                snippet = _runs_text(vr.get("descriptionSnippet"))
+                snippet = _card_snippet(vr)
                 channel_name, channel_url = _channel_from_renderer(vr)
                 watch = f"https://www.youtube.com/watch?v={vid}" if vid else ""
                 videos.append({
@@ -772,25 +803,19 @@ def google_youtube_search(query: str, *, market: str = "us") -> dict[str, Any]:
 
 
 def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, Any]:
-    """Fetch native YouTube search HTML via ScrapingBee (render_js) and parse cards."""
+    """One no-JS ScrapingBee credit: ytInitialData cards including description snippets."""
     t0 = time.time()
-    cc = (country or "US").lower()[:2]
-    search_url = (
-        f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-        f"&sp=CAMSAhAB&hl=en&gl={cc.upper()}"
-    )
+    search_url = _youtube_search_url(query)
+    fetch_url = _youtube_search_url(query, for_scrapingbee=True)
     try:
         r = requests.get(
             SCRAPINGBEE_URL,
             params={
                 "api_key": _scrapingbee_key(),
-                "url": search_url,
-                "render_js": "true",
-                "premium_proxy": "true",
-                "country_code": cc,
-                "wait": "2500",
+                "url": fetch_url,
+                "render_js": "false",
             },
-            timeout=80,
+            timeout=150,
         )
     except requests.Timeout:
         return {
@@ -1193,15 +1218,12 @@ def analyze_company(
     max_items = _max_items()
 
     cached = False
-    cache_key = _cache_key(q, loc, max_items, "sb-search-v")
+    cache_key = _cache_key(q, loc, max_items, "sb-njs-cam")
     cached_posts = _cache_get(cache_key)
     credits = 0
     search_n = 0
     snippet_n = 0
-    search_url = (
-        f"https://www.youtube.com/results?search_query={quote_plus(q)}"
-        f"&sp=CAMSAhAB&hl=en&gl={loc_sb}"
-    )
+    search_url = _youtube_search_url(q)
     error = None
 
     if cached_posts is not None:
@@ -1226,10 +1248,10 @@ def analyze_company(
             error = None if videos else (
                 f"{fetched.get('error') or 'search empty'} | {google.get('error') or 'google empty'}"
             )
-        videos = sorted(videos, key=lambda v: int(v.get("views") or 0), reverse=True)
         search_n = len(videos)
-        snippet_n = sum(1 for v in videos[:max_items] if v.get("snippet") or v.get("description"))
-        posts = [p for p in (_search_video_to_post(v) for v in videos[:max_items]) if p]
+        picked = videos[:max_items]
+        snippet_n = sum(1 for v in picked if v.get("snippet") or v.get("description"))
+        posts = [p for p in (_search_video_to_post(v) for v in picked) if p]
         if posts:
             _cache_put(cache_key, posts)
     if not snippet_n:
@@ -1292,7 +1314,7 @@ def analyze_company(
             "with_snippet": snippet_n,
         },
         "usage": {
-            "source": "scrapingbee_youtube",
+            "source": "scrapingbee_youtube_njs",
             "cached": cached,
             "estimated_usd": 0.0,
             "posts": len(posts),
@@ -1301,8 +1323,8 @@ def analyze_company(
             "gl": loc,
             "scrapingbee_credits": credits,
             "note": (
-                "ScrapingBee YouTube popular search cards only "
-                "(title, snippet, views, age). No watch pages."
+                "ScrapingBee no-JS YouTube popular search (sp=CAM%3D). "
+                "Title + detailedMetadataSnippets. First page, no watch pages."
             ),
         },
         "elapsed_sec": round(time.time() - t_all, 2),

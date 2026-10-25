@@ -207,13 +207,13 @@ def main() -> None:
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "scrapingbee_youtube",
+        "source": "scrapingbee_youtube_njs",
         "llm_title_filter": False,
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": round(total_usd, 6),
             "scrapingbee_credits": total_credits,
-            "note": "ScrapingBee YouTube popular search cards (title/snippet/views). No watch pages.",
+            "note": "ScrapingBee no-JS YouTube popular search (title + detailedMetadataSnippets).",
         },
         "rows": rows,
     }

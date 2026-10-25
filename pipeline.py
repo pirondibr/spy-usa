@@ -318,7 +318,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
     usage = data.get("usage_total") or {}
     report["youtube_influencers"] = {
-        "source": data.get("source") or "scrapingbee_youtube",
+        "source": data.get("source") or "scrapingbee_youtube_njs",
         "market": data.get("market") or "US",
         "leader": client.get("name") if client else "—",
         "total_traffic_fmt": client.get("traffic_fmt") if client else "—",
@@ -326,7 +326,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
         "rows": rows_out,
         "usage_total": usage,
         "insight": (
-            f"YouTube «{client.get('query') or client.get('name') or '—'}» ScrapingBee popular search: "
+            f"YouTube «{client.get('query') or client.get('name') or '—'}» ScrapingBee no-JS popular: "
             f"official {_fmt_views(client.get('views_official'))} · "
             f"unofficial {_fmt_views(client.get('views_unofficial'))} · "
             f"30d {_fmt_views(client.get('views_30d'))} / "
@@ -748,7 +748,7 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         if not rows:
             return True
         src = str(data.get("source") or "").lower()
-        if "scrapingbee" not in src:
+        if "scrapingbee" not in src or "njs" not in src:
             return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
