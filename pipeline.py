@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Spy USA pipeline: briefing → (concorrentes?) → SEO → Brand → Google Ads → Meta → Social."""
+"""Spy USA pipeline: briefing → (concorrentes?) → SEO → independent channels in parallel."""
 
 from __future__ import annotations
 
@@ -896,18 +896,28 @@ def _run_independent_extras(
     on_log: Callable[[str], None],
     report: dict,
     tag_report: Callable[[dict], dict],
+    preferred_competitors: Optional[list] = None,
 ) -> dict:
-    """Run JSON extras that do not share an XLSX. Cap at 3 to stay kind to Render + APIs."""
+    """Run independent post-SEO channels together. Cap at 3. XLSX writers lock+re-merge."""
     lock = threading.Lock()
 
     def _safe_log(line: str) -> None:
         with lock:
             on_log(line)
 
+    def _steps(ex: dict[str, Any]) -> list[str]:
+        raw = ex.get("steps") or [ex.get("step")]
+        return [str(s) for s in raw if s]
+
+    def _sections(ex: dict[str, Any]) -> list[str]:
+        raw = ex.get("sections") or [ex.get("section")]
+        return [str(s) for s in raw if s]
+
     def _one(ex: dict[str, Any]) -> tuple[dict[str, Any], Optional[str], float]:
         t0 = time.time()
         with lock:
-            _emit_progress(emit, set_step, ex["step"], "running", ex["running"])
+            for sid in _steps(ex):
+                _emit_progress(emit, set_step, sid, "running", ex["running"])
             emit("log", line=f"[PARALLEL] start {ex['tag']}")
         err = None
         try:
@@ -924,9 +934,10 @@ def _run_independent_extras(
 
     if not extras:
         return report
+    extras = sorted(extras, key=lambda e: int(e.get("priority") or 0), reverse=True)
     workers = _extra_workers(len(extras))
     names = ", ".join(ex["tag"] for ex in extras)
-    emit("log", line=f"[PARALLEL] {len(extras)} extras · {workers} workers · {names}")
+    emit("log", line=f"[PARALLEL] {len(extras)} channels · {workers} workers · {names}")
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = [pool.submit(_one, ex) for ex in extras]
@@ -935,18 +946,34 @@ def _run_independent_extras(
             if err:
                 emit("log", line=f"[{ex['tag']}] Partial failure: {err}")
             emit("log", line=f"[PARALLEL] done {ex['tag']} in {elapsed}s")
-            report = ex["attach"](report, slug)
+            kind = str(ex.get("kind") or "json").lower()
+            if kind == "xlsx":
+                try:
+                    xlsx_now = find_metricas_xlsx(slug)
+                    if xlsx_now:
+                        report = build_report_from_xlsx(
+                            xlsx_now,
+                            client_name=client_name,
+                            preferred_competitors=preferred_competitors,
+                        )
+                except Exception as e:
+                    emit("log", line=f"[{ex['tag']}] XLSX rebuild skipped: {e}")
+                report = _attach_all_sidecars(report, slug)
+            elif ex.get("attach"):
+                report = ex["attach"](report, slug)
             report = tag_report(report)
-            emit(
-                "partial",
-                section=ex["section"],
-                data=report.get(ex["section"]) or {},
-                client=client_name,
-            )
-            _emit_progress(emit, set_step, ex["step"], "done", ex["done"])
+            for section in _sections(ex):
+                emit(
+                    "partial",
+                    section=section,
+                    data=report.get(section) or {},
+                    client=client_name,
+                )
+            for sid in _steps(ex):
+                _emit_progress(emit, set_step, sid, "done", ex.get("done") or f"{sid} ready")
     emit(
         "log",
-        line=f"[PARALLEL] extras wall {round(time.time() - t0, 2)}s (vs sequential sum of each extra)",
+        line=f"[PARALLEL] channels wall {round(time.time() - t0, 2)}s (vs sequential sum of each channel)",
     )
     return report
 
@@ -2017,144 +2044,7 @@ def run_pipeline(
     emit("partial", section="seo", data=report.get("seo") or {}, client=client_name)
     _emit_progress(emit, set_step, "seo", "done", "SEO ready")
 
-    # 3) Brand
-    _emit_progress(emit, set_step, "brand", "running", "Building brand ranking...")
-    _run_script(
-        [sys.executable, str(SCRIPT_BRAND), slug],
-        FINAL_DIR,
-        on_log,
-        timeout_sec=180,
-        env=script_env,
-    )
-    xlsx = find_metricas_xlsx(slug) or xlsx
-    report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
-    emit("partial", section="brand", data=report.get("brand") or {}, client=client_name)
-    _emit_progress(emit, set_step, "brand", "done", "Brand Semrush ready")
-
-    # 3b) Brand DataForSEO (keyword from domain+title, monthly history)
-    _emit_progress(emit, set_step, "brand_dfs", "running", "Brand DataForSEO US (1y/2y/3y/5y)...")
-    try:
-        _run_script(
-            [sys.executable, str(SCRIPT_BRAND_DFS), slug],
-            FINAL_DIR,
-            on_log,
-            timeout_sec=180,
-            env=script_env,
-        )
-    except Exception as e:
-        emit("log", line=f"[BRAND/DFS] Partial failure: {e}")
-    report = _attach_brand_dfs(report, slug)
-    emit(
-        "partial",
-        section="brand_dataforseo",
-        data=report.get("brand_dataforseo") or {},
-        client=client_name,
-    )
-    _emit_progress(emit, set_step, "brand_dfs", "done", "Brand DataForSEO ready")
-
-    # 3c) SimilarWeb Traffic (Apify)
-    _emit_progress(emit, set_step, "similarweb", "running", "SimilarWeb Traffic (Apify)...")
-    try:
-        _run_script(
-            [sys.executable, str(SCRIPT_SIMILARWEB), slug],
-            FINAL_DIR,
-            on_log,
-            timeout_sec=180,
-            env=script_env,
-        )
-    except Exception as e:
-        emit("log", line=f"[SIMILARWEB] Partial failure: {e}")
-    report = _attach_similarweb(report, slug)
-    emit(
-        "partial",
-        section="similarweb",
-        data=report.get("similarweb") or {},
-        client=client_name,
-    )
-    _emit_progress(emit, set_step, "similarweb", "done", "SimilarWeb ready")
-
-    # 4) Google Ads Library (optional)
-    if include_google_ads:
-        _emit_progress(emit, set_step, "google_ads", "running", "Google Ads Transparency (US)...")
-        try:
-            _run_script(
-                [sys.executable, str(SCRIPT_GOOGLE), slug],
-                FINAL_DIR,
-                on_log,
-                timeout_sec=420,
-                env=script_env,
-            )
-        except Exception as e:
-            emit("log", line=f"[GOOGLE] Partial failure: {e}")
-        xlsx = find_metricas_xlsx(slug) or xlsx
-        report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
-        emit("partial", section="google_ads", data=report.get("google_ads") or {}, client=client_name)
-        _emit_progress(emit, set_step, "google_ads", "done", "Google Ads ready")
-    else:
-        _emit_progress(emit, set_step, "google_ads", "done", "Skipped")
-
-    # 5) Meta
-    _emit_progress(emit, set_step, "meta", "running", "Meta Ads Library (US)...")
-    try:
-        _run_script(
-            [sys.executable, str(SCRIPT_META), slug],
-            FINAL_DIR,
-            on_log,
-            timeout_sec=420,
-            env=script_env,
-        )
-    except Exception as e:
-        emit("log", line=f"[META] Partial failure: {e}")
-    xlsx = find_metricas_xlsx(slug) or xlsx
-    report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
-    emit("partial", section="meta", data=report.get("meta") or {}, client=client_name)
-    _emit_progress(emit, set_step, "meta", "done", "Meta ready")
-
-    # 6) LinkedIn Ads Library (optional) — empresa → ad → pagante → total
-    if include_linkedin:
-        _emit_progress(
-            emit, set_step, "linkedin", "running",
-            "LinkedIn Ads Library (US): find ad → payer → total...",
-        )
-        try:
-            _run_script(
-                [sys.executable, str(SCRIPT_LINKEDIN), slug],
-                FINAL_DIR,
-                on_log,
-                timeout_sec=600,
-                env=script_env,
-            )
-        except Exception as e:
-            emit("log", line=f"[LINKEDIN] Partial failure: {e}")
-        xlsx = find_metricas_xlsx(slug) or xlsx
-        report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
-        emit("partial", section="linkedin", data=report.get("linkedin") or {}, client=client_name)
-        _emit_progress(emit, set_step, "linkedin", "done", "LinkedIn ready")
-    else:
-        _emit_progress(emit, set_step, "linkedin", "done", "Skipped")
-
-    # 7–9) Social
-    _emit_progress(emit, set_step, "instagram", "running", "Instagram / YouTube / TikTok...")
-    try:
-        _run_script(
-            [sys.executable, str(SCRIPT_SOCIAL), slug],
-            FINAL_DIR,
-            on_log,
-            timeout_sec=600,
-            env=script_env,
-        )
-    except Exception as e:
-        emit("log", line=f"[SOCIAL] Partial failure: {e}")
-    xlsx = find_metricas_xlsx(slug) or xlsx
-    report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
-    report = _attach_brand_dfs(report, slug)
-    report = _attach_similarweb(report, slug)
-    report = _tag_report(report)
-    for sid in ("instagram", "youtube", "tiktok"):
-        emit("partial", section=sid, data=report.get(sid) or {}, client=client_name)
-        _emit_progress(emit, set_step, sid, "done", f"{sid} ready")
-
-    # 10–14) Independent extras — own JSON files, up to 3 at a time
+    # 3+) Independent channels after SEO (XLSX writers lock+re-merge; JSON extras are sidecar files)
     _tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
     _sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
     _dfs = bool(
@@ -2162,6 +2052,93 @@ def run_pipeline(
         and (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
     )
     extras: list[dict[str, Any]] = []
+
+    extras.append({
+        "tag": "BRAND",
+        "step": "brand",
+        "section": "brand",
+        "script": SCRIPT_BRAND,
+        "timeout": 180,
+        "kind": "xlsx",
+        "priority": 10,
+        "running": "Building brand ranking...",
+        "done": "Brand Semrush ready",
+    })
+    extras.append({
+        "tag": "BRAND/DFS",
+        "step": "brand_dfs",
+        "section": "brand_dataforseo",
+        "script": SCRIPT_BRAND_DFS,
+        "timeout": 180,
+        "kind": "json",
+        "priority": 20,
+        "running": "Brand DataForSEO US (1y/2y/3y/5y)...",
+        "done": "Brand DataForSEO ready",
+        "attach": _attach_brand_dfs,
+    })
+    extras.append({
+        "tag": "SIMILARWEB",
+        "step": "similarweb",
+        "section": "similarweb",
+        "script": SCRIPT_SIMILARWEB,
+        "timeout": 180,
+        "kind": "json",
+        "priority": 40,
+        "running": "SimilarWeb Traffic (Apify)...",
+        "done": "SimilarWeb ready",
+        "attach": _attach_similarweb,
+    })
+    if include_google_ads:
+        extras.append({
+            "tag": "GOOGLE",
+            "step": "google_ads",
+            "section": "google_ads",
+            "script": SCRIPT_GOOGLE,
+            "timeout": 420,
+            "kind": "xlsx",
+            "priority": 25,
+            "running": "Google Ads Transparency (US)...",
+            "done": "Google Ads ready",
+        })
+    else:
+        _emit_progress(emit, set_step, "google_ads", "done", "Skipped")
+    extras.append({
+        "tag": "META",
+        "step": "meta",
+        "section": "meta",
+        "script": SCRIPT_META,
+        "timeout": 420,
+        "kind": "xlsx",
+        "priority": 30,
+        "running": "Meta Ads Library (US)...",
+        "done": "Meta ready",
+    })
+    if include_linkedin:
+        extras.append({
+            "tag": "LINKEDIN",
+            "step": "linkedin",
+            "section": "linkedin",
+            "script": SCRIPT_LINKEDIN,
+            "timeout": 600,
+            "kind": "xlsx",
+            "priority": 35,
+            "running": "LinkedIn Ads Library (US): find ad → payer → total...",
+            "done": "LinkedIn ready",
+        })
+    else:
+        _emit_progress(emit, set_step, "linkedin", "done", "Skipped")
+    extras.append({
+        "tag": "SOCIAL",
+        "step": "instagram",
+        "steps": ["instagram", "youtube", "tiktok"],
+        "sections": ["instagram", "youtube", "tiktok"],
+        "script": SCRIPT_SOCIAL,
+        "timeout": 600,
+        "kind": "xlsx",
+        "priority": 75,
+        "running": "Instagram / YouTube / TikTok...",
+        "done": "Social ready",
+    })
 
     if include_youtube_influencers:
         if not _sb:
@@ -2174,6 +2151,8 @@ def run_pipeline(
                 "section": "youtube_influencers",
                 "script": SCRIPT_YT_INFLUENCERS,
                 "timeout": 240,
+                "kind": "json",
+                "priority": 90,
                 "running": "YouTube Influencers (ScrapingBee + parse)...",
                 "done": "YouTube Influencers ready",
                 "attach": _attach_youtube_influencers,
@@ -2192,6 +2171,8 @@ def run_pipeline(
                 "section": "instagram_influencers",
                 "script": SCRIPT_IG_INFLUENCERS,
                 "timeout": 600,
+                "kind": "json",
+                "priority": 80,
                 "running": "Instagram Influencers (Search + page download)...",
                 "done": "Instagram Influencers ready",
                 "attach": _attach_instagram_influencers,
@@ -2210,6 +2191,8 @@ def run_pipeline(
                 "section": "tiktok_influencers",
                 "script": SCRIPT_TT_INFLUENCERS,
                 "timeout": 180,
+                "kind": "json",
+                "priority": 50,
                 "running": "TikTok Influencers (Google site:tiktok.com)…",
                 "done": "TikTok Influencers ready",
                 "attach": _attach_tiktok_influencers,
@@ -2228,6 +2211,8 @@ def run_pipeline(
                 "section": "reddit",
                 "script": SCRIPT_REDDIT,
                 "timeout": 240,
+                "kind": "json",
+                "priority": 55,
                 "running": "Reddit (site:reddit.com + comments)...",
                 "done": "Reddit ready",
                 "attach": _attach_reddit,
@@ -2246,6 +2231,8 @@ def run_pipeline(
                 "section": "twitter",
                 "script": SCRIPT_TWITTER,
                 "timeout": 180,
+                "kind": "json",
+                "priority": 45,
                 "running": "Twitter/X profile...",
                 "done": "Twitter ready",
                 "attach": _attach_twitter,
@@ -2264,6 +2251,8 @@ def run_pipeline(
                 "section": "linkedin_profile",
                 "script": SCRIPT_LI_PROFILE,
                 "timeout": 120,
+                "kind": "json",
+                "priority": 15,
                 "running": "LinkedIn profile...",
                 "done": "LinkedIn Profile ready",
                 "attach": _attach_linkedin_profile,
@@ -2282,7 +2271,20 @@ def run_pipeline(
             on_log=on_log,
             report=report,
             tag_report=_tag_report,
+            preferred_competitors=parsed.competitors,
         )
+        xlsx = find_metricas_xlsx(slug) or xlsx
+        if xlsx:
+            try:
+                report = build_report_from_xlsx(
+                    xlsx,
+                    client_name=client_name,
+                    preferred_competitors=parsed.competitors,
+                )
+            except Exception as e:
+                emit("log", line=f"[PARALLEL] final XLSX rebuild skipped: {e}")
+        report = _attach_all_sidecars(report, slug)
+        report = _tag_report(report)
 
     html_url = ""
     if run_id:

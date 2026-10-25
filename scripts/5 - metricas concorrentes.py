@@ -27,9 +27,10 @@ import re
 import sys
 import time
 import unicodedata
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator, Optional
 
 try:
     from market import (
@@ -1632,11 +1633,82 @@ def build_metric_rows(
     return rows
 
 
+@contextmanager
+def _xlsx_write_lock(path: Path, timeout: float = 180.0) -> Iterator[None]:
+    """Exclusive mkdir lock so parallel channel modes cannot clobber the workbook."""
+    lock_dir = Path(str(path) + ".lockdir")
+    lock_dir.parent.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    while True:
+        try:
+            if lock_dir.exists():
+                age = time.time() - lock_dir.stat().st_mtime
+                if age > 600:
+                    try:
+                        lock_dir.rmdir()
+                    except OSError:
+                        pass
+            lock_dir.mkdir()
+            break
+        except FileExistsError:
+            if time.time() - t0 > timeout:
+                raise TimeoutError(f"XLSX lock timeout after {timeout:.0f}s: {path.name}")
+            time.sleep(0.15)
+    try:
+        yield
+    finally:
+        try:
+            lock_dir.rmdir()
+        except OSError:
+            pass
+
+
+def _seed_keep_maps(
+    latest: dict[str, dict],
+    meta_map: dict[str, dict],
+    google_ads_map: dict[str, dict],
+    linkedin_map: dict[str, dict],
+    *,
+    keep_meta: bool,
+    keep_google: bool,
+    keep_linkedin: bool,
+) -> None:
+    """Fill other-channel maps from the latest on-disk workbook (setdefault keeps fresh collects)."""
+    for dom, prev in latest.items():
+        if keep_meta:
+            meta_map.setdefault(dom, {"meta_ads": prev.get("meta_ads"), "meta_url": prev.get("meta_url", "")})
+        if keep_google:
+            google_ads_map.setdefault(
+                dom,
+                {"google_ads": prev.get("google_ads"), "google_ads_url": prev.get("google_ads_url", "")},
+            )
+        if keep_linkedin:
+            linkedin_map.setdefault(
+                dom,
+                {
+                    "linkedin_ads": prev.get("linkedin_ads"),
+                    "linkedin_search_url": prev.get("linkedin_search_url", ""),
+                },
+            )
+
+
 def load_existing_channel_map(xlsx_path: Path) -> dict[str, dict]:
     """Reaproveita Google/Meta/LinkedIn ja gravados em metricas anteriores."""
     if not xlsx_path or not Path(xlsx_path).exists():
         return {}
-    rows = load_sheet_rows(xlsx_path, "Metricas Canais")
+    rows: list = []
+    last_err: Optional[Exception] = None
+    for attempt in range(5):
+        try:
+            rows = load_sheet_rows(xlsx_path, "Metricas Canais")
+            last_err = None
+            break
+        except Exception as exc:
+            last_err = exc
+            time.sleep(0.2)
+    if last_err is not None:
+        print(f"[METRICAS] warn: could not re-read {Path(xlsx_path).name}: {last_err}", flush=True)
+        return {}
     if not rows:
         return {}
     headers = rows[0]
@@ -1859,7 +1931,16 @@ def write_metrics_xlsx(
     write_rows_sheet(wb, "Crescimento", growth_rows)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out_path)
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
+    wb.save(tmp_path)
+    for attempt in range(8):
+        try:
+            os.replace(tmp_path, out_path)
+            break
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.2)
     return out_path
 
 
@@ -1940,12 +2021,6 @@ def main() -> None:
         google_ads_map = load_google_ads_map(metric_entities)
         mark("Google Ads (ScrapingBee)", t0)
         keep_meta = keep_linkedin = keep_social = True
-        for dom, prev in existing_maps.items():
-            meta_map[dom] = {"meta_ads": prev.get("meta_ads"), "meta_url": prev.get("meta_url", "")}
-            linkedin_map[dom] = {
-                "linkedin_ads": prev.get("linkedin_ads"),
-                "linkedin_search_url": prev.get("linkedin_search_url", ""),
-            }
 
     elif mode == "meta":
         t0 = time.time()
@@ -1953,15 +2028,6 @@ def main() -> None:
         meta_map = load_meta_map(metric_entities)
         mark("Meta Ads (ScrapingBee)", t0)
         keep_google = keep_linkedin = keep_social = True
-        for dom, prev in existing_maps.items():
-            google_ads_map[dom] = {
-                "google_ads": prev.get("google_ads"),
-                "google_ads_url": prev.get("google_ads_url", ""),
-            }
-            linkedin_map[dom] = {
-                "linkedin_ads": prev.get("linkedin_ads"),
-                "linkedin_search_url": prev.get("linkedin_search_url", ""),
-            }
 
     elif mode == "linkedin":
         t0 = time.time()
@@ -1969,29 +2035,13 @@ def main() -> None:
         linkedin_map = load_linkedin_map(metric_entities)
         mark("LinkedIn Ads (ScrapingBee)", t0)
         keep_meta = keep_google = keep_social = True
-        for dom, prev in existing_maps.items():
-            google_ads_map[dom] = {
-                "google_ads": prev.get("google_ads"),
-                "google_ads_url": prev.get("google_ads_url", ""),
-            }
-            meta_map[dom] = {"meta_ads": prev.get("meta_ads"), "meta_url": prev.get("meta_url", "")}
 
     elif mode == "social":
         t0 = time.time()
         print("[METRICAS] Subetapa Instagram + YouTube (sem TikTok) ...", flush=True)
         collect_social = True
         keep_meta = keep_google = keep_linkedin = True
-        for dom, prev in existing_maps.items():
-            google_ads_map[dom] = {
-                "google_ads": prev.get("google_ads"),
-                "google_ads_url": prev.get("google_ads_url", ""),
-            }
-            meta_map[dom] = {"meta_ads": prev.get("meta_ads"), "meta_url": prev.get("meta_url", "")}
-            linkedin_map[dom] = {
-                "linkedin_ads": prev.get("linkedin_ads"),
-                "linkedin_search_url": prev.get("linkedin_search_url", ""),
-            }
-        mark("setup maps preservados (social)", t0)
+        mark("setup social (ads rematched under lock)", t0)
 
     elif mode in ("seo", "brand"):
         print(
@@ -1999,53 +2049,68 @@ def main() -> None:
             flush=True,
         )
         keep_meta = keep_google = keep_linkedin = keep_social = True
-        for dom, prev in existing_maps.items():
-            google_ads_map[dom] = {
-                "google_ads": prev.get("google_ads"),
-                "google_ads_url": prev.get("google_ads_url", ""),
-            }
-            meta_map[dom] = {"meta_ads": prev.get("meta_ads"), "meta_url": prev.get("meta_url", "")}
-            linkedin_map[dom] = {
-                "linkedin_ads": prev.get("linkedin_ads"),
-                "linkedin_search_url": prev.get("linkedin_search_url", ""),
-            }
 
-    if mode == "full":
+    collected_rows = None
+    if collect_social:
         t0 = time.time()
         print("[METRICAS] Subetapa redes sociais (homepage + followers, sem TikTok) ...", flush=True)
-        metric_rows = build_metric_rows(
+        collected_rows = build_metric_rows(
             metric_entities, traffic_map, meta_map, google_ads_map, linkedin_map, collect_social=True,
         )
         mark("Redes sociais (links+followers)", t0)
-    else:
-        t0 = time.time()
-        metric_rows = build_metric_rows(
-            metric_entities, traffic_map, meta_map, google_ads_map, linkedin_map, collect_social=collect_social,
-        )
-        _merge_preserved_channels(
-            metric_rows,
-            existing_maps,
-            keep_meta=keep_meta,
-            keep_google=keep_google,
-            keep_linkedin=keep_linkedin,
-            keep_social=keep_social and not collect_social,
-        )
-        mark(f"Montagem Metricas Canais ({mode})", t0)
 
-    t0 = time.time()
     keep_domains = {c["domain"] for c in competitors}
     traffic_rows = filtered_sheet(load_sheet_rows(national_xlsx, "Trafego SEO Marca"), keep_domains, include_client=True)
     growth_rows = filtered_sheet(load_sheet_rows(national_xlsx, "Crescimento"), keep_domains, include_client=True)
-    saved = write_metrics_xlsx(
-        out_path,
-        client_input,
-        briefing,
-        competitors,
-        metric_rows,
-        traffic_rows,
-        growth_rows,
-        national_xlsx,
-    )
+
+    t0 = time.time()
+    with _xlsx_write_lock(out_path):
+        latest = load_existing_channel_map(out_path) if out_path.exists() else {}
+        print(
+            f"[METRICAS] XLSX lock · re-read {len(latest)} domain(s) before merge+save ({mode})",
+            flush=True,
+        )
+        _seed_keep_maps(
+            latest,
+            meta_map,
+            google_ads_map,
+            linkedin_map,
+            keep_meta=keep_meta,
+            keep_google=keep_google,
+            keep_linkedin=keep_linkedin,
+        )
+        if collected_rows is not None:
+            metric_rows = collected_rows
+            _merge_preserved_channels(
+                metric_rows,
+                latest,
+                keep_meta=keep_meta,
+                keep_google=keep_google,
+                keep_linkedin=keep_linkedin,
+                keep_social=False,
+            )
+        else:
+            metric_rows = build_metric_rows(
+                metric_entities, traffic_map, meta_map, google_ads_map, linkedin_map, collect_social=False,
+            )
+            _merge_preserved_channels(
+                metric_rows,
+                latest,
+                keep_meta=keep_meta,
+                keep_google=keep_google,
+                keep_linkedin=keep_linkedin,
+                keep_social=keep_social,
+            )
+        saved = write_metrics_xlsx(
+            out_path,
+            client_input,
+            briefing,
+            competitors,
+            metric_rows,
+            traffic_rows,
+            growth_rows,
+            national_xlsx,
+        )
     # HTML completo so no modo full (evita custo nas etapas separadas do chat)
     if mode == "full":
         html_path = generate_html_from_xlsx(saved)
