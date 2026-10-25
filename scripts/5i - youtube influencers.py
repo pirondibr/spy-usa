@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Etapa YouTube Influencers (ScrapingBee popular search cards) — opcional no Spy USA."""
+"""Etapa YouTube Influencers (ScrapingBee search: popular, relevance se 0) — opcional no Spy USA."""
 
 from __future__ import annotations
 
@@ -217,7 +217,10 @@ def main() -> None:
         "usage_total": {
             "estimated_usd": round(total_usd, 6),
             "scrapingbee_credits": total_credits,
-            "note": "ScrapingBee no-JS YouTube popular search (title + detailedMetadataSnippets).",
+            "note": (
+                "ScrapingBee no-JS YouTube search. Popular first; "
+                "relevance if empty or brand filter keeps 0."
+            ),
         },
         "rows": rows,
     }

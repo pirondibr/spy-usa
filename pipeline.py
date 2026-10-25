@@ -443,7 +443,9 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
         "rows": rows_out,
         "usage_total": usage,
         "insight": (
-            f"YouTube «{client.get('query') or client.get('name') or '—'}» ScrapingBee no-JS popular: "
+            f"YouTube «{client.get('query') or client.get('name') or '—'}» ScrapingBee no-JS "
+            f"({(client.get('usage') or {}).get('sort') or 'popular'}"
+            f"{' +relevance' if (client.get('usage') or {}).get('sort_fallback') else ''}): "
             f"official {_fmt_views(client.get('views_official'))} · "
             f"unofficial {_fmt_views(client.get('views_unofficial'))} · "
             f"30d {_fmt_views(client.get('views_30d'))} / "

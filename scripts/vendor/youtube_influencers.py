@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""YouTube Influencers — ScrapingBee popular search cards (title/snippet/views)."""
+"""YouTube Influencers — ScrapingBee search cards (popular, relevance fallback)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ ACTOR_ID = "1p1aa7gcSydPkAE0d"
 APIFY_SYNC_URL = f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items"
 _COST_PER_VIDEO = 0.50 / 1000
 _MAX_DEFAULT = 20
-_YT_SORT_VIEWS = "CAM%3D"
+_YT_SORT_VIEWS = "CAM%3D"  # YouTube "View count"
+_YT_SORT_RELEVANCE = ""  # default YouTube ranking
 
 SCRAPINGBEE_URL = "https://app.scrapingbee.com/api/v1/"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -539,11 +540,19 @@ def _card_snippet(vr: dict) -> str:
     return _runs_text(vr.get("descriptionSnippet"))
 
 
-def _youtube_search_url(query: str, *, for_scrapingbee: bool = False) -> str:
-    """Popular sort. Double-encode % so requests+ScrapingBee leave YouTube with CAM%3D."""
+def _youtube_search_url(
+    query: str,
+    *,
+    sort: str = "views",
+    for_scrapingbee: bool = False,
+) -> str:
+    """YouTube search. View-count uses sp=CAM%3D; relevance omits sp (YouTube default)."""
     url = "https://www.youtube.com/results?search_query=" + quote_plus(query)
+    if (sort or "views").lower() != "views":
+        return url
     sp = _YT_SORT_VIEWS
     if for_scrapingbee:
+        # Double-encode % so requests+ScrapingBee leave YouTube with CAM%3D.
         sp = sp.replace("%", "%25")
     return f"{url}&sp={sp}"
 
@@ -805,11 +814,16 @@ def google_youtube_search(query: str, *, market: str = "us") -> dict[str, Any]:
     }
 
 
-def scrapingbee_youtube_search(query: str, *, country: str = "US") -> dict[str, Any]:
+def scrapingbee_youtube_search(
+    query: str,
+    *,
+    country: str = "US",
+    sort: str = "views",
+) -> dict[str, Any]:
     """One no-JS ScrapingBee credit: ytInitialData cards including description snippets."""
     t0 = time.time()
-    search_url = _youtube_search_url(query)
-    fetch_url = _youtube_search_url(query, for_scrapingbee=True)
+    search_url = _youtube_search_url(query, sort=sort)
+    fetch_url = _youtube_search_url(query, sort=sort, for_scrapingbee=True)
     try:
         r = requests.get(
             SCRAPINGBEE_URL,
@@ -1197,6 +1211,48 @@ def _search_video_to_post(video: dict[str, Any]) -> Optional[dict[str, Any]]:
     }
 
 
+def _collect_search_posts(
+    query: str,
+    *,
+    loc: str,
+    loc_sb: str,
+    max_items: int,
+    sort: str,
+) -> dict[str, Any]:
+    """One ScrapingBee no-JS search page for the given YouTube sort."""
+    cache_key = _cache_key(query, loc, max_items, f"sb-njs-{sort}")
+    search_url = _youtube_search_url(query, sort=sort)
+    cached_posts = _cache_get(cache_key)
+    if cached_posts is not None:
+        posts = [p for p in cached_posts if isinstance(p, dict)]
+        return {
+            "posts": posts,
+            "credits": 0,
+            "search_url": search_url,
+            "search_n": len(posts),
+            "snippet_n": sum(1 for p in posts if p.get("subtitle_text") or p.get("description")),
+            "cached": True,
+            "error": None,
+            "sort": sort,
+        }
+    fetched = scrapingbee_youtube_search(query, country=loc_sb, sort=sort)
+    videos = list(fetched.get("videos") or [])
+    picked = videos[:max_items]
+    posts = [p for p in (_search_video_to_post(v) for v in picked) if p]
+    if posts:
+        _cache_put(cache_key, posts)
+    return {
+        "posts": posts,
+        "credits": int(fetched.get("credits") or 0),
+        "search_url": str(fetched.get("search_url") or search_url),
+        "search_n": len(videos),
+        "snippet_n": sum(1 for v in picked if v.get("snippet") or v.get("description")),
+        "cached": False,
+        "error": None if videos else (fetched.get("error") or "search empty"),
+        "sort": sort,
+    }
+
+
 def analyze_company(
     company: str,
     *,
@@ -1206,7 +1262,7 @@ def analyze_company(
     query: str | None = None,
     official_hint: Optional[dict] = None,
 ) -> dict[str, Any]:
-    """YouTube influencers: ScrapingBee popular search cards only (no watch pages)."""
+    """YouTube influencers: ScrapingBee search cards only (popular, relevance if 0)."""
     t_all = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
     q = (query or name or domain or "").strip()
@@ -1220,26 +1276,37 @@ def analyze_company(
     cfg = resolve_brand(name, domain=domain, official_handle=hint_handle)
     max_items = _max_items()
 
-    cached = False
-    cache_key = _cache_key(q, loc, max_items, "sb-njs-cam")
-    cached_posts = _cache_get(cache_key)
-    credits = 0
-    search_n = 0
-    snippet_n = 0
-    search_url = _youtube_search_url(q)
-    error = None
+    pack = _collect_search_posts(q, loc=loc, loc_sb=loc_sb, max_items=max_items, sort="views")
+    used_sort = "views"
+    fallback_used = False
+    credits = int(pack.get("credits") or 0)
+    cached = bool(pack.get("cached"))
+    posts = list(pack.get("posts") or [])
+    search_n = int(pack.get("search_n") or len(posts))
+    snippet_n = int(pack.get("snippet_n") or 0)
+    search_url = str(pack.get("search_url") or _youtube_search_url(q, sort="views"))
+    error = pack.get("error")
 
-    if cached_posts is not None:
-        cached = True
-        posts = [p for p in cached_posts if isinstance(p, dict)]
-    else:
-        fetched = scrapingbee_youtube_search(q, country=loc_sb)
-        credits += int(fetched.get("credits") or 0)
-        search_url = str(fetched.get("search_url") or search_url)
-        videos = list(fetched.get("videos") or [])
-        if not videos:
+    if not posts:
+        print(
+            f"[YT-INF] popular search empty ({error or 'no videos'}); trying relevance",
+            flush=True,
+        )
+        rel = _collect_search_posts(q, loc=loc, loc_sb=loc_sb, max_items=max_items, sort="relevance")
+        credits += int(rel.get("credits") or 0)
+        cached = cached and bool(rel.get("cached"))
+        if rel.get("posts"):
+            pack = rel
+            posts = list(rel.get("posts") or [])
+            search_n = int(rel.get("search_n") or len(posts))
+            snippet_n = int(rel.get("snippet_n") or 0)
+            search_url = str(rel.get("search_url") or search_url)
+            error = None
+            used_sort = "relevance"
+            fallback_used = True
+        else:
             print(
-                f"[YT-INF] ScrapingBee search empty ({fetched.get('error') or 'no videos'}); "
+                f"[YT-INF] relevance search empty ({rel.get('error') or 'no videos'}); "
                 f"trying Google SERP",
                 flush=True,
             )
@@ -1248,15 +1315,16 @@ def analyze_company(
             videos = list(google.get("videos") or [])
             if google.get("search_url"):
                 search_url = str(google.get("search_url"))
+            search_n = len(videos)
+            picked = videos[:max_items]
+            snippet_n = sum(1 for v in picked if v.get("snippet") or v.get("description"))
+            posts = [p for p in (_search_video_to_post(v) for v in picked) if p]
             error = None if videos else (
-                f"{fetched.get('error') or 'search empty'} | {google.get('error') or 'google empty'}"
+                f"{error or 'popular empty'} | {rel.get('error') or 'relevance empty'} | "
+                f"{google.get('error') or 'google empty'}"
             )
-        search_n = len(videos)
-        picked = videos[:max_items]
-        snippet_n = sum(1 for v in picked if v.get("snippet") or v.get("description"))
-        posts = [p for p in (_search_video_to_post(v) for v in picked) if p]
-        if posts:
-            _cache_put(cache_key, posts)
+            used_sort = "google" if videos else used_sort
+
     if not snippet_n:
         snippet_n = sum(1 for p in posts if p.get("subtitle_text") or p.get("description"))
 
@@ -1268,6 +1336,48 @@ def analyze_company(
         official_hint=official_hint,
     )
 
+    if not confirmed and used_sort == "views":
+        print(
+            f"[YT-INF] popular kept 0 brand videos "
+            f"(search={search_n} unrelated={len(unrelated)}); trying relevance",
+            flush=True,
+        )
+        rel = _collect_search_posts(q, loc=loc, loc_sb=loc_sb, max_items=max_items, sort="relevance")
+        credits += int(rel.get("credits") or 0)
+        cached = cached and bool(rel.get("cached"))
+        rel_posts = list(rel.get("posts") or [])
+        if rel_posts:
+            c2, p2, u2, off2, oth2, fetched2 = _classify_youtube_posts(
+                rel_posts,
+                name=name,
+                domain=domain,
+                hint_handle=hint_handle,
+                official_hint=official_hint,
+            )
+            if c2 or p2:
+                posts = rel_posts
+                search_n = int(rel.get("search_n") or len(rel_posts))
+                snippet_n = int(rel.get("snippet_n") or 0) or sum(
+                    1 for p in rel_posts if p.get("subtitle_text") or p.get("description")
+                )
+                search_url = str(rel.get("search_url") or search_url)
+                confirmed, probable, unrelated = c2, p2, u2
+                official_pool, other_pool, fetched = off2, oth2, fetched2
+                used_sort = "relevance"
+                fallback_used = True
+                error = None
+                print(
+                    f"[YT-INF] relevance fallback kept confirmed={len(confirmed)} "
+                    f"probable={len(probable)}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[YT-INF] relevance also 0 brand videos "
+                    f"(search={len(rel_posts)} unrelated={len(u2)}); keeping popular set",
+                    flush=True,
+                )
+
     def _top(items: list[dict], limit: int = 5) -> list[dict]:
         return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
 
@@ -1277,8 +1387,9 @@ def analyze_company(
         buckets[key] = buckets.get(key, 0) + int(v.get("views") or 0)
 
     print(
-        f"[YT-INF] q={q!r} sb-search={search_n or len(posts)} "
-        f"snippet={snippet_n} confirmed={len(confirmed)} probable={len(probable)} "
+        f"[YT-INF] q={q!r} sort={used_sort} fallback={fallback_used} "
+        f"sb-search={search_n or len(posts)} snippet={snippet_n} "
+        f"confirmed={len(confirmed)} probable={len(probable)} "
         f"unrelated={len(unrelated)} credits={credits} cached={cached}",
         flush=True,
     )
@@ -1325,11 +1436,13 @@ def analyze_company(
             "estimated_usd": 0.0,
             "posts": len(posts),
             "max_items": max_items,
-            "sort": "v",
+            "sort": used_sort,
+            "sort_fallback": fallback_used,
             "gl": loc,
             "scrapingbee_credits": credits,
             "note": (
-                "ScrapingBee no-JS YouTube popular search (sp=CAM%3D). "
+                "ScrapingBee no-JS YouTube search. Popular first (sp=CAM%3D); "
+                "relevance if the page is empty or brand filter keeps 0. "
                 "Title + detailedMetadataSnippets. First page, no watch pages."
             ),
         },
