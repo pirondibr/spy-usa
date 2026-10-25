@@ -1228,18 +1228,55 @@ def search_instagram_profile(company_name: str, site_url: str = "") -> str:
     return ""
 
 
+def _social_handle_from_url(platform: str, url: str) -> str:
+    parts = [p for p in urlparse(url or "").path.split("/") if p]
+    if not parts:
+        return ""
+    if platform == "youtube" and parts[0] in {"channel", "c", "user", "@"} and len(parts) >= 2:
+        return parts[1].lstrip("@")
+    return parts[0].lstrip("@")
+
+
+def social_handle_matches_brand(handle: str, company_name: str, site_url: str = "") -> bool:
+    """Handle must contain the brand/domain token. Short prefixes ('trend' vs TrendTrack) do not count."""
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from tiktok_brand_filter import handle_matches_brand
+        return handle_matches_brand(handle, company_name, extract_website_name(site_url) or site_url)
+    except Exception:
+        handle_n = normalize_token(handle)
+        company_token = normalize_token(company_name)
+        domain_token = normalize_token(extract_website_name(site_url))
+        if not handle_n or len(handle_n) < 3:
+            return False
+        for tok in (company_token, domain_token):
+            if tok and len(tok) >= 3 and (handle_n == tok or tok in handle_n):
+                return True
+        return False
+
+
+def social_url_matches_brand(platform: str, url: str, company_name: str, site_url: str = "") -> bool:
+    handle = _social_handle_from_url(platform, url)
+    return social_handle_matches_brand(handle, company_name, site_url)
+
+
+def _social_handle_is_impersonator(handle: str) -> bool:
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from tiktok_brand_filter import handle_is_impersonator
+        return handle_is_impersonator(handle)
+    except Exception:
+        return bool(re.search(r"(?:0fficial|offici4l|off1cial|0ficial)", handle or "", re.I))
+
+
 def instagram_matches_brand(instagram_url: str, company_name: str, site_url: str = "") -> bool:
     if not instagram_url:
         return False
-    parsed = urlparse(instagram_url)
-    parts = [p for p in parsed.path.split("/") if p]
-    if not parts:
-        return False
-    handle = normalize_token(parts[0].strip("@"))
-    company_token = normalize_token(company_name)
-    domain_token = normalize_token(extract_website_name(site_url))
-    candidates = [t for t in (company_token, domain_token) if t]
-    return any(tok == handle or tok in handle or handle in tok for tok in candidates if len(tok) >= 3 and len(handle) >= 3)
+    return social_url_matches_brand("instagram", instagram_url, company_name, site_url)
 
 
 def normalize_youtube_url(url: str) -> str:
@@ -1384,7 +1421,6 @@ def search_social_profile_google(platform: str, company_name: str, site_url: str
     market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
     domain = {"youtube": "youtube.com", "instagram": "instagram.com", "tiktok": "tiktok.com"}.get(platform, "")
     queries = [f"{label} official {platform}", f"{label} {platform}"]
-    first_valid = ""
     for query in queries:
         try:
             res = google_serp(query, market=market, include_domains=domain or None)
@@ -1395,20 +1431,15 @@ def search_social_profile_google(platform: str, company_name: str, site_url: str
             url = _validate_social_url(platform, str(item.get("url") or ""))
             if not url:
                 continue
-            if not first_valid:
-                first_valid = url
-            if platform == "instagram" and instagram_matches_brand(url, label, site_url):
-                return url
-            handle = ""
-            parts = [p for p in urlparse(url).path.split("/") if p]
-            if parts:
-                handle = parts[0].lstrip("@")
-            token = normalize_token(label)
-            if token and len(token) >= 3 and token in normalize_token(handle):
+            handle = _social_handle_from_url(platform, url)
+            if _social_handle_is_impersonator(handle):
+                print(f"[SOCIAL] google skip impersonator {url}", flush=True)
+                continue
+            if social_url_matches_brand(platform, url, label, site_url):
                 return url
         src = res.get("source") or "?"
-        print(f"[SOCIAL] google '{query}' src={src} first={first_valid or '—'}", flush=True)
-    return first_valid
+        print(f"[SOCIAL] google '{query}' src={src} no brand-handle match", flush=True)
+    return ""
 
 
 def social_links_from_homepage(url: str, company_name: str = "") -> dict[str, str]:
@@ -1460,6 +1491,13 @@ def discover_official_socials(
         clean = _validate_social_url(platform, url)
         if not clean:
             return
+        handle = _social_handle_from_url(platform, clean)
+        if _social_handle_is_impersonator(handle) and source != "website":
+            print(f"[SOCIAL] drop {platform} {clean} src={source} (impersonator)", flush=True)
+            return
+        if source != "website" and not social_url_matches_brand(platform, clean, label, site_url):
+            print(f"[SOCIAL] drop {platform} {clean} src={source} (handle≠brand)", flush=True)
+            return
         key = _social_url_key(platform, clean)
         if any(_social_url_key(platform, existing) == key for existing, _ in candidates[platform]):
             return
@@ -1487,9 +1525,12 @@ def discover_official_socials(
     def _best_of(platform: str, cands: list[tuple[str, str]]) -> tuple[str, str, int | None]:
         if not cands:
             return "", "", None
-        best_url, best_src, best_n = cands[0][0], cands[0][1], -1
+        # Homepage link wins even if a Gemini/Google lookalike has more followers.
+        website = [(u, s) for u, s in cands if s == "website"]
+        pool = website or cands
+        best_url, best_src, best_n = pool[0][0], pool[0][1], -1
         best_count: int | None = None
-        for url, source in cands:
+        for url, source in pool:
             n = _followers_for_platform(platform, url)
             n_i = -1 if n is None else int(n)
             print(f"[SOCIAL] candidate {platform} {url} src={source} followers={n}", flush=True)

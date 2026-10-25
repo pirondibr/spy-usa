@@ -39,6 +39,16 @@ _DEFAULT_POS = (
     "ads", "ugc", "code", "agent", "llm",
 )
 
+# Real official suffixes after the brand token. Digit-letter fakes (0fficial) stay out.
+_OFFICIAL_TAILS = {
+    "", "official", "oficial", "hq", "app", "ai", "io", "inc",
+    "br", "usa", "us", "uk", "team", "tv",
+}
+_IMPERSONATOR_RE = re.compile(
+    r"(?:0fficial|offici4l|off1cial|0ficial)",
+    flags=re.I,
+)
+
 BRANDS: dict[str, dict[str, Any]] = {
     "higgsfield": {
         "name": "higgsfield",
@@ -108,6 +118,36 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
 
 
+def handle_is_impersonator(handle: str) -> bool:
+    """Leetspeak 'official' (0/1/4) — typical fake brand accounts."""
+    return bool(_IMPERSONATOR_RE.search((handle or "").lstrip("@")))
+
+
+def handle_matches_brand(handle: str, brand: str, domain: str = "") -> bool:
+    """True when the handle contains the brand or domain token (not a short prefix)."""
+    got = _slug(handle)
+    if not got or len(got) < 3:
+        return False
+    keys: list[str] = []
+    raw_brand = (brand or "").strip()
+    raw_dom = (domain or "").lower().lstrip("www.").split("/")[0]
+    host = raw_dom.split(".")[0] if raw_dom else ""
+    for raw in (raw_brand.split()[0] if raw_brand else "", host):
+        tok = _slug(raw)
+        if tok and len(tok) >= 3 and tok not in keys:
+            keys.append(tok)
+    for tok in keys:
+        if got == tok or tok in got:
+            return True
+        if got in tok and len(got) >= max(5, int(len(tok) * 0.75)):
+            return True
+    return False
+
+
+def _official_tail_ok(tail: str) -> bool:
+    return _slug(tail) in _OFFICIAL_TAILS
+
+
 def _word_re(token: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![a-z0-9]){token}(?![a-z0-9])", flags=re.I)
 
@@ -146,7 +186,18 @@ def resolve_brand(
             "neg": [],
         }
     if official_handle:
-        cfg["handle_official"] = official_handle.lstrip("@").lower()
+        hint = official_handle.lstrip("@").lower()
+        if handle_is_impersonator(hint):
+            hint = ""
+        elif hint and not handle_matches_brand(
+            hint, str(cfg.get("name") or raw or key), str(cfg.get("domain") or domain or "")
+        ):
+            # Gemini/Google often return a bigger unrelated account. Keep only
+            # brand-like handles; website-trusted exceptions stay exact-match
+            # via caller passing a matching hint.
+            hint = ""
+        if hint:
+            cfg["handle_official"] = hint
     if domain and not cfg.get("domain"):
         cfg["domain"] = domain.lower().lstrip("www.")
     return cfg
@@ -198,11 +249,21 @@ def _has_any(text: str, words: list[str]) -> bool:
 
 
 def _official(cfg: dict[str, Any], username: str) -> bool:
-    want = _slug(str(cfg.get("handle_official") or ""))
     got = _slug(username)
-    if not want or not got:
+    if not got or handle_is_impersonator(username):
         return False
-    return got == want or got.startswith(want) or want.startswith(got)
+    want = _slug(str(cfg.get("handle_official") or ""))
+    mention = _slug(str(cfg.get("mention") or cfg.get("name") or ""))
+    if want and got == want:
+        return True
+    if cfg.get("ambiguous"):
+        return False
+    token = want or mention
+    if token and got.startswith(token) and _official_tail_ok(got[len(token):]):
+        return True
+    if mention and mention != token and got.startswith(mention) and _official_tail_ok(got[len(mention):]):
+        return True
+    return False
 
 
 def fetch_subtitle_text(post: dict[str, Any], *, timeout: float = 8.0) -> str:
@@ -263,7 +324,11 @@ def classify(
     in_mention = bool(mention and (f"@{mention}" in title.lower() or _official(cfg, user)))
     in_domain = bool(host and host.lower() in text_blob.lower())
     in_hashtag = any(t == prefix or t.startswith(prefix) for t in tags if prefix)
-    official = _official(cfg, user)
+    impersonator = handle_is_impersonator(user)
+    official = _official(cfg, user) and not impersonator
+    if impersonator:
+        flags.append("impersonator")
+        official = False
     if official:
         reasons.append("official_handle")
         in_mention = True
@@ -324,7 +389,10 @@ def classify(
     if neg_hit:
         score -= 40
 
-    if not appeared:
+    if impersonator:
+        label = "unrelated"
+        score = min(score, 0)
+    elif not appeared:
         label = "unrelated"
         score = min(score, 0)
     elif neg_hit and (ambiguous or not official):
