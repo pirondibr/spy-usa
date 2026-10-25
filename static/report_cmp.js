@@ -12,7 +12,7 @@
   };
   var FULL = {
     x: "X", ig: "Instagram", ig_inf: "Instagram", li: "LinkedIn", li_ads: "LinkedIn",
-    yt: "YouTube", yt_inf: "YouTube", tt: "TikTok", rd: "Reddit", seo: "SEO", google: "Google", meta: "Meta",
+    yt: "YouTube", yt_inf: "YouTube", tt: "TikTok", tt_inf: "TikTok", rd: "Reddit", seo: "SEO", google: "Google", meta: "Meta",
   };
   var MAC_SHORT = { paid: "Pago", org: "Orgânico", inf: "Influência" };
   var UNIT_L = { seo: "visitas/mês", rd: "comentários", visits: "visitas/mês", brand: "buscas/mês" };

@@ -361,7 +361,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.4.70"
+REPORT_UI_VERSION = "0.4.71"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -885,14 +885,18 @@ def _channel_metric_value(
     else:
         row = row or {}
 
-    if key == "youtube_influencers":
+    if key in ("youtube_influencers", "tiktok_influencers"):
+        # Influencers = other creators. Official profile stays on organic.
+        n = _coerce_number(row.get("views_unofficial"))
+        if n is not None:
+            return n
         n = _coerce_number(row.get("traffic"))
         if n is not None:
             return n
         a = _coerce_number(row.get("views_official")) or 0.0
         b = _coerce_number(row.get("views_unofficial")) or 0.0
         if a or b:
-            return a + b
+            return b
 
     if key in ("google_ads", "meta", "linkedin"):
         candidates: list[Any] = [
@@ -907,7 +911,12 @@ def _channel_metric_value(
     elif key in ("twitter", "linkedin_profile"):
         candidates = [row.get("followers"), row.get("traffic")]
     elif key == "instagram_influencers":
-        candidates = [row.get("total_likes"), row.get("traffic")]
+        candidates = [
+            row.get("influencer_likes"),
+            row.get("influencer_likes_fmt"),
+            row.get("total_likes"),
+            row.get("traffic"),
+        ]
     else:
         candidates = [row.get("traffic"), row.get("value"), row.get("ads")]
 
@@ -1049,6 +1058,7 @@ _SUMMARY_LINK_LABELS = {
     "instagram": "Profile",
     "instagram_influencers": "Profile",
     "tiktok": "Profile",
+    "tiktok_influencers": "Search",
     "brand_dataforseo": "Semrush",
     "reddit": "Search",
     "twitter": "Profile",
@@ -2033,6 +2043,67 @@ def _section_youtube_influencers(section: Optional[dict[str, Any]]) -> str:
     """
 
 
+def _section_tiktok_influencers(section: Optional[dict[str, Any]]) -> str:
+    if not section:
+        return ""
+    rows_data = section.get("rows") or []
+    if not rows_data and not section.get("insight"):
+        return ""
+    headers = [
+        "#", "Company", "Official views", "Other views",
+        "About #", "Top official", "Top other", "Search",
+    ]
+
+    def _top_links_cell(items: list) -> str:
+        def _meta(t: dict) -> str:
+            bits = [f"{_compact_num(t.get('views'))} views"]
+            if t.get("upload_age"):
+                bits.append(str(t["upload_age"]))
+            if t.get("channel_name"):
+                bits.append(str(t["channel_name"]))
+            return " · ".join(bits)
+
+        return _top_list(items, lambda t: t.get("title") or "post", _meta)
+
+    table_rows: list[list[str]] = []
+    for i, r in enumerate(rows_data, 1):
+        name = _esc(r.get("name") or r.get("domain") or "—")
+        if r.get("is_client"):
+            name += ' <span class="you">you</span>'
+        top_off = list(r.get("top5_official") or [])
+        top_unoff = list(r.get("top5_unofficial") or [])
+        if not top_off and not top_unoff and r.get("top5"):
+            for t in r.get("top5") or []:
+                (top_off if t.get("is_official") else top_unoff).append(t)
+        table_rows.append([
+            str(i),
+            name,
+            _esc(r.get("views_official_fmt") or "0"),
+            _esc(r.get("views_unofficial_fmt") or "0"),
+            _esc(str(r.get("about_count") or 0)),
+            _top_links_cell(top_off),
+            _top_links_cell(top_unoff),
+            _link_cell(r.get("search_url") or r.get("url"), "Google"),
+        ])
+    usage = section.get("usage_total") or {}
+    hero = _esc(section.get("total_traffic_fmt") or "—")
+    hero_sub = (
+        f"other-creator views · Google site:tiktok.com page 1 · "
+        f"DataForSEO {_esc(str(usage.get('dataforseo_tasks', usage.get('estimated_usd', '—'))))} "
+        f"· leader {_esc(section.get('leader') or '—')}"
+    )
+    insight = section.get("insight") or ""
+    analysis = section.get("analysis_title") or "TikTok Influencers"
+    return f"""
+    <section>
+      <h2>TikTok Influencers</h2>
+      <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{hero_sub}</div></div>
+      {_rows_table(headers, table_rows)}
+      {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}
+    </section>
+    """
+
+
 def _dfs_growth_pct(new: Any, old: Any) -> Optional[float]:
     """Growth % with 0/missing baseline treated as 100 (display volume stays 0)."""
     if new is None:
@@ -2687,6 +2758,8 @@ def render_report_html(
          _section_instagram_influencers(report.get("instagram_influencers"))),
         ("tiktok", "TikTok", _section_rank(
             "TikTok", report.get("tiktok"), "count", link_label="Profile")),
+        ("tiktok_influencers", "TikTok Influencers",
+         _section_tiktok_influencers(report.get("tiktok_influencers"))),
         ("reddit", "Reddit", _section_reddit(report.get("reddit"))),
         ("twitter", "Twitter / X", _section_twitter(report.get("twitter"))),
         ("linkedin_profile", "LinkedIn Profile",

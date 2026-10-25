@@ -218,6 +218,7 @@
 
   function renderBoard() {
     var rows = CH.filter(function (ch) {
+      if (ch.g === "inf") return true;
       return !CO.every(function (c) { return chSlot(ch, c)[0] == null; });
     });
     var order = CO.slice().sort(function (x, y) { return (y.visits || 0) - (x.visits || 0); });
@@ -311,9 +312,11 @@
 
   function renderCanais() {
     var rows = CH.filter(function (ch) {
+      if (ch.g === "inf") return true;
       return !CO.every(function (c) { return chSlot(ch, c)[0] == null; });
     });
     var nc = CH.filter(function (ch) {
+      if (ch.g === "inf") return false;
       return CO.every(function (c) { return chSlot(ch, c)[0] == null; });
     });
     var free = rows.filter(function (ch) {
@@ -508,9 +511,11 @@
       }).join("") + "</tbody></table></div>" +
       '<div class="det-h"><span>' + t("tt.page") + "</span>" + coSeg("tt") + "</div>" +
       warnBox(y.w) +
-      '<div class="two"><div><div class="sub-h">' + t("tt.off_h") + " <span>" + esc(y.off) + " views</span></div>" + list(y.o, t("tt.empty_off")) + "</div>" +
-      "<div><div class=\"sub-h\">" + t("tt.oth_h") + " <span>" + esc(y.oth) + " views</span></div>" + list(y.x, t("tt.empty_oth")) + "</div></div>" +
-      '<div class="note">' + (y.search ? '<a class="lnk" href="' + esc(y.search) + '" target="_blank" rel="noopener">' + t("tt.search") + "</a>" : "") + (y.profile || y.h ? '<a class="lnk" href="' + esc(y.profile || ("https://www.tiktok.com/@" + y.h)) + '" target="_blank" rel="noopener">' + t("tt.ch") + (y.h ? " @" + esc(y.h) : "") + "</a>" : "") + "<span>" + t("tt.note") + "</span></div>";
+      (y.collected === false
+        ? '<div class="none">' + t("tt.none_run") + "</div>"
+        : '<div class="two"><div><div class="sub-h">' + t("tt.off_h") + " <span>" + esc(y.off) + " views</span></div>" + list(y.o, t("tt.empty_off")) + "</div>" +
+          "<div><div class=\"sub-h\">" + t("tt.oth_h") + " <span>" + esc(y.oth) + " views</span></div>" + list(y.x, t("tt.empty_oth")) + "</div></div>") +
+      '<div class="note">' + (y.search ? '<a class="lnk" href="' + esc(y.search) + '" target="_blank" rel="noopener">' + t("tt.search") + "</a>" : "") + (y.profile || y.h ? '<a class="lnk" href="' + esc(y.profile || ("https://www.tiktok.com/@" + y.h)) + '" target="_blank" rel="noopener">' + t("tt.ch") + (y.h ? " @" + esc(y.h) : "") + "</a>" : "") + "<span>" + (y.collected === false ? t("tt.none_run") : t("tt.note")) + "</span></div>";
   }
 
   function renderRD() {

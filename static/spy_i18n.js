@@ -212,6 +212,7 @@
     "tt.search": "See Google search ↗",
     "tt.ch": "Official profile ↗",
     "tt.note": "Views come from the Google SERP. Posts without a view count are skipped. TikTok pages are not opened.",
+    "tt.none_run": "This run did not collect TikTok creators. Run again with TikTok creators on.",
 
     "rd.company": "Company",
     "rd.posts": "Posts (page 1)",
@@ -604,6 +605,7 @@
     "tt.search": "Ver busca no Google ↗",
     "tt.ch": "Perfil oficial ↗",
     "tt.note": "As views vêm da SERP do Google. Posts sem views não entram. Páginas do TikTok não são abertas.",
+    "tt.none_run": "Esta run não coletou criadores no TikTok. Rode de novo com TikTok creators ligado.",
 
     "rd.company": "Empresa",
     "rd.posts": "Posts (1ª página)",
@@ -791,7 +793,8 @@
     yt: "subscribers",
     rd: "comments",
     ytv: "video_views",
-    igl: "likes"
+    igl: "likes",
+    ttv: "video_views"
   };
 
   var SRC_KEY = {

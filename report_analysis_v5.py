@@ -297,7 +297,7 @@ def build_v5_payload(
 
             search = f"https://www.youtube.com/results?search_query={quote_plus(q)}&hl=en&gl=US"
         youtube[co["k"]] = {
-            "views": _compact_num(_num(row.get("traffic")) or ((_num(row.get("views_official")) or 0) + (_num(row.get("views_unofficial")) or 0))),
+            "views": _compact_num(_num(row.get("views_unofficial")) or 0),
             "off": _compact_num(_num(row.get("views_official")) or 0),
             "oth": _compact_num(_num(row.get("views_unofficial")) or 0),
             "n": int(row.get("about_count") or 0),
@@ -327,7 +327,7 @@ def build_v5_payload(
                 (infs if t.get("is_influencer") else own).append(t)
         instagram[co["k"]] = {
             "h": handle or None,
-            "likes": _compact_num(_num(row.get("total_likes")) or 0),
+            "likes": _compact_num(_num(row.get("influencer_likes")) or 0),
             "own": int(row.get("own_posts") or 0),
             "inf": int(row.get("total_influencers") or 0),
             "infp": int(row.get("influencer_posts") or 0),
@@ -385,16 +385,22 @@ def build_v5_payload(
             import re as _re
             m = _re.search(r"tiktok\.com/@([^/?#]+)", profile, flags=_re.I)
             handle = (m.group(1) if m else "").lstrip("@")
-        q = str(row.get("query") or company.get("name") or "").strip()
+        collected = bool(
+            row.get("page_count")
+            or row.get("about_count")
+            or row.get("top5")
+            or row.get("top5_official")
+            or row.get("top5_unofficial")
+            or row.get("query")
+            or row.get("url")
+        )
+        q = str(row.get("query") or "").strip()
         search = str(row.get("url") or row.get("search_url") or "")
-        if not search and q:
-            from urllib.parse import quote_plus
-            search = f"https://www.google.com/search?q={quote_plus(q)}&hl=en&gl=US"
         tiktok[co["k"]] = {
             "followers": prow.get("value_fmt") or prow.get("followers_fmt") or None,
             "h": handle or None,
             "profile": profile,
-            "views": _compact_num((_num(row.get("views_official")) or 0) + (_num(row.get("views_unofficial")) or 0)),
+            "views": _compact_num(_num(row.get("views_unofficial")) or 0),
             "off": _compact_num(_num(row.get("views_official")) or 0),
             "oth": _compact_num(_num(row.get("views_unofficial")) or 0),
             "n": int(row.get("about_count") or 0),
@@ -402,6 +408,7 @@ def build_v5_payload(
             "search": search,
             "o": _yt_items(top_off),
             "x": _yt_items(top_unoff),
+            "collected": collected,
             "w": str(row.get("note") or ""),
         }
 

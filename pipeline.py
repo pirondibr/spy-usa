@@ -284,14 +284,13 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
     for r in data.get("rows") or []:
         off = int(r.get("views_official") or 0)
         unoff = int(r.get("views_unofficial") or 0)
-        total = off + unoff
         rows_out.append({
             "name": r.get("name") or r.get("domain"),
             "domain": r.get("domain"),
             "is_client": bool(r.get("is_client")),
             "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
-            "traffic": total,
-            "traffic_fmt": _fmt_views(total),
+            "traffic": unoff,
+            "traffic_fmt": _fmt_views(unoff),
             "views_official": off,
             "views_official_fmt": _fmt_views(off),
             "views_unofficial": unoff,
@@ -357,20 +356,23 @@ def _attach_instagram_influencers(report: dict, slug: str) -> dict:
     rows_out: list[dict] = []
     for r in data.get("rows") or []:
         total_likes = int(r.get("total_likes") or 0)
+        inf_likes = int(r.get("influencer_likes") or 0)
         rows_out.append({
             "name": r.get("name") or r.get("domain"),
             "domain": r.get("domain"),
             "is_client": bool(r.get("is_client")),
             "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
-            "traffic": total_likes,
-            "traffic_fmt": _fmt_views(total_likes),
+            "traffic": inf_likes,
+            "traffic_fmt": _fmt_views(inf_likes),
             "total_influencers": int(r.get("total_influencers") or 0),
             "influencer_posts": int(r.get("influencer_posts") or 0),
             "own_posts": int(r.get("own_posts") or 0),
             "posts_first_page": int(r.get("posts_first_page") or 0),
             "total_likes": total_likes,
             "total_likes_fmt": _fmt_views(total_likes),
+            "own_likes": int(r.get("own_likes") or 0),
             "own_likes_fmt": _fmt_views(r.get("own_likes") or 0),
+            "influencer_likes": int(r.get("influencer_likes") or 0),
             "influencer_likes_fmt": _fmt_views(r.get("influencer_likes") or 0),
             "influencer_handles": r.get("influencer_handles") or [],
             "top5": r.get("top5") or [],
@@ -387,7 +389,7 @@ def _attach_instagram_influencers(report: dict, slug: str) -> dict:
         "source": "tinyfish_search+fetch",
         "market": data.get("market") or "US",
         "leader": client.get("name") if client else "—",
-        "total_traffic_fmt": client.get("total_likes_fmt") if client else "—",
+        "total_traffic_fmt": client.get("influencer_likes_fmt") if client else "—",
         "unit": "likes (1st page)",
         "rows": rows_out,
         "usage_total": usage,
@@ -428,14 +430,13 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
     for r in data.get("rows") or []:
         off = int(r.get("views_official") or 0)
         unoff = int(r.get("views_unofficial") or 0)
-        total = off + unoff
         rows_out.append({
             "name": r.get("name") or r.get("domain"),
             "domain": r.get("domain"),
             "is_client": bool(r.get("is_client")),
             "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
-            "traffic": total,
-            "traffic_fmt": _fmt_views(total),
+            "traffic": unoff,
+            "traffic_fmt": _fmt_views(unoff),
             "views_official": off,
             "views_official_fmt": _fmt_views(off),
             "views_unofficial": unoff,
