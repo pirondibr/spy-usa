@@ -3,16 +3,12 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from typing import Any, Optional
 from urllib.parse import quote_plus
 
-import requests
-
-DATAFORSEO_SERP_URL = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
-_DFS_TASK_USD = float(os.environ.get("SPY_COST_DFS_TASK", "0.05") or 0.05)
+from google_serp import google_serp, has_google_serp
 
 _VIEW_RE = re.compile(
     r"([\d]+(?:[.,]\d+)?)\s*([KkMmBb])?\+?\s*views?",
@@ -20,20 +16,6 @@ _VIEW_RE = re.compile(
 )
 _HANDLE_RE = re.compile(r"tiktok\.com/@([^/?#]+)", flags=re.I)
 _VIDEO_RE = re.compile(r"/video/(\d+)", flags=re.I)
-
-
-def _dfs_auth() -> tuple[str, str]:
-    user = (
-        os.environ.get("DATAFORSEO_USER")
-        or os.environ.get("DATAFORSEO_LOGIN")
-        or ""
-    ).strip()
-    pw = (
-        os.environ.get("DATAFORSEO_PASS")
-        or os.environ.get("DATAFORSEO_PASSWORD")
-        or ""
-    ).strip()
-    return user, pw
 
 
 def parse_views_text(*parts: Any) -> Optional[int]:
@@ -102,49 +84,28 @@ def _brand_in_text(text: str, tokens: list[str]) -> bool:
     return any(t in compact for t in tokens if len(t) >= 4)
 
 
-def _location_code(market: str) -> int:
-    return 2076 if (market or "us").lower().startswith("br") else 2840
-
-
-def dataforseo_google_serp(query: str, *, market: str = "us") -> dict[str, Any]:
-    user, pw = _dfs_auth()
-    if not user or not pw:
-        return {"ok": False, "items": [], "error": "DATAFORSEO credentials missing"}
-    t0 = time.time()
-    try:
-        r = requests.post(
-            DATAFORSEO_SERP_URL,
-            auth=(user, pw),
-            json=[{
-                "keyword": query,
-                "location_code": _location_code(market),
-                "language_code": "en" if not (market or "").lower().startswith("br") else "pt",
-                "device": "desktop",
-                "depth": 10,
-            }],
-            timeout=120,
+def _item_view_blob(it: dict[str, Any]) -> str:
+    return " ".join(
+        str(it.get(k) or "")
+        for k in (
+            "breadcrumb",
+            "snippet",
+            "description",
+            "extended_snippet",
+            "pre_snippet",
+            "highlighted",
+            "title",
         )
-        r.raise_for_status()
-        js = r.json()
-    except Exception as e:
-        return {"ok": False, "items": [], "error": str(e)[:200], "elapsed_sec": round(time.time() - t0, 2)}
-    items: list[dict] = []
-    err = None
-    for task in js.get("tasks") or []:
-        if task.get("status_code") not in (20000, None) and task.get("status_code") != 20000:
-            err = task.get("status_message") or f"status {task.get('status_code')}"
-        for res in task.get("result") or []:
-            for it in res.get("items") or []:
-                if (it.get("type") or "") != "organic":
-                    continue
-                items.append(it)
-    return {
-        "ok": bool(items),
-        "items": items,
-        "error": err,
-        "elapsed_sec": round(time.time() - t0, 2),
-        "source": "dataforseo_serp_advanced",
-    }
+    )
+
+
+def _has_tiktok_views(items: list[dict[str, Any]]) -> bool:
+    for it in items or []:
+        if not is_tiktok_url(str(it.get("url") or "")):
+            continue
+        if parse_views_text(_item_view_blob(it)) is not None:
+            return True
+    return False
 
 
 def analyze_company(
@@ -159,7 +120,15 @@ def analyze_company(
     name = (company or (domain.split(".")[0] if domain else "")).strip()
     q = (query or f"site:tiktok.com {name}").strip()
     loc = "US" if not (market or "us").lower().startswith("br") else "BR"
-    fetched = dataforseo_google_serp(q, market=market)
+    if not has_google_serp():
+        fetched = {"ok": False, "items": [], "error": "no Google SERP provider", "source": ""}
+    else:
+        fetched = google_serp(
+            q,
+            market=market,
+            include_domains="tiktok.com",
+            accept=_has_tiktok_views,
+        )
     tokens = _brand_tokens(name, domain)
     hint_handle = handle_from_url(str((official_hint or {}).get("url") or ""))
     if not hint_handle:
@@ -185,11 +154,11 @@ def analyze_company(
     for it in fetched.get("items") or []:
         url = str(it.get("url") or "").strip()
         title = str(it.get("title") or "").strip()
-        desc = str(it.get("description") or "").strip()
+        desc = str(it.get("description") or it.get("snippet") or "").strip()
         breadcrumb = str(it.get("breadcrumb") or "")
         extra = " ".join(
             str(it.get(k) or "")
-            for k in ("extended_snippet", "pre_snippet", "highlighted")
+            for k in ("extended_snippet", "pre_snippet", "highlighted", "snippet")
         )
         views = parse_views_text(breadcrumb, extra, desc, title)
         if not is_tiktok_url(url):
@@ -258,10 +227,12 @@ def analyze_company(
             "skipped_brand": skipped_brand,
         },
         "usage": {
-            "dataforseo_tasks": 1,
-            "estimated_usd": _DFS_TASK_USD,
-            "source": "dataforseo_serp_advanced",
-            "note": "Google first page only. Views from SERP breadcrumb. TikTok URLs are not fetched.",
+            "source": fetched.get("source") or "",
+            "providers_tried": fetched.get("providers_tried") or [],
+            "estimated_usd": float(fetched.get("cost_usd_total") or fetched.get("cost_usd") or 0),
+            "scrapingbee_credits": fetched.get("credits_total") or fetched.get("credits") or 0,
+            "dataforseo_tasks": 1 if "dataforseo" in (fetched.get("providers_tried") or []) else 0,
+            "note": "Google first page. TinyFish first, then ScrapingBee, then DataForSEO. Views from SERP. TikTok URLs are not fetched.",
         },
         "elapsed_sec": round(time.time() - t0, 2),
         "error": fetched.get("error"),

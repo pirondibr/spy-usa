@@ -166,11 +166,14 @@ def main() -> None:
         usage = result.get("usage") or {}
         total_usd += float(usage.get("estimated_usd") or 0)
         counts = result.get("counts") or {}
+        src = (usage.get("source") or "none")
+        tried = ",".join(usage.get("providers_tried") or [src])
         print(
             f"[TT-INF]   about={counts.get('about_product')} "
             f"off={result.get('views_official')} "
             f"oth={result.get('views_unofficial')} "
             f"skip_noview={counts.get('skipped_no_views')} "
+            f"src={src} tried={tried} "
             f"t={result.get('elapsed_sec')}s",
             flush=True,
         )
@@ -195,15 +198,26 @@ def main() -> None:
             "error": result.get("error"),
         })
 
+    src = next(
+        (
+            str((r.get("usage") or {}).get("source") or "")
+            for r in rows
+            if (r.get("usage") or {}).get("source")
+        ),
+        "tinyfish",
+    )
     out = {
         "slug": slug,
         "market": market.upper(),
-        "source": "dataforseo_serp_advanced",
+        "source": src,
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": round(total_usd, 4),
-            "dataforseo_tasks": len(rows),
-            "note": "Google first page via DataForSEO. Views from SERP breadcrumb. TikTok pages are not fetched.",
+            "source": src,
+            "dataforseo_tasks": sum(
+                int((r.get("usage") or {}).get("dataforseo_tasks") or 0) for r in rows
+            ),
+            "note": "Google first page. TinyFish first, then ScrapingBee, then DataForSEO. Views from SERP. TikTok pages are not fetched.",
         },
         "rows": rows,
     }
@@ -213,7 +227,8 @@ def main() -> None:
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[OUT] {out_path}", flush=True)
     print(
-        f"[TT-INF] TOTAL {out['elapsed_sec']}s · DataForSEO tasks={len(rows)} · ~${total_usd:.2f}",
+        f"[TT-INF] TOTAL {out['elapsed_sec']}s · "
+        f"src={out.get('source')} · ~${total_usd:.4f}",
         flush=True,
     )
 

@@ -455,7 +455,7 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
     usage = data.get("usage_total") or {}
     report["tiktok_influencers"] = {
-        "source": "dataforseo",
+        "source": data.get("source") or "tinyfish",
         "market": data.get("market") or "US",
         "leader": client.get("name") if client else "—",
         "total_traffic_fmt": client.get("traffic_fmt") if client else "—",
@@ -467,7 +467,7 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
             f"official {_fmt_views(client.get('views_official'))} · "
             f"other {_fmt_views(client.get('views_unofficial'))} · "
             f"{client.get('about_count') or 0} posts with views "
-            f"(no TikTok page fetch; DataForSEO tasks={usage.get('dataforseo_tasks', '—')})."
+            f"(no TikTok page fetch; via {data.get('source') or 'tinyfish'})."
         ),
         "analysis_title": "TikTok Influencers",
         "pro_hook": "Na versão Pro mapeamos creators e formatos que geram views no TikTok do nicho.",
@@ -2144,11 +2144,15 @@ def run_pipeline(
 
     # 11b) TikTok Influencers (optional) — Google SERP page 1, no TikTok fetch
     if include_tiktok_influencers:
-        user = (os.environ.get("DATAFORSEO_USER") or os.environ.get("DATAFORSEO_LOGIN") or "").strip()
-        pw = (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
-        if not user or not pw:
-            emit("log", line="[TT-INF] Skipped: DATAFORSEO credentials missing")
-            _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped (no DataForSEO)")
+        _tt_tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
+        _tt_sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
+        _tt_dfs = bool(
+            (os.environ.get("DATAFORSEO_USER") or os.environ.get("DATAFORSEO_LOGIN") or "").strip()
+            and (os.environ.get("DATAFORSEO_PASS") or os.environ.get("DATAFORSEO_PASSWORD") or "").strip()
+        )
+        if not (_tt_tf or _tt_sb or _tt_dfs):
+            emit("log", line="[TT-INF] Skipped: no TinyFish / ScrapingBee / DataForSEO key")
+            _emit_progress(emit, set_step, "tiktok_influencers", "done", "Skipped (no SERP key)")
         else:
             _emit_progress(
                 emit, set_step, "tiktok_influencers", "running",

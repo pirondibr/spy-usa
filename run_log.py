@@ -63,7 +63,7 @@ CHANNEL_APIS = {
     "tiktok": ["ScrapingBee"],
     "youtube_influencers": ["ScrapingBee"],
     "instagram_influencers": ["TinyFish"],
-    "tiktok_influencers": ["DataForSEO"],
+    "tiktok_influencers": ["TinyFish", "ScrapingBee", "DataForSEO"],
     "reddit": ["TinyFish", "ScrapingBee"],
     "twitter": ["TinyFish", "ScrapingBee"],
     "linkedin_profile": ["TinyFish", "ScrapingBee", "DataForSEO"],
