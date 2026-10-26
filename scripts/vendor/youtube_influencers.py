@@ -1165,6 +1165,36 @@ def _classify_youtube_posts(
     return confirmed, probable, unrelated, official_pool, other_pool, videos
 
 
+def _label_youtube_posts(
+    posts: list[dict[str, Any]],
+    *,
+    name: str,
+    domain: str,
+    hint_handle: str,
+    official_hint: Optional[dict],
+    brand: str,
+    niche: str,
+    product: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    confirmed, probable, unrelated, official_pool, other_pool, fetched = _classify_youtube_posts(
+        posts,
+        name=name,
+        domain=domain,
+        hint_handle=hint_handle,
+        official_hint=official_hint,
+    )
+    apply_llm_labels(
+        fetched,
+        brand=brand,
+        domain=domain,
+        niche=niche,
+        product=product,
+        channel="youtube",
+    )
+    confirmed, probable, unrelated, official_pool, other_pool = repartition(fetched)
+    return confirmed, probable, unrelated, official_pool, other_pool, fetched
+
+
 def _search_video_to_post(video: dict[str, Any]) -> Optional[dict[str, Any]]:
     vid = str(video.get("video_id") or video_id_from_url(str(video.get("url") or "")))
     if not vid:
@@ -1312,17 +1342,23 @@ def analyze_company(
     if not snippet_n:
         snippet_n = sum(1 for p in posts if p.get("subtitle_text") or p.get("description"))
 
-    confirmed, probable, unrelated, official_pool, other_pool, fetched = _classify_youtube_posts(
+    brand = q or name
+    product_lbl = product or product_hint or domain
+    niche_lbl = niche or product_hint
+    confirmed, probable, unrelated, official_pool, other_pool, fetched = _label_youtube_posts(
         posts,
         name=name,
         domain=domain,
         hint_handle=hint_handle,
         official_hint=official_hint,
+        brand=brand,
+        niche=niche_lbl,
+        product=product_lbl,
     )
 
-    if not confirmed and used_sort == "views":
+    if not confirmed and not probable and used_sort == "views":
         print(
-            f"[YT-INF] popular kept 0 brand videos "
+            f"[YT-INF] popular kept 0 brand videos after LLM "
             f"(search={search_n} unrelated={len(unrelated)}); trying relevance",
             flush=True,
         )
@@ -1331,12 +1367,15 @@ def analyze_company(
         cached = cached and bool(rel.get("cached"))
         rel_posts = list(rel.get("posts") or [])
         if rel_posts:
-            c2, p2, u2, off2, oth2, fetched2 = _classify_youtube_posts(
+            c2, p2, u2, off2, oth2, fetched2 = _label_youtube_posts(
                 rel_posts,
                 name=name,
                 domain=domain,
                 hint_handle=hint_handle,
                 official_hint=official_hint,
+                brand=brand,
+                niche=niche_lbl,
+                product=product_lbl,
             )
             if c2 or p2:
                 posts = rel_posts
@@ -1357,20 +1396,15 @@ def analyze_company(
                 )
             else:
                 print(
-                    f"[YT-INF] relevance also 0 brand videos "
+                    f"[YT-INF] relevance also 0 brand videos after LLM "
                     f"(search={len(rel_posts)} unrelated={len(u2)}); keeping popular set",
                     flush=True,
                 )
-
-    apply_llm_labels(
-        fetched,
-        brand=q or name,
-        domain=domain,
-        niche=niche or product_hint,
-        product=product or product_hint or domain,
-        channel="youtube",
-    )
-    confirmed, probable, unrelated, official_pool, other_pool = repartition(fetched)
+        else:
+            print(
+                f"[YT-INF] relevance search empty ({rel.get('error') or 'no videos'})",
+                flush=True,
+            )
 
     def _top(items: list[dict], limit: int = 5) -> list[dict]:
         return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
