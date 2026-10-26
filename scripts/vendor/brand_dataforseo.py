@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Brand Search via DataForSEO (Google Ads search volume history).
+"""Brand Search via DataForSEO Labs keyword_overview.
 
 Descobre o nome da marca a partir do dominio + title do site e consulta
 volume mensal nos EUA, comparando o mes mais recente com 1/2/3/5 anos.
+Labs e a fonte principal; search_volume/live so entra se o Labs nao trouxer serie.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -32,9 +34,16 @@ DATAFORSEO_PASS = (
     os.environ.get("DATAFORSEO_PASS", "").strip()
     or os.environ.get("DATAFORSEO_PASSWORD", "").strip()
 )
+DATAFORSEO_LABS_URL = (
+    "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live"
+)
 DATAFORSEO_VOLUME_URL = (
     "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"
 )
+DFS_LABS_TASK_USD = 0.012
+DFS_LABS_KEYWORD_USD = 0.00012
+DFS_VOLUME_TASK_USD = 0.09
+LAST_USAGE: dict[str, Any] = {}
 
 SKIP_TITLE_WORDS = {
     "home", "official", "website", "site", "welcome", "login", "sign", "in",
@@ -324,28 +333,21 @@ def influencer_search_query(
 
 
 def _pct(new: Optional[int], old: Optional[int]) -> Optional[float]:
-    """Growth %: ((new - old) / old) * 100.
-
-    New brands with 0 (or missing) historical volume: treat baseline as 100
-    for the math only — the report still shows volume 0 / —.
-    """
+    """Growth %: ((new - old) / old) * 100. Missing or 0 baseline → n/d."""
     if new is None:
         return None
     try:
         new_i = int(new)
     except (TypeError, ValueError):
         return None
-    # Missing / zero baseline → virtual floor of 100 searches
     if old is None or old == 0:
-        if new_i == 0:
-            return 0.0
-        return round(((new_i - 100) / 100) * 100, 2)
+        return None
     try:
         old_i = int(old)
     except (TypeError, ValueError):
         return None
     if old_i == 0:
-        return round(((new_i - 100) / 100) * 100, 2) if new_i else 0.0
+        return None
     return round(((new_i - old_i) / old_i) * 100, 2)
 
 
@@ -372,6 +374,19 @@ def analyze_monthly_brand(monthly: list[dict]) -> dict[str, Any]:
             "monthly": [],
         }
     sm = sorted(monthly, key=lambda m: (int(m["year"]), int(m["month"])))
+    today = datetime.today()
+    while sm:
+        last = sm[-1]
+        if int(last["year"]) == today.year and int(last["month"]) == today.month:
+            sm = sm[:-1]
+            continue
+        break
+    if not sm:
+        return {
+            "latest": None,
+            "comparisons": {},
+            "monthly": [],
+        }
     latest = sm[-1]
     ly, lm = int(latest["year"]), int(latest["month"])
     latest_vol = int(latest.get("search_volume") or 0)
@@ -411,6 +426,208 @@ def analyze_monthly_brand(monthly: list[dict]) -> dict[str, Any]:
     }
 
 
+def _dfs_auth() -> requests.auth.HTTPBasicAuth:
+    if not DATAFORSEO_USER or not DATAFORSEO_PASS:
+        raise RuntimeError("DATAFORSEO_USER / DATAFORSEO_PASS ausentes")
+    return requests.auth.HTTPBasicAuth(DATAFORSEO_USER, DATAFORSEO_PASS)
+
+
+def _cache_month() -> str:
+    today = datetime.today()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+def _cache_path(location_code: int, language_code: str) -> Path:
+    return (
+        _metricas_dir()
+        / "_cache"
+        / f"dfs-labs-{int(location_code)}-{language_code}-{_cache_month()}.json"
+    )
+
+
+def _load_volume_cache(location_code: int, language_code: str) -> dict[str, dict]:
+    path = _cache_path(location_code, language_code)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    items = data.get("items") if isinstance(data, dict) else None
+    return items if isinstance(items, dict) else {}
+
+
+def _save_volume_cache(
+    location_code: int,
+    language_code: str,
+    items: dict[str, dict],
+) -> None:
+    path = _cache_path(location_code, language_code)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "month": _cache_month(),
+                    "location_code": int(location_code),
+                    "language_code": language_code,
+                    "items": items,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[BRAND/DFS] cache write fail: {e}", flush=True)
+
+
+def _post_dfs(url: str, payload: list[dict], *, label: str) -> dict[str, Any]:
+    last: dict[str, Any] = {}
+    for attempt in range(2):
+        r = requests.post(url, auth=_dfs_auth(), json=payload, timeout=120)
+        r.raise_for_status()
+        js = r.json() if r.content else {}
+        last = js if isinstance(js, dict) else {}
+        task = (last.get("tasks") or [{}])[0] or {}
+        ok = last.get("status_code") == 20000 and task.get("status_code") == 20000
+        if ok:
+            return last
+        print(
+            f"[BRAND/DFS] {label} status={last.get('status_code')} "
+            f"task={task.get('status_code')} attempt={attempt}",
+            flush=True,
+        )
+        if attempt == 0:
+            time.sleep(2)
+    return last
+
+
+def _pack_volume_row(
+    keyword: str,
+    monthly: list[dict],
+    *,
+    info: dict[str, Any] | None = None,
+    source: str,
+    location_code: int,
+    language_code: str,
+) -> dict[str, Any]:
+    analysis = analyze_monthly_brand(monthly)
+    info = info or {}
+    latest = analysis.get("latest") or {}
+    print(
+        f"[BRAND/DFS] '{keyword}' src={source} latest={latest.get('label')} "
+        f"vol={latest.get('volume')} months={analysis.get('months_available')}",
+        flush=True,
+    )
+    return {
+        "keyword": keyword,
+        "search_volume_avg": info.get("search_volume"),
+        "cpc": info.get("cpc"),
+        "competition": info.get("competition"),
+        "last_updated_time": info.get("last_updated_time") or "",
+        "location_code": location_code,
+        "language_code": language_code,
+        "source": source,
+        **analysis,
+    }
+
+
+def _fetch_labs_overview(
+    keywords: list[str],
+    *,
+    location_code: int,
+    language_code: str,
+) -> tuple[dict[str, dict], float]:
+    payload = [{
+        "keywords": keywords,
+        "location_code": int(location_code),
+        "language_code": language_code,
+    }]
+    print(
+        f"[BRAND/DFS] labs keyword_overview {len(keywords)} kw "
+        f"loc={location_code} lang={language_code}",
+        flush=True,
+    )
+    js = _post_dfs(DATAFORSEO_LABS_URL, payload, label="labs")
+    task = (js.get("tasks") or [{}])[0] or {}
+    cost = float(task.get("cost") or js.get("cost") or 0) or (
+        DFS_LABS_TASK_USD + DFS_LABS_KEYWORD_USD * len(keywords)
+    )
+    out: dict[str, dict] = {}
+    if js.get("status_code") != 20000 or task.get("status_code") != 20000:
+        return out, cost
+    items: list[dict] = []
+    for block in task.get("result") or []:
+        items.extend((block or {}).get("items") or [])
+    for item in items:
+        kw = str(item.get("keyword") or "").strip()
+        if not kw:
+            continue
+        info = item.get("keyword_info") or {}
+        monthly = info.get("monthly_searches") or item.get("monthly_searches") or []
+        if not monthly:
+            print(f"[BRAND/DFS] labs '{kw}' sem monthly_searches", flush=True)
+            continue
+        out[kw.lower()] = _pack_volume_row(
+            kw,
+            monthly,
+            info=info,
+            source="dataforseo_labs",
+            location_code=location_code,
+            language_code=language_code,
+        )
+    return out, cost
+
+
+def _fetch_volume_fallback(
+    keywords: list[str],
+    *,
+    location_code: int,
+    language_code: str,
+    years_back: int = 6,
+) -> tuple[dict[str, dict], float]:
+    today = datetime.today()
+    date_to = today.strftime("%Y-%m-%d")
+    try:
+        date_from = today.replace(year=today.year - years_back).strftime("%Y-%m-%d")
+    except ValueError:
+        date_from = today.replace(year=today.year - years_back, day=28).strftime("%Y-%m-%d")
+    payload = [{
+        "location_code": int(location_code),
+        "language_code": language_code,
+        "keywords": keywords,
+        "date_from": date_from,
+        "date_to": date_to,
+        "search_partners": False,
+    }]
+    print(
+        f"[BRAND/DFS] fallback search_volume {len(keywords)} kw "
+        f"{date_from} -> {date_to}",
+        flush=True,
+    )
+    js = _post_dfs(DATAFORSEO_VOLUME_URL, payload, label="search_volume")
+    task = (js.get("tasks") or [{}])[0] or {}
+    cost = float(task.get("cost") or js.get("cost") or 0) or DFS_VOLUME_TASK_USD
+    out: dict[str, dict] = {}
+    if js.get("status_code") != 20000 or task.get("status_code") != 20000:
+        return out, cost
+    for item in task.get("result") or []:
+        kw = str(item.get("keyword") or "").strip()
+        monthly = item.get("monthly_searches") or []
+        if not kw or not monthly:
+            continue
+        out[kw.lower()] = _pack_volume_row(
+            kw,
+            monthly,
+            info=item,
+            source="dataforseo_google_ads",
+            location_code=location_code,
+            language_code=language_code,
+        )
+    return out, cost
+
+
 def fetch_brand_volumes(
     keywords: list[str],
     *,
@@ -418,7 +635,8 @@ def fetch_brand_volumes(
     language_code: str = LANGUAGE_CODE,
     years_back: int = 6,
 ) -> dict[str, dict]:
-    """POST Google Ads search_volume/live for brand keywords (US by default)."""
+    """Labs keyword_overview first; old search_volume only if Labs has no series."""
+    global LAST_USAGE
     kws = []
     seen = set()
     for k in keywords:
@@ -430,63 +648,79 @@ def fetch_brand_volumes(
             continue
         seen.add(key)
         kws.append(kk)
+    usage = {
+        "cost_usd": 0.0,
+        "source": "dataforseo_labs",
+        "keywords": len(kws),
+        "cached": 0,
+        "labs": 0,
+        "fallback": 0,
+        "note": "",
+    }
     if not kws:
-        return {}
-    if not DATAFORSEO_USER or not DATAFORSEO_PASS:
-        raise RuntimeError("DATAFORSEO_USER / DATAFORSEO_PASS ausentes")
+        LAST_USAGE = usage
+        return {"_usage": usage}
 
-    today = datetime.today()
-    date_to = today.strftime("%Y-%m-%d")
-    try:
-        date_from = today.replace(year=today.year - years_back).strftime("%Y-%m-%d")
-    except ValueError:
-        date_from = today.replace(year=today.year - years_back, day=28).strftime("%Y-%m-%d")
+    cache = _load_volume_cache(location_code, language_code)
+    out: dict[str, dict] = {}
+    missing: list[str] = []
+    for kw in kws:
+        hit = cache.get(kw.lower())
+        monthly = (hit or {}).get("monthly") if isinstance(hit, dict) else None
+        if hit and monthly:
+            out[kw.lower()] = hit
+            usage["cached"] += 1
+        else:
+            missing.append(kw)
 
-    payload = [{
-        "location_code": int(location_code),
-        "language_code": language_code,
-        "keywords": kws,
-        "date_from": date_from,
-        "date_to": date_to,
-        "search_partners": False,
-    }]
-    auth = requests.auth.HTTPBasicAuth(DATAFORSEO_USER, DATAFORSEO_PASS)
+    if missing:
+        labs, labs_cost = _fetch_labs_overview(
+            missing, location_code=location_code, language_code=language_code,
+        )
+        usage["cost_usd"] = round(usage["cost_usd"] + float(labs_cost or 0), 6)
+        usage["labs"] = len(labs)
+        still: list[str] = []
+        for kw in missing:
+            row = labs.get(kw.lower())
+            if row and row.get("monthly"):
+                out[kw.lower()] = row
+                cache[kw.lower()] = row
+            else:
+                still.append(kw)
+        if still:
+            fb, fb_cost = _fetch_volume_fallback(
+                still,
+                location_code=location_code,
+                language_code=language_code,
+                years_back=years_back,
+            )
+            usage["cost_usd"] = round(usage["cost_usd"] + float(fb_cost or 0), 6)
+            usage["fallback"] = len(fb)
+            usage["source"] = "dataforseo_labs+google_ads"
+            for kw in still:
+                row = fb.get(kw.lower())
+                if row and row.get("monthly"):
+                    out[kw.lower()] = row
+                    cache[kw.lower()] = row
+        if labs or usage["fallback"]:
+            _save_volume_cache(location_code, language_code, cache)
+
+    if usage["cached"] and not usage["labs"] and not usage["fallback"]:
+        usage["source"] = "cache"
+        usage["cost_usd"] = 0.0
+    if not usage["note"]:
+        usage["note"] = (
+            f"Labs ${DFS_LABS_TASK_USD:g}+${DFS_LABS_KEYWORD_USD:g}/kw · "
+            f"{usage['keywords']} brands · cached={usage['cached']} "
+            f"labs={usage['labs']} fallback={usage['fallback']}"
+        )
     print(
-        f"[BRAND/DFS] {len(kws)} keywords loc={location_code} lang={language_code} "
-        f"{date_from} -> {date_to}",
+        f"[BRAND/DFS] usage cost=${usage['cost_usd']} src={usage['source']} "
+        f"cached={usage['cached']} labs={usage['labs']} fallback={usage['fallback']}",
         flush=True,
     )
-    r = requests.post(DATAFORSEO_VOLUME_URL, auth=auth, json=payload, timeout=120)
-    r.raise_for_status()
-    js = r.json()
-    if js.get("status_code") != 20000:
-        raise RuntimeError(
-            f"DataForSEO erro {js.get('status_code')}: {js.get('status_message')}"
-        )
-
-    out: dict[str, dict] = {}
-    results = (js.get("tasks") or [{}])[0].get("result") or []
-    for item in results:
-        kw = (item.get("keyword") or "").strip()
-        if not kw:
-            continue
-        monthly = item.get("monthly_searches") or []
-        analysis = analyze_monthly_brand(monthly)
-        out[kw.lower()] = {
-            "keyword": kw,
-            "search_volume_avg": item.get("search_volume"),
-            "cpc": item.get("cpc"),
-            "competition": item.get("competition"),
-            "location_code": location_code,
-            "language_code": language_code,
-            **analysis,
-        }
-        latest = analysis.get("latest") or {}
-        print(
-            f"[BRAND/DFS] '{kw}' latest={latest.get('label')} "
-            f"vol={latest.get('volume')} months={analysis.get('months_available')}",
-            flush=True,
-        )
+    LAST_USAGE = dict(usage)
+    out["_usage"] = usage
     return out
 
 
@@ -598,6 +832,8 @@ def brand_report_for_entity(
     )
     keyword = meta["keyword"]
     volumes = fetch_brand_volumes([keyword]) if keyword else {}
+    if isinstance(volumes, dict):
+        volumes.pop("_usage", None)
     data = volumes.get((keyword or "").lower()) or {}
     latest = data.get("latest") or {}
     comps = data.get("comparisons") or {}
@@ -625,8 +861,9 @@ def brand_report_for_entity(
         "oldest_label": data.get("oldest_label"),
         "cpc": data.get("cpc"),
         "search_volume_avg": data.get("search_volume_avg"),
-        "source": "dataforseo_google_ads",
+        "source": data.get("source") or ("n/c" if not data else "dataforseo_labs"),
         "market": "US",
+        "usage": dict(LAST_USAGE),
     }
     return _apply_semrush_branded_if_empty(row, row.get("domain") or "")
 
@@ -660,6 +897,8 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
         if meta["keyword"]:
             keywords.append(meta["keyword"])
     volumes = fetch_brand_volumes(keywords)
+    if isinstance(volumes, dict):
+        volumes.pop("_usage", None)
     rows = []
     for e, meta in zip(entities, metas):
         kw = (meta["keyword"] or "").lower()
@@ -699,11 +938,12 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
             "oldest_label": data.get("oldest_label"),
             "cpc": data.get("cpc"),
             "search_volume_avg": data.get("search_volume_avg"),
-            "source": "dataforseo_google_ads",
+            "source": data.get("source") or ("n/c" if not data else "dataforseo_labs"),
             "market": "US",
         }
         rows.append(_apply_semrush_branded_if_empty(
             row, e.get("domain") or meta.get("domain_brand") or "",
         ))
     rows.sort(key=lambda r: (r.get("latest_volume") or 0), reverse=True)
+    brand_reports_batch.last_usage = dict(LAST_USAGE)
     return rows

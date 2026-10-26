@@ -22,7 +22,7 @@ from workspace_paths import setup_workspace, OUT_METRICAS, OUT_CONCORRENTES  # n
 
 setup_workspace()
 
-from brand_dataforseo import brand_reports_batch  # noqa: E402
+from brand_dataforseo import LAST_USAGE, brand_reports_batch  # noqa: E402
 from find_concorrentes import find_client_xlsx, read_briefing_from_xlsx  # noqa: E402
 from seo_pipeline import scrape_site, brand_token_from_domain, normalize_domain  # noqa: E402
 
@@ -157,15 +157,26 @@ def main() -> None:
     from market import LOCATION_CODE, MARKET_SHORT  # noqa: E402
 
     client_row = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
+    usage = dict(getattr(brand_reports_batch, "last_usage", None) or LAST_USAGE or {})
     payload = {
         "slug": slug,
-        "source": client_row.get("source") or "dataforseo_google_ads",
+        "source": client_row.get("source") or "dataforseo_labs",
         "market": client_row.get("market") or MARKET_SHORT,
         "location_code": LOCATION_CODE,
         "rows": rows,
         "keyword_method": "llm_title_desc",
         "client_keyword": next((r.get("brand_keyword") for r in rows if r.get("is_client")), ""),
         "latest_label": next((r.get("latest_label") for r in rows if r.get("is_client")), None),
+        "usage_total": {
+            "cost_usd": usage.get("cost_usd"),
+            "estimated_usd": usage.get("cost_usd"),
+            "source": usage.get("source") or client_row.get("source") or "dataforseo_labs",
+            "keywords": usage.get("keywords"),
+            "cached": usage.get("cached"),
+            "labs": usage.get("labs"),
+            "fallback": usage.get("fallback"),
+            "note": usage.get("note") or "",
+        },
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

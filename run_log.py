@@ -12,7 +12,10 @@ from typing import Any, Optional
 
 # Approximate unit costs (USD). Override via env if needed.
 _SB_CREDIT_USD = float(os.environ.get("SPY_COST_SB_CREDIT", "0.0002") or 0.0002)
-_DFS_TASK_USD = float(os.environ.get("SPY_COST_DFS_TASK", "0.09") or 0.09)
+_DFS_LABS_TASK_USD = float(os.environ.get("SPY_COST_DFS_LABS_TASK", "0.012") or 0.012)
+_DFS_LABS_KEYWORD_USD = float(os.environ.get("SPY_COST_DFS_LABS_KEYWORD", "0.00012") or 0.00012)
+_DFS_VOLUME_TASK_USD = float(os.environ.get("SPY_COST_DFS_TASK", "0.09") or 0.09)
+_DFS_TASK_USD = _DFS_LABS_TASK_USD
 _APIFY_DOMAIN_USD = float(os.environ.get("SPY_COST_APIFY_DOMAIN", "0.03") or 0.03)
 _APIFY_NOTE_RE = re.compile(r"×\s*(\d+)\s*domains", re.I)
 _LEGACY_APIFY_DOMAIN_USD = 0.015
@@ -129,7 +132,7 @@ def _fmt_runs_per_usd(n: Optional[float]) -> str:
 def cost_rates_note() -> str:
     return (
         f"Estimates: ScrapingBee ${_SB_CREDIT_USD:g}/credit · "
-        f"DataForSEO live ${_DFS_TASK_USD:g}/task · "
+        f"DataForSEO Labs ${_DFS_LABS_TASK_USD:g}/task + ${_DFS_LABS_KEYWORD_USD:g}/kw · "
         f"Apify ~${_APIFY_DOMAIN_USD:g}/domain · "
         f"TinyFish search/fetch ${_TF_SEARCH_USD:g}/${_TF_FETCH_USD:g} · "
         f"OpenRouter ~${_OPENROUTER_CALL_USD:g}/call. "
@@ -185,7 +188,9 @@ def _is_dfs_volume_step(ch: dict[str, Any]) -> bool:
     if sid in ("brand_dfs", "brand_growth"):
         return True
     blob = " ".join(str(ch.get(k) or "") for k in ("label", "cost_note", "apis_fmt")).lower()
-    return "dataforseo" in blob and "search_volume" in blob
+    return "dataforseo" in blob and (
+        "keyword_overview" in blob or "search_volume" in blob or "labs" in blob
+    )
 
 
 _EST_USD_NOTE_RE = re.compile(r"estimated(?:_total)?_usd\s*=\s*([0-9.]+)", re.I)
@@ -213,20 +218,39 @@ def refresh_duplicate_usage_costs(channels: list[dict[str, Any]]) -> None:
             ch["cost_note"] = f"Apify billed ${est:g}"
 
 
+def _dfs_labs_cost(n_keywords: int, *, cached: bool = False) -> float:
+    if cached or n_keywords <= 0:
+        return 0.0
+    return round(_DFS_LABS_TASK_USD + _DFS_LABS_KEYWORD_USD * max(1, n_keywords), 6)
+
+
 def refresh_dfs_step_costs(channels: list[dict[str, Any]]) -> None:
-    """Reprice Brand DataForSEO rows at the live $0.09/task rate."""
+    """Reprice Brand DataForSEO rows at Labs keyword_overview rates."""
     for ch in channels:
         if not isinstance(ch, dict) or _channel_is_skipped(ch) or not _is_dfs_volume_step(ch):
             continue
-        n = 1
         note = str(ch.get("cost_note") or "")
+        if "fallback" in note.lower() and "search_volume" in note.lower():
+            usd = round(_DFS_VOLUME_TASK_USD, 4)
+            ch["cost_usd"] = usd
+            ch["cost_fmt"] = _fmt_usd(usd)
+            continue
+        n = 1
         m = re.search(r"(\d+)\s*brands?", note, re.I)
         if m:
             n = max(1, int(m.group(1)))
-        usd = round(_DFS_TASK_USD, 4)
+        cached = "cached=" in note and re.search(r"cached=(\d+)", note)
+        labs_n = re.search(r"labs=(\d+)", note)
+        if cached and int(cached.group(1)) >= n and not (labs_n and int(labs_n.group(1))):
+            usd = 0.0
+        else:
+            usd = _dfs_labs_cost(n)
         ch["cost_usd"] = usd
         ch["cost_fmt"] = _fmt_usd(usd)
-        ch["cost_note"] = f"DataForSEO search_volume live ${_DFS_TASK_USD:g}/task, {n} brands"
+        ch["cost_note"] = (
+            f"DataForSEO Labs keyword_overview "
+            f"${_DFS_LABS_TASK_USD:g}+${_DFS_LABS_KEYWORD_USD:g}/kw, {n} brands"
+        )
 
 
 def apply_cost_shares(
@@ -375,12 +399,40 @@ def _estimate_step_cost(
     elif isinstance(fetch_urls, (int, float)) and fetch_urls > 0:
         notes.append(f"TF fetch urls={int(fetch_urls)} (free/allowance)")
 
-    if step_id == "brand_dfs":
-        n = max(1, _n_rows(report, step_id))
-        # One live Search Volume task (batch) ≈ one DFS task
-        usd += _DFS_TASK_USD
-        known = True
-        notes.append(f"DataForSEO search_volume live ${_DFS_TASK_USD:g}/task, {n} brands")
+    if step_id in ("brand_dfs", "brand_growth"):
+        usage_cost = usage.get("cost_usd")
+        if known:
+            notes.append(
+                usage.get("note")
+                or f"DataForSEO Labs billed ${usd:g}"
+            )
+        elif isinstance(usage_cost, (int, float)) and float(usage_cost) >= 0:
+            usd += float(usage_cost)
+            known = True
+            notes.append(
+                usage.get("note")
+                or f"DataForSEO Labs billed ${float(usage_cost):g}"
+            )
+        else:
+            n = _n_rows(report, step_id)
+            if step_id == "brand_growth" and n <= 0:
+                bg = report.get("brand_growth_usage") if isinstance(report.get("brand_growth_usage"), dict) else {}
+                if isinstance(bg.get("cost_usd"), (int, float)):
+                    usd += float(bg["cost_usd"])
+                    known = True
+                    notes.append(bg.get("note") or f"DataForSEO Labs billed ${float(bg['cost_usd']):g}")
+                    n = 0
+                else:
+                    n = len(report.get("competitors") or []) or 1
+            if not known:
+                n = max(1, n)
+                part = _dfs_labs_cost(n)
+                usd += part
+                known = True
+                notes.append(
+                    f"DataForSEO Labs keyword_overview "
+                    f"${_DFS_LABS_TASK_USD:g}+${_DFS_LABS_KEYWORD_USD:g}/kw, {n} brands"
+                )
         if "DataForSEO" not in apis:
             apis.append("DataForSEO")
 

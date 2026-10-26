@@ -260,7 +260,7 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         mkt = "US"
 
     def _dfs_growth(new, old):
-        """Same rule as brand_dataforseo._pct: 0/missing baseline → floor 100."""
+        """Same rule as brand_dataforseo._pct: missing/0 baseline → n/d."""
         if new is None:
             return None
         try:
@@ -268,15 +268,13 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         except (TypeError, ValueError):
             return None
         if old is None or old == 0:
-            if new_i == 0:
-                return 0.0
-            return round(((new_i - 100) / 100) * 100, 2)
+            return None
         try:
             old_i = int(old)
         except (TypeError, ValueError):
             return None
         if old_i == 0:
-            return round(((new_i - 100) / 100) * 100, 2) if new_i else 0.0
+            return None
         return round(((new_i - old_i) / old_i) * 100, 2)
 
     def _fmt_g(g):
@@ -291,7 +289,7 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         g3 = _dfs_growth(vol, r.get("volume_3y"))
         g5 = _dfs_growth(vol, r.get("volume_5y"))
         kw = (r.get("brand_keyword") or "").strip()
-        src = str(r.get("source") or "dataforseo_google_ads")
+        src = str(r.get("source") or "dataforseo_labs")
         sm_db = str(r.get("semrush_db") or db or "us")
         domain = str(r.get("domain") or "").strip()
         if src == "semrush_branded" and domain:
@@ -330,16 +328,25 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         })
     client = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
     client_raw = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
-    client_src = str(client_raw.get("source") or "dataforseo_google_ads")
+    client_src = str(client_raw.get("source") or "dataforseo_labs")
     used_sm = client_src == "semrush_branded"
+    used_fallback = client_src == "dataforseo_google_ads"
     sm_db = str(client_raw.get("semrush_db") or db)
     src_label = (
         f"Semrush Domain Overview branded ({sm_db})"
         if used_sm
-        else f"DataForSEO Google Ads {mkt}"
+        else (
+            f"DataForSEO Google Ads {mkt} (fallback)"
+            if used_fallback
+            else f"DataForSEO Labs {mkt}"
+        )
     )
+    usage = dict(data.get("usage_total") or {})
     report["brand_dataforseo"] = {
-        "source": "semrush_branded" if used_sm else "dataforseo",
+        "source": (
+            "semrush_branded" if used_sm
+            else ("dataforseo_google_ads" if used_fallback else "dataforseo_labs")
+        ),
         "market": "ALL" if sm_db == "all" else mkt,
         "latest_label": data.get("latest_label") or client_raw.get("latest_label"),
         "client_keyword": data.get("client_keyword") or client_raw.get("brand_keyword"),
@@ -349,16 +356,17 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         "growth_1y_pct": client.get("growth_1y_pct") if client else None,
         "unit": "branded visits" if used_sm else "monthly searches",
         "rows": rows,
+        "usage_total": usage,
         "insight": (
             f"Brand keyword «{data.get('client_keyword') or client_raw.get('brand_keyword') or '—'}» "
             f"· latest month {data.get('latest_label') or client_raw.get('latest_label') or 'n/a'} "
             f"· growth 1y {client.get('growth_fmt') or 'n/a'} "
             f"({src_label}"
             f"{'; DataForSEO volume was 0' if used_sm else ''}). "
-            f"Baseline 0 treated as 100 for growth math only."
+            f"Same month last year; n/d when the baseline is 0."
         ),
         "analysis_title": (
-            "Brand Search — Semrush branded" if used_sm else "Brand Search — DataForSEO"
+            "Brand Search — Semrush branded" if used_sm else "Brand Search — DataForSEO Labs"
         ),
         "raw": data,
     }
@@ -1966,6 +1974,14 @@ def _enrich_competitors_brand_sw(
                     "similaridade": c.get("similaridade") or "",
                 })
             brand_rows = brand_reports_batch(entities)
+            usage = dict(getattr(brand_reports_batch, "last_usage", None) or {})
+            if usage:
+                report["brand_growth_usage"] = usage
+                _log(
+                    f"[BRAND] usage cost=${usage.get('cost_usd')} "
+                    f"src={usage.get('source')} cached={usage.get('cached')} "
+                    f"labs={usage.get('labs')} fallback={usage.get('fallback')}"
+                )
             by_dom = {(r.get("domain") or "").lower(): r for r in brand_rows}
             for c in rows:
                 br = by_dom.get((c.get("domain") or "").lower()) or {}

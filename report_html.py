@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.5.15"
+REPORT_UI_VERSION = "0.5.16"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2251,7 +2251,7 @@ def _section_twitter_influencers(section: Optional[dict[str, Any]]) -> str:
 
 
 def _dfs_growth_pct(new: Any, old: Any) -> Optional[float]:
-    """Growth % with 0/missing baseline treated as 100 (display volume stays 0)."""
+    """Growth %: same month last year. Missing or 0 baseline → n/d."""
     if new is None:
         return None
     try:
@@ -2259,15 +2259,13 @@ def _dfs_growth_pct(new: Any, old: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     if old is None or old == 0:
-        if new_i == 0:
-            return 0.0
-        return round(((new_i - 100) / 100) * 100, 2)
+        return None
     try:
         old_i = int(old)
     except (TypeError, ValueError):
         return None
     if old_i == 0:
-        return round(((new_i - 100) / 100) * 100, 2) if new_i else 0.0
+        return None
     return round(((new_i - old_i) / old_i) * 100, 2)
 
 
@@ -2351,22 +2349,26 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
         str(section.get("growth_fmt") or "n/a")
     )
     hero = f"{hero_vol} <span class='kpi-unit'>· {_esc(hero_g)} Δ1y</span>"
-    src = str(section.get("source") or "dataforseo")
+    src = str(section.get("source") or "dataforseo_labs")
     src_label = (
         "Semrush Domain Overview branded"
         if src == "semrush_branded"
-        else "DataForSEO"
+        else (
+            "DataForSEO Google Ads (fallback)"
+            if src == "dataforseo_google_ads"
+            else "DataForSEO Labs"
+        )
     )
     hero_sub = (
         f"keyword {kw} · latest {latest} · {src_label} · "
-        f"growth uses baseline 100 when historical volume is 0"
+        f"same month last year · n/d when baseline is 0"
     )
     insight = section.get("insight") or ""
     analysis = section.get("analysis_title") or ""
     h2 = (
         "Brand Search — Semrush branded"
         if src == "semrush_branded"
-        else "Brand Search — DataForSEO (US)"
+        else "Brand Search — DataForSEO Labs (US)"
     )
     return f"""
     <section>
