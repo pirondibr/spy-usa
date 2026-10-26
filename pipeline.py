@@ -544,7 +544,9 @@ def _tt_json_missing(slug: str) -> bool:
     data = _load_tiktok_influencers(slug)
     if data is None:
         return True
-    return str(data.get("brand_filter") or "") != "v2_neg_strong_brand"
+    if "v2_neg_strong_brand" not in str(data.get("brand_filter") or ""):
+        return True
+    return not bool(data.get("llm_title_filter"))
 
 
 def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
@@ -631,7 +633,10 @@ def _load_twitter_influencers(slug: str) -> Optional[dict]:
 
 
 def _x_inf_json_missing(slug: str) -> bool:
-    return _load_twitter_influencers(slug) is None
+    data = _load_twitter_influencers(slug)
+    if data is None:
+        return True
+    return not bool(data.get("llm_title_filter"))
 
 
 def _attach_twitter_influencers(report: dict, slug: str) -> dict:
@@ -873,7 +878,9 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         src = str(data.get("source") or "").lower()
         if "scrapingbee" not in src or "njs" not in src:
             return True
-        if data.get("brand_filter") != "title_desc":
+        if "title_desc" not in str(data.get("brand_filter") or ""):
+            return True
+        if not data.get("llm_title_filter"):
             return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
@@ -2248,6 +2255,32 @@ def run_pipeline(
                 )
             except Exception as e:
                 emit("log", line=f"[YT-INF] Refresh failed: {e}")
+        if include_tiktok_influencers and _tt_json_missing(slug):
+            emit("log", line=f"[CACHE] Refreshing TikTok titles via LLM for {slug}")
+            _emit_progress(emit, set_step, "tiktok_influencers", "running", "TikTok titles (LLM)…")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_TT_INFLUENCERS), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=240,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[TT-INF] Refresh failed: {e}")
+        if include_twitter_influencers and _x_inf_json_missing(slug):
+            emit("log", line=f"[CACHE] Refreshing X titles via LLM for {slug}")
+            _emit_progress(emit, set_step, "twitter_influencers", "running", "X titles (LLM)…")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_X_INFLUENCERS), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=240,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[X-INF] Refresh failed: {e}")
         emit("log", line=f"[CACHE] Using existing metrics: {existing.name}")
         report = build_report_from_xlsx(
             existing,

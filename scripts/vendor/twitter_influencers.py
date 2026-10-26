@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import requests
 
+from brand_llm_filter import apply_llm_labels, repartition
 from tiktok_brand_filter import classify_all, resolve_brand
 
 ACTOR_ID = "61RPP7dywgiy0JPD0"
@@ -252,6 +253,8 @@ def analyze_company(
     market: str = "us",
     query: str | None = None,
     official_hint: Optional[dict] = None,
+    niche: str = "",
+    product: str = "",
 ) -> dict[str, Any]:
     t0 = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
@@ -297,12 +300,15 @@ def analyze_company(
     )
     by_id = {str(p.get("id") or ""): p for p in posts if p.get("id")}
     videos = [_row_to_video(row, by_id.get(str(row.get("id") or ""), {})) for row in classified]
-
-    confirmed = [v for v in videos if v.get("label") == "confirmed"]
-    probable = [v for v in videos if v.get("label") == "probable"]
-    unrelated = [v for v in videos if v.get("label") == "unrelated"]
-    official_pool = [v for v in confirmed if v.get("is_official")]
-    other_pool = [v for v in confirmed if not v.get("is_official")]
+    apply_llm_labels(
+        videos,
+        brand=name,
+        domain=domain,
+        niche=niche,
+        product=product or domain,
+        channel="x",
+    )
+    confirmed, probable, unrelated, official_pool, other_pool = repartition(videos)
 
     def _top(items: list[dict], limit: int = 5) -> list[dict]:
         return sorted(items, key=lambda x: int(x.get("likes") or 0), reverse=True)[:limit]
@@ -330,6 +336,7 @@ def analyze_company(
         "views_unofficial": other_likes,
         "views_confirmed": official_likes + other_likes,
         "views_probable": sum(int(v.get("likes") or 0) for v in probable),
+        "llm_title_filter": True,
         "about_count": len(confirmed),
         "page_count": len(raw),
         "top5": _top(confirmed or probable),
@@ -361,7 +368,7 @@ def analyze_company(
             "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
             "note": (
                 "Apify apidojo/tweet-scraper. Query “{brand} min_faves:50”. "
-                "Actor minimum is 50 tweets (~$0.02). Brand filter hides unrelated."
+                "Regex prefilter, then OpenRouter LLM (brand / niche / product)."
             ),
         },
         "elapsed_sec": round(time.time() - t0, 2),

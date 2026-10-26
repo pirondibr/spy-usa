@@ -31,7 +31,7 @@ _COMMON = {
     "go", "hub", "jenni", "jennie", "lab", "labs", "live", "max", "media",
     "meta", "next", "nova", "open", "orange", "pay", "pixel", "play", "plus",
     "pro", "pulse", "rose", "sage", "shift", "shop", "smart", "social",
-    "spark", "stack", "studio", "target", "wave",
+    "spark", "stack", "studio", "target", "turbo", "wave",
 }
 
 _DEFAULT_POS = (
@@ -74,6 +74,24 @@ BRANDS: dict[str, dict[str, Any]] = {
         # Creators say "Arcade MCP" meaning Arcads; ASR also hears Arcads as arcade.
         "pos": ["mcp", "ugc", "claude", "ads", "avatar", "actor", "astra", "ai"],
         "neg": ["arcade", "arcades", "fliperama", "arcadegame"],
+    },
+    "turbo": {
+        "name": "turbo",
+        "query": "turbo ai",
+        "token": r"turbo",
+        "hashtag_prefix": "turbo",
+        "mention": "turbo",
+        "domain": "turbo.ai",
+        "handle_official": "turboai",
+        "ambiguous": True,
+        "pos": [
+            "ai", "study", "notes", "flashcard", "quiz", "learn", "learning",
+            "college", "student", "lecture", "podcast", "exam",
+        ],
+        "neg": [
+            "lover", "beyblade", "judas", "nissan", "engine", "horsepower",
+            "movieclips", "snail", "modo turbo",
+        ],
     },
     "cursor": {
         "name": "cursor",
@@ -166,6 +184,7 @@ def resolve_brand(
         "cursorai": "cursor",
         "higgsfieldai": "higgsfield",
         "arcadsai": "arcads",
+        "turboai": "turbo",
     }
     known = BRANDS.get(key) or BRANDS.get(aliases.get(key, ""))
     if known:

@@ -15,6 +15,7 @@ from urllib.parse import quote_plus
 
 import requests
 
+from brand_llm_filter import apply_llm_labels, repartition
 from tiktok_brand_filter import classify_all, resolve_brand, search_query
 
 ACTOR_ID = "5K30i8aFccKNF5ICs"
@@ -199,6 +200,8 @@ def analyze_company(
     market: str = "us",
     query: str | None = None,
     official_hint: Optional[dict] = None,
+    niche: str = "",
+    product: str = "",
 ) -> dict[str, Any]:
     t0 = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
@@ -239,12 +242,15 @@ def analyze_company(
     )
     by_id = {str(p.get("id") or ""): p for p in posts if p.get("id")}
     videos = [_row_to_video(row, by_id.get(str(row.get("id") or ""), {})) for row in classified]
-
-    confirmed = [v for v in videos if v.get("label") == "confirmed"]
-    probable = [v for v in videos if v.get("label") == "probable"]
-    unrelated = [v for v in videos if v.get("label") == "unrelated"]
-    official_pool = [v for v in confirmed if v.get("is_official")]
-    other_pool = [v for v in confirmed if not v.get("is_official")]
+    apply_llm_labels(
+        videos,
+        brand=name,
+        domain=domain,
+        niche=niche,
+        product=product or domain,
+        channel="tiktok",
+    )
+    confirmed, probable, unrelated, official_pool, other_pool = repartition(videos)
 
     def _top(items: list[dict], limit: int = 5) -> list[dict]:
         return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
@@ -275,6 +281,7 @@ def analyze_company(
         "views_unofficial": other_views,
         "views_confirmed": confirmed_views,
         "views_probable": probable_views,
+        "llm_title_filter": True,
         "about_count": len(confirmed),
         "page_count": len(posts),
         "top5": _top(confirmed or probable),
@@ -308,7 +315,7 @@ def analyze_company(
             "elapsed_fetch_sec": fetch_meta.get("elapsed_sec"),
             "note": (
                 "Apify apidojo/tiktok-scraper keyword search. "
-                "Brand filter confirmed/probable/unrelated. Subtitles from CDN, no video open."
+                "Regex prefilter, then OpenRouter LLM (brand / niche / product)."
             ),
         },
         "elapsed_sec": round(time.time() - t0, 2),

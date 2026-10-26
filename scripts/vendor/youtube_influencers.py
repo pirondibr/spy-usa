@@ -15,7 +15,8 @@ from urllib.parse import quote_plus, urlparse, parse_qs
 
 import requests
 
-from tiktok_brand_filter import classify_all, resolve_brand
+from brand_llm_filter import apply_llm_labels, repartition
+from tiktok_brand_filter import classify_all, resolve_brand, search_query
 
 ACTOR_ID = "1p1aa7gcSydPkAE0d"
 APIFY_SYNC_URL = f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items"
@@ -25,8 +26,6 @@ _YT_SORT_VIEWS = "CAM%3D"  # YouTube "View count"
 _YT_SORT_RELEVANCE = ""  # default YouTube ranking
 
 SCRAPINGBEE_URL = "https://app.scrapingbee.com/api/v1/"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash"
 
 
 def _api_token() -> str:
@@ -1023,145 +1022,28 @@ def _as_int(v: Any) -> Optional[int]:
     return int(num)
 
 
-def _call_openrouter_json(prompt: str, *, max_tokens: int = 8000) -> dict:
-    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    if not key:
-        raise RuntimeError("OPENROUTER_API_KEY ausente")
-    last_err: Optional[Exception] = None
-    for attempt in range(5):
-        r = requests.post(
-            OPENROUTER_URL,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": OPENROUTER_MODEL,
-                "temperature": 0.1,
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=90,
-        )
-        if r.status_code == 429 or r.status_code >= 500:
-            try:
-                wait = float(r.headers.get("Retry-After") or "")
-            except (TypeError, ValueError):
-                wait = (2 ** attempt) + 0.3
-            wait = max(1.0, min(wait, 45.0))
-            print(f"[YT-LLM] {r.status_code} — retry {attempt + 1}/5 in {wait:.1f}s", flush=True)
-            time.sleep(wait)
-            last_err = RuntimeError(f"OpenRouter HTTP {r.status_code}")
-            continue
-        r.raise_for_status()
-        content = (
-            r.json().get("choices", [{}])[0].get("message", {}).get("content") or ""
-        )
-        m = re.search(r"\{[\s\S]*\}", content)
-        if not m:
-            raise RuntimeError("OpenRouter returned no JSON")
-        return json.loads(m.group(0))
-    if last_err:
-        raise last_err
-    raise RuntimeError("OpenRouter call failed")
-
-
 def classify_about_product(
     videos: list[dict],
     *,
     company: str,
     product_hint: str = "",
     domain: str = "",
+    niche: str = "",
 ) -> tuple[list[dict], Optional[dict]]:
-    """LLM-confirm titles. Brand in title/description counts as about the product."""
-    official_from_llm: Optional[dict] = None
-    if not videos:
-        return videos, None
-    for v in videos:
-        v["about_product"] = False
-        v["about_reason"] = "pending_llm"
-
-    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    if not key:
-        for v in videos:
-            v["about_reason"] = "no_openrouter_key"
-        return videos, None
-
-    lines = []
-    for i, v in enumerate(videos[:40]):
-        lines.append(
-            f"[{i}] title={v.get('title')!r} channel={v.get('channel_name')!r} "
-            f"channel_url={v.get('channel_url')!r} description={v.get('snippet')!r}"
-        )
-    site = (domain or product_hint or "").strip()
-    prompt = (
-        f"Brand/company: {company!r}. Official website: {site!r}.\n"
-        "These are YouTube search results for that brand.\n"
-        "Set about=true when the TITLE or DESCRIPTION mentions this brand/product name "
-        "(or a clear variant like 'Higgsfield AI'), or the video is a review, tutorial, "
-        "ad, demo, comparison, or news of this product.\n"
-        "If the brand name is in the title, about=true. Do not reject those as 'unclear'.\n"
-        "Set about=false ONLY when the video is clearly a different well-known thing that "
-        "just shares a word (a person, song, movie, or another company). "
-        "Examples: 'Leonardo da Vinci' is not leonardo.ai; a fashion 'runway' video is not Runway ML.\n"
-        "Also set official_i to the index of a video from the company's own YouTube channel, or -1.\n"
-        "Return ONLY JSON: "
-        '{"items":[{"i":0,"about":true,"reason":"short"}],"official_i":-1}\n\n'
-        + "\n".join(lines)
+    """LLM-confirm titles for THIS brand in THIS niche. No brand-in-title recovery."""
+    apply_llm_labels(
+        videos,
+        brand=company,
+        domain=domain,
+        niche=niche or product_hint,
+        product=product_hint or domain,
+        channel="youtube",
     )
-    try:
-        parsed = _call_openrouter_json(prompt)
-        by_i = {
-            int(it["i"]): it
-            for it in (parsed.get("items") or [])
-            if isinstance(it, dict) and "i" in it
-        }
-        for i, v in enumerate(videos):
-            it = by_i.get(i)
-            if not it:
-                v["about_product"] = False
-                v["about_reason"] = "llm_missing"
-                continue
-            v["about_product"] = bool(it.get("about"))
-            v["about_reason"] = str(it.get("reason") or "llm")[:160]
-        try:
-            official_i = int(parsed.get("official_i", -1))
-        except (TypeError, ValueError):
-            official_i = -1
-        if 0 <= official_i < len(videos):
-            pick = videos[official_i]
-            official_from_llm = {
-                "name": str(pick.get("channel_name") or ""),
-                "url": str(pick.get("channel_url") or ""),
-            }
-            if not official_from_llm["url"] and not official_from_llm["name"]:
-                official_from_llm = None
-        print(
-            f"[YT-LLM] {company}: about={sum(1 for v in videos if v.get('about_product'))}/"
-            f"{len(videos)} official={official_from_llm}",
-            flush=True,
-        )
-    except Exception as e:
-        print(f"[YT-LLM] {company} failed: {e}", flush=True)
-        for v in videos:
-            v["about_product"] = False
-            v["about_reason"] = f"llm_error:{e}"[:160]
-    tokens = [
-        t for t in _brand_tokens(company, domain)
-        if len(re.sub(r"[^a-z0-9]+", "", t)) >= 5
-    ] or _brand_tokens(company, domain)
-    recovered = 0
-    for v in videos:
-        blob = f"{v.get('title') or ''} {v.get('snippet') or ''} {v.get('channel_name') or ''}"
-        if not _brand_in_text(blob, tokens):
-            continue
-        if not v.get("about_product"):
-            recovered += 1
-        v["about_product"] = True
-        v["about_reason"] = "brand_in_title"
-    if recovered:
-        print(f"[YT-LLM] {company}: recovered {recovered} via brand-in-title", flush=True)
-    return videos, official_from_llm
+    official = next(
+        (v for v in videos if v.get("is_official") and v.get("about_product")),
+        None,
+    )
+    return videos, official
 
 
 def summarize_videos(
@@ -1361,11 +1243,13 @@ def analyze_company(
     market: str = "us",
     query: str | None = None,
     official_hint: Optional[dict] = None,
+    niche: str = "",
+    product: str = "",
 ) -> dict[str, Any]:
     """YouTube influencers: ScrapingBee search cards only (popular, relevance if 0)."""
     t_all = time.time()
     name = (company or (domain.split(".")[0] if domain else "")).strip()
-    q = (query or name or domain or "").strip()
+    q = (query or search_query(name, domain=domain) or name or domain or "").strip()
     if not q:
         raise ValueError("company/query required")
     loc = "us" if (market or "us").lower().startswith("us") else "br"
@@ -1478,6 +1362,16 @@ def analyze_company(
                     flush=True,
                 )
 
+    apply_llm_labels(
+        fetched,
+        brand=name,
+        domain=domain,
+        niche=niche or product_hint,
+        product=product or product_hint or domain,
+        channel="youtube",
+    )
+    confirmed, probable, unrelated, official_pool, other_pool = repartition(fetched)
+
     def _top(items: list[dict], limit: int = 5) -> list[dict]:
         return sorted(items, key=lambda x: int(x.get("views") or 0), reverse=True)[:limit]
 
@@ -1511,6 +1405,7 @@ def analyze_company(
         "views_official": sum(int(v.get("views") or 0) for v in official_pool),
         "views_unofficial": sum(int(v.get("views") or 0) for v in other_pool),
         "views_by_age": buckets,
+        "llm_title_filter": True,
         "about_count": len(confirmed),
         "page_count": len(posts),
         "top5": _top(confirmed or probable),
@@ -1543,7 +1438,7 @@ def analyze_company(
             "note": (
                 "ScrapingBee no-JS YouTube search. Popular first (sp=CAM%3D); "
                 "relevance if the page is empty or brand filter keeps 0. "
-                "Title + detailedMetadataSnippets. First page, no watch pages."
+                "Regex prefilter, then OpenRouter LLM (brand / niche / product)."
             ),
         },
         "elapsed_sec": round(time.time() - t_all, 2),

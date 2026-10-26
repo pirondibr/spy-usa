@@ -18,6 +18,7 @@ if str(FINAL_DIR) not in sys.path:
     sys.path.insert(0, str(FINAL_DIR))
 
 from workspace_paths import OUT_METRICAS as METRICAS_DIR  # noqa: E402
+from brand_llm_filter import load_briefing_xyz  # noqa: E402
 from twitter_influencers import analyze_company, official_hint_from_url  # noqa: E402
 
 
@@ -121,9 +122,12 @@ def main() -> None:
         client = next((e for e in entities if e.get("is_client")), entities[0])
         entities = [client]
 
+    xyz = load_briefing_xyz(slug)
+    nicho = xyz.get("nicho") or ""
+    produto = xyz.get("produto") or ""
     print(
         f"[X-INF] slug={slug} entities={len(entities)} market={market} "
-        f"site_only={site_only}",
+        f"site_only={site_only} nicho={nicho!r} produto={produto!r}",
         flush=True,
     )
 
@@ -143,6 +147,8 @@ def main() -> None:
                 market=market,
                 query=q,
                 official_hint=official_hint_from_url(str(ent.get("twitter_url") or "")),
+                niche=nicho,
+                product=produto,
             )
         except Exception as e:
             print(f"[X-INF] ERROR {name}: {e}", flush=True)
@@ -222,6 +228,8 @@ def main() -> None:
             "source": src or "apify_tweet",
             "note": "Apify apidojo/tweet-scraper. Query “brand min_faves:50”. Actor min 50 tweets (~$0.02).",
         },
+        "llm_title_filter": True,
+        "llm_briefing": {"nicho": nicho, "produto": produto},
         "rows": rows,
     }
     out_dir = METRICAS_DIR / slug

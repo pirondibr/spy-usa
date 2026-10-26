@@ -18,6 +18,8 @@ if str(FINAL_DIR) not in sys.path:
     sys.path.insert(0, str(FINAL_DIR))
 
 from workspace_paths import OUT_METRICAS as METRICAS_DIR  # noqa: E402
+from brand_llm_filter import load_briefing_xyz  # noqa: E402
+from tiktok_brand_filter import search_query  # noqa: E402
 from youtube_influencers import analyze_company, official_hint_from_url  # noqa: E402
 
 
@@ -120,10 +122,13 @@ def main() -> None:
     if site_only:
         client = next((e for e in entities if e.get("is_client")), entities[0])
         entities = [client]
+    xyz = load_briefing_xyz(slug)
+    nicho = xyz.get("nicho") or ""
+    produto = xyz.get("produto") or ""
 
     print(
         f"[YT-INF] slug={slug} entities={len(entities)} market={market} "
-        f"site_only={site_only}",
+        f"site_only={site_only} nicho={nicho!r} produto={produto!r}",
         flush=True,
     )
 
@@ -135,19 +140,18 @@ def main() -> None:
     for ent in entities:
         name = ent.get("name") or slug
         domain = ent.get("domain") or ""
-        q = override_query if (override_query and ent.get("is_client")) else name
-        # Prefer brand-ish query without TLD noise
-        if not override_query:
-            q = name.replace("-", " ").strip() or domain.split(".")[0]
-        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (scrapingbee search)", flush=True)
+        q = override_query if (override_query and ent.get("is_client")) else search_query(name, domain=domain)
+        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (scrapingbee + llm)", flush=True)
         try:
             result = analyze_company(
                 name,
                 domain=domain,
-                product_hint=domain or name,
+                product_hint=produto or domain or name,
                 market=market,
                 query=q,
                 official_hint=official_hint_from_url(str(ent.get("youtube_url") or "")),
+                niche=nicho,
+                product=produto,
             )
         except Exception as e:
             print(f"[YT-INF] ERROR {name}: {e}", flush=True)
@@ -211,15 +215,16 @@ def main() -> None:
         "slug": slug,
         "market": market.upper(),
         "source": "scrapingbee_youtube_njs",
-        "brand_filter": "title_desc",
-        "llm_title_filter": False,
+        "brand_filter": "title_desc+llm",
+        "llm_title_filter": True,
+        "llm_briefing": {"nicho": nicho, "produto": produto},
         "elapsed_sec": round(time.time() - t0, 2),
         "usage_total": {
             "estimated_usd": round(total_usd, 6),
             "scrapingbee_credits": total_credits,
             "note": (
                 "ScrapingBee no-JS YouTube search. Popular first; "
-                "relevance if empty or brand filter keeps 0."
+                "relevance if empty. OpenRouter LLM: brand / niche / product."
             ),
         },
         "rows": rows,
