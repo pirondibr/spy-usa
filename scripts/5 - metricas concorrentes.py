@@ -1721,7 +1721,16 @@ def _looks_like_video_title(title: str) -> bool:
     t = (title or "").strip()
     if not t:
         return False
-    return bool(re.search(r"[|🆚🎬]|official video|\bvs\b|subscribe", t, flags=re.I))
+    if re.search(r"[|🆚🎬]|official video|\bvs\b|subscribe", t, flags=re.I):
+        return True
+    return bool(
+        re.search(
+            r"\b(tutorial|beginners?|how to|review|walkthrough|"
+            r"complete guide|for beginners|you need)\b",
+            t,
+            flags=re.I,
+        )
+    )
 
 
 def _fill_youtube_card(card: dict[str, str]) -> dict[str, str]:
@@ -1854,6 +1863,12 @@ def _google_social_cards(platform: str, label: str, site_url: str, domain: str) 
     return cards[:8]
 
 
+def _llm_pick_is_echo(data: dict[str, Any]) -> bool:
+    """Gemini sometimes copies the prompt example {'official_i':0,'reason':'short'}."""
+    reason = str(data.get("reason") or "").strip().lower()
+    return reason in {"short", "reason"}
+
+
 def _llm_pick_official(
     platform: str,
     *,
@@ -1895,16 +1910,16 @@ def _llm_pick_official(
         f"Niche / market: {niche or 'unknown'}\n"
         f"What they sell: {product or site_url or domain}\n\n"
         "Title and description come from Google or the profile/About page.\n"
-        "Return JSON only, no markdown:\n"
-        '{"official_i":0,"reason":"short"}\n\n'
+        "Return JSON only, no markdown. Replace both values; do not copy the example.\n"
+        '{"official_i":-1,"reason":"none of these is the company account"}\n\n'
         "Rules:\n"
         "- official_i is the index of THIS company's own account for this product/niche.\n"
         "- Use -1 if none of the candidates is that company.\n"
         "- A handle that only shares a common word (rapper, movie, car, gamer, meme coin) is not this company.\n"
-        "- Prefer a title/description that mentions the website, product, niche, or brand search keyword.\n"
-        "- A handle that only matches the domain/brand but has a generic or empty title "
-        "(just the handle, 'YouTube', or no product words) LOSES to a channel whose "
-        "title or description names this product/niche.\n"
+        "- A handle that matches the brand/domain WINS over a tutorial, review, or how-to "
+        "from someone else's channel, even if that video title names the product.\n"
+        "- Prefer a title/description that mentions the website, product, niche, or brand search keyword "
+        "only when comparing two channels that both look official.\n"
         "- youtube.com/channel/UC… and a channel resolved from a homepage youtu.be/watch "
         "are first-class candidates. Do not discard them because the handle is a UC-id.\n"
         "- source='website' means the company linked this profile on its own site. "
@@ -1924,11 +1939,14 @@ def _llm_pick_official(
             extra={"company": company, "domain": domain, "platform": platform, "keyword": brand_keyword},
         )
         data = _extract_llm_json(raw)
+        reason = str(data.get("reason") or "")[:160]
+        if _llm_pick_is_echo(data):
+            print(f"[SOCIAL] {platform} llm pick echoed example, ignoring", flush=True)
+            return {"ok": False, "url": "", "reason": "echo", "i": -1, "model": model}
         try:
             idx = int(data.get("official_i", -1))
         except (TypeError, ValueError):
             idx = -1
-        reason = str(data.get("reason") or "")[:160]
         if 0 <= idx < len(cards):
             return {
                 "ok": True,
@@ -1965,14 +1983,27 @@ def _llm_pick_youtube(
     )
 
 
-def _yt_title_is_generic(title: str, handle: str = "") -> bool:
+def _yt_title_is_generic(title: str, handle: str = "", *, brand: str = "") -> bool:
     t = normalize_token(title)
     if not t or t in {"youtube", "home", "channel", "about"}:
         return True
-    if handle and t == normalize_token(handle):
-        return True
     low = (title or "").strip().lower()
-    return low.startswith("share your videos")
+    if low.startswith("share your videos"):
+        return True
+    if handle and t == normalize_token(handle):
+        brand_n = normalize_token(brand)
+        # Official channels often title the page with the same brand as the handle.
+        if brand_n and (t == brand_n or brand_n in t or t in brand_n):
+            return False
+        return True
+    return False
+
+
+def _yt_is_brand_handle(handle: str, brand: str, domain: str = "") -> bool:
+    h = (handle or "").strip().lstrip("@")
+    if not h:
+        return False
+    return social_handle_matches_brand(h, brand, domain)
 
 
 def _card_names_product(
@@ -2010,9 +2041,17 @@ def _prefer_titled_youtube(
     niche: str,
     domain: str,
 ) -> str:
-    """Handle-only / generic title loses to a card that names the product."""
+    """Keep a brand handle. Only override a generic/wrong pick with a product-named card."""
     if not cards:
         return picked_url
+    brand_name = brand or domain
+
+    def _handle(card: dict[str, str]) -> str:
+        return str(card.get("handle") or _social_handle_from_url("youtube", card.get("url") or ""))
+
+    def _is_brand(card: dict[str, str]) -> bool:
+        return _yt_is_brand_handle(_handle(card), brand_name, domain)
+
     picked = next(
         (
             c
@@ -2022,13 +2061,47 @@ def _prefer_titled_youtube(
         ),
         None,
     )
-    if picked and not _yt_title_is_generic(str(picked.get("title") or ""), str(picked.get("handle") or "")):
-        if _card_names_product(picked, brand=brand, product=product, niche=niche, domain=domain):
-            return picked_url
+    if picked_url and _yt_is_brand_handle(
+        _social_handle_from_url("youtube", picked_url), brand_name, domain
+    ):
+        return picked_url
+    if picked and _is_brand(picked):
+        return picked_url
+
+    brand_cards = [c for c in cards if _is_brand(c)]
+    if brand_cards:
+        brand_cards.sort(
+            key=lambda c: (
+                0 if c.get("source") == "website" else 1,
+                0 if c.get("source") == "gemini" else 1,
+            )
+        )
+        winner = brand_cards[0]
+        win_url = str(winner.get("url") or "").strip()
+        if win_url and win_url != picked_url:
+            print(
+                f"[SOCIAL] youtube brand-handle "
+                f"{picked_url or '—'} → {win_url} handle={winner.get('handle')!r}",
+                flush=True,
+            )
+            return win_url
+        return win_url or picked_url
+
+    if picked and picked.get("source") in {"website", "gemini"}:
+        return picked_url
+    if picked and not _yt_title_is_generic(
+        str(picked.get("title") or ""), str(picked.get("handle") or ""), brand=brand_name
+    ):
+        if not _looks_like_video_title(str(picked.get("title") or "")):
+            if _card_names_product(picked, brand=brand, product=product, niche=niche, domain=domain):
+                return picked_url
     better = [
         c
         for c in cards
-        if not _yt_title_is_generic(str(c.get("title") or ""), str(c.get("handle") or ""))
+        if not _yt_title_is_generic(
+            str(c.get("title") or ""), str(c.get("handle") or ""), brand=brand_name
+        )
+        and not _looks_like_video_title(str(c.get("title") or ""))
         and _card_names_product(c, brand=brand, product=product, niche=niche, domain=domain)
     ]
     if not better:
@@ -2156,7 +2229,7 @@ def _pick_official_profile(
         "nicho": niche,
         "produto": product,
         "keyword": brand_keyword,
-        "pick_rule": "title_over_handle" if platform == "youtube" else "",
+        "pick_rule": "brand_handle" if platform == "youtube" else "",
         "candidates": [
             {
                 "url": c.get("url"),

@@ -262,8 +262,8 @@ def _llm_pick_x(
         f"Company / brand: {company or domain}\n"
         f"Website: {website or domain}\n"
         f"Domain: {domain}\n\n"
-        "Return JSON only, no markdown:\n"
-        '{"official_i":0,"reason":"short"}\n\n'
+        "Return JSON only, no markdown. Replace both values; do not copy the example.\n"
+        '{"official_i":-1,"reason":"none of these is the company account"}\n\n'
         "Rules:\n"
         "- official_i is THIS company's own account.\n"
         "- Use -1 if none of the candidates is that company.\n"
@@ -283,11 +283,13 @@ def _llm_pick_x(
             extra={"company": company, "domain": domain},
         )
         data = extract_json(raw)
+        reason = str(data.get("reason") or "")[:160]
+        if reason.strip().lower() in {"short", "reason"}:
+            return {"ok": False, "url": "", "reason": "echo", "i": -1}
         try:
             idx = int(data.get("official_i", -1))
         except (TypeError, ValueError):
             idx = -1
-        reason = str(data.get("reason") or "")[:160]
         if 0 <= idx < len(cards):
             return {
                 "ok": True,
