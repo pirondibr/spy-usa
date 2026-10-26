@@ -53,7 +53,7 @@ except ImportError:
         ACCEPT_LANGUAGE,
     )
 
-from urllib.parse import quote_plus, unquote, urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import openpyxl
 import requests
@@ -1262,6 +1262,55 @@ def social_url_matches_brand(platform: str, url: str, company_name: str, site_ur
     return social_handle_matches_brand(handle, company_name, site_url)
 
 
+def _youtube_is_uc_channel(url: str) -> bool:
+    parts = [p for p in urlparse(url or "").path.split("/") if p]
+    return bool(parts and parts[0].lower() == "channel" and len(parts) >= 2 and parts[1].startswith("UC"))
+
+
+def _youtube_video_id(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    if "youtu.be" in host:
+        return (parsed.path or "").strip("/").split("/")[0]
+    qs = parse_qs(parsed.query or "")
+    if qs.get("v"):
+        return str(qs["v"][0] or "").strip()
+    parts = [p for p in parsed.path.split("/") if p]
+    if parts and parts[0].lower() in {"shorts", "embed", "live", "v"} and len(parts) >= 2:
+        return parts[1]
+    return ""
+
+
+def _resolve_youtube_video_channel(url: str) -> str:
+    """oEmbed: watch / youtu.be / shorts → official channel URL."""
+    vid = _youtube_video_id(url)
+    if not vid:
+        return ""
+    watch = f"https://www.youtube.com/watch?v={vid}"
+    try:
+        r = requests.get(
+            "https://www.youtube.com/oembed",
+            params={"url": watch, "format": "json"},
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        r.raise_for_status()
+        author = str((r.json() or {}).get("author_url") or "").strip()
+    except Exception as e:
+        print(f"[SOCIAL] youtube video→channel fail {vid}: {e}", flush=True)
+        return ""
+    if not author:
+        return ""
+    low = author.lower()
+    if "/watch" in low or "youtu.be/" in low:
+        return ""
+    print(f"[SOCIAL] youtube video {vid} → {author}", flush=True)
+    return normalize_youtube_url(author)
+
+
 def _social_handle_is_impersonator(handle: str) -> bool:
     vendor = Path(__file__).resolve().parent / "vendor"
     if str(vendor) not in sys.path:
@@ -1342,8 +1391,10 @@ def _validate_social_url(platform: str, url: str) -> str:
     if platform == "youtube":
         if "youtube.com" not in low and "youtu.be" not in low:
             return ""
-        if "/watch" in low or "youtu.be/" in low or "/shorts/" in low or "/playlist" in low:
+        if "/playlist" in low:
             return ""
+        if "/watch" in low or "youtu.be/" in low or "/shorts/" in low or "/embed/" in low:
+            return _resolve_youtube_video_channel(raw)
         return normalize_youtube_url(raw)
     if platform == "instagram":
         if "instagram.com" not in low:
@@ -1445,24 +1496,41 @@ def search_social_profile_google(platform: str, company_name: str, site_url: str
     return ""
 
 
-def social_links_from_homepage(url: str, company_name: str = "") -> dict[str, str]:
-    """Scrape homepage <a href> only — Google fallback lives in discover_official_socials."""
-    out = {"instagram": "", "youtube": "", "tiktok": ""}
+def social_links_from_homepage(url: str, company_name: str = "") -> dict[str, list[str]]:
+    """Scrape homepage <a href> / iframes — videos resolve to their channel."""
+    out: dict[str, list[str]] = {"instagram": [], "youtube": [], "tiktok": []}
     if not url:
         return out
     html = fetch_url_text(root_url(url), allow_proxy=True)
     if not html:
         return out
     soup = BeautifulSoup(html, "html.parser")
+    hrefs: list[str] = []
     for a in soup.find_all("a", href=True):
-        href = a.get("href", "").strip()
+        hrefs.append(a.get("href", "").strip())
+    for iframe in soup.find_all("iframe", src=True):
+        hrefs.append(iframe.get("src", "").strip())
+    seen: set[str] = set()
+    for href in hrefs:
         low = href.lower()
-        if not out["instagram"] and "instagram.com" in low:
-            out["instagram"] = normalize_instagram_url(href)
-        elif not out["youtube"] and ("youtube.com" in low or "youtu.be" in low):
-            out["youtube"] = normalize_youtube_url(href)
-        elif not out["tiktok"] and "tiktok.com" in low:
-            out["tiktok"] = normalize_tiktok_url(href)
+        if "instagram.com" in low:
+            clean = normalize_instagram_url(href)
+            key = clean.lower().rstrip("/")
+            if clean and key not in seen:
+                seen.add(key)
+                out["instagram"].append(clean)
+        elif "youtube.com" in low or "youtu.be" in low:
+            clean = _validate_social_url("youtube", href)
+            key = (clean or "").lower().rstrip("/")
+            if clean and key not in seen:
+                seen.add(key)
+                out["youtube"].append(clean)
+        elif "tiktok.com" in low:
+            clean = normalize_tiktok_url(href)
+            key = clean.lower().rstrip("/")
+            if clean and key not in seen:
+                seen.add(key)
+                out["tiktok"].append(clean)
     return out
 
 
@@ -1807,6 +1875,11 @@ def _llm_pick_official(
         "- Use -1 if none of the candidates is that company.\n"
         "- A handle that only shares a common word (rapper, movie, car, gamer, meme coin) is not this company.\n"
         "- Prefer a title/description that mentions the website, product, niche, or brand search keyword.\n"
+        "- A handle that only matches the domain/brand but has a generic or empty title "
+        "(just the handle, 'YouTube', or no product words) LOSES to a channel whose "
+        "title or description names this product/niche.\n"
+        "- youtube.com/channel/UC… and a channel resolved from a homepage youtu.be/watch "
+        "are first-class candidates. Do not discard them because the handle is a UC-id.\n"
         "- More followers is not a reason to pick a lookalike.\n\n"
         + "\n".join(lines)
     )
@@ -1860,6 +1933,87 @@ def _llm_pick_youtube(
         cards=cards,
         brand_keyword=brand_keyword,
     )
+
+
+def _yt_title_is_generic(title: str, handle: str = "") -> bool:
+    t = normalize_token(title)
+    if not t or t in {"youtube", "home", "channel", "about"}:
+        return True
+    if handle and t == normalize_token(handle):
+        return True
+    low = (title or "").strip().lower()
+    return low.startswith("share your videos")
+
+
+def _card_names_product(
+    card: dict[str, str],
+    *,
+    brand: str,
+    product: str,
+    niche: str,
+    domain: str,
+) -> bool:
+    blob = normalize_token(
+        f"{card.get('title') or ''} {card.get('description') or ''}"
+    )
+    if len(blob) < 4:
+        return False
+    tokens = []
+    for raw in (brand, product, niche, domain, brand.replace(" ", "")):
+        tok = normalize_token(raw)
+        if len(tok) >= 4:
+            tokens.append(tok)
+        # also keep first word of a multi-word brand ("pocket ai" → pocket)
+        for part in re.split(r"\s+", (raw or "").strip()):
+            p = normalize_token(part)
+            if len(p) >= 4:
+                tokens.append(p)
+    return any(tok in blob for tok in tokens)
+
+
+def _prefer_titled_youtube(
+    cards: list[dict[str, str]],
+    picked_url: str,
+    *,
+    brand: str,
+    product: str,
+    niche: str,
+    domain: str,
+) -> str:
+    """Handle-only / generic title loses to a card that names the product."""
+    if not cards:
+        return picked_url
+    picked = next(
+        (
+            c
+            for c in cards
+            if _social_url_key("youtube", c.get("url") or "")
+            == _social_url_key("youtube", picked_url)
+        ),
+        None,
+    )
+    if picked and not _yt_title_is_generic(str(picked.get("title") or ""), str(picked.get("handle") or "")):
+        if _card_names_product(picked, brand=brand, product=product, niche=niche, domain=domain):
+            return picked_url
+    better = [
+        c
+        for c in cards
+        if not _yt_title_is_generic(str(c.get("title") or ""), str(c.get("handle") or ""))
+        and _card_names_product(c, brand=brand, product=product, niche=niche, domain=domain)
+    ]
+    if not better:
+        return picked_url
+    better.sort(key=lambda c: (0 if c.get("source") == "website" else 1))
+    winner = better[0]
+    win_url = str(winner.get("url") or "").strip()
+    if win_url and win_url != picked_url:
+        print(
+            f"[SOCIAL] youtube title>handle "
+            f"{picked_url or '—'} → {win_url} title={winner.get('title')!r}",
+            flush=True,
+        )
+        return win_url
+    return picked_url or win_url
 
 
 def _write_official_sidecar(platform: str, payload: dict[str, Any]) -> None:
@@ -1928,6 +2082,15 @@ def _pick_official_profile(
         brand_keyword=brand_keyword,
     )
     url = (pick.get("url") or "").strip()
+    if platform == "youtube" and cards:
+        url = _prefer_titled_youtube(
+            cards,
+            url,
+            brand=brand_keyword or label,
+            product=product,
+            niche=niche,
+            domain=domain,
+        )
     source = ""
     if url:
         for card in cards:
@@ -1956,6 +2119,7 @@ def _pick_official_profile(
         "nicho": niche,
         "produto": product,
         "keyword": brand_keyword,
+        "pick_rule": "title_over_handle" if platform == "youtube" else "",
         "candidates": [
             {
                 "url": c.get("url"),
@@ -2029,7 +2193,12 @@ def discover_official_socials(
             print(f"[SOCIAL] drop {platform} {clean} src={source} (impersonator)", flush=True)
             return
         match_name = search_label or label
-        if source != "website" and not social_url_matches_brand(platform, clean, match_name, site_url):
+        keep_yt_uc = platform == "youtube" and _youtube_is_uc_channel(clean)
+        if (
+            source != "website"
+            and not keep_yt_uc
+            and not social_url_matches_brand(platform, clean, match_name, site_url)
+        ):
             print(f"[SOCIAL] drop {platform} {clean} src={source} (handle≠brand)", flush=True)
             return
         key = _social_url_key(platform, clean)
@@ -2049,10 +2218,13 @@ def discover_official_socials(
     if site_url:
         web = social_links_from_homepage(site_url, label)
         for key_name in out:
-            _add(key_name, web.get(key_name) or "", "website")
+            for u in web.get(key_name) or []:
+                _add(key_name, u, "website")
         print(
-            f"[SOCIAL] website {search_label}: yt={web.get('youtube') or '—'} "
-            f"ig={web.get('instagram') or '—'} tt={web.get('tiktok') or '—'}",
+            f"[SOCIAL] website {search_label}: "
+            f"yt={', '.join(web.get('youtube') or []) or '—'} "
+            f"ig={', '.join(web.get('instagram') or []) or '—'} "
+            f"tt={', '.join(web.get('tiktok') or []) or '—'}",
             flush=True,
         )
 

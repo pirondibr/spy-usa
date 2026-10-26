@@ -981,6 +981,9 @@ def _yt_official_needs_llm(slug: str) -> bool:
 
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
+            yt = data.get("youtube") or {}
+            if str(yt.get("pick_rule") or "") != "title_over_handle":
+                return True
             for plat in ("instagram", "tiktok", "youtube"):
                 row = data.get(plat) or {}
                 if not bool(row.get("llm_confirm")):
