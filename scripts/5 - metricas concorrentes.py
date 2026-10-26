@@ -1050,7 +1050,14 @@ def _lookup_meta_keyword_fallback(comp: dict) -> dict:
         )
         credits += used
         if total is None and page_total is not None:
-            total = page_total
+            # Meta Ad Library shows "50,001+" as a cap, not a real page total.
+            if int(page_total) >= 50_000:
+                print(
+                    f"[META/SB] ignore page_total={page_total} (Ad Library cap)",
+                    flush=True,
+                )
+            else:
+                total = page_total
     except Exception as e:
         print(f"[META/SB] keyword count falhou ({query}): {e}", flush=True)
     dual = _fmt_meta_dual(ctrl_f, total)
@@ -1869,8 +1876,9 @@ def _llm_pick_official(
     lines = []
     for i, card in enumerate(cards):
         lines.append(
-            f"[{i}] url={card.get('url')!r} handle={card.get('handle')!r} "
-            f"title={card.get('title')!r} description={card.get('description')!r}"
+            f"[{i}] source={card.get('source') or 'unknown'!r} url={card.get('url')!r} "
+            f"handle={card.get('handle')!r} title={card.get('title')!r} "
+            f"description={card.get('description')!r}"
         )
     label = {"youtube": "YouTube channel", "instagram": "Instagram profile", "tiktok": "TikTok profile"}.get(
         platform, f"{platform} profile"
@@ -1899,6 +1907,9 @@ def _llm_pick_official(
         "title or description names this product/niche.\n"
         "- youtube.com/channel/UC… and a channel resolved from a homepage youtu.be/watch "
         "are first-class candidates. Do not discard them because the handle is a UC-id.\n"
+        "- source='website' means the company linked this profile on its own site. "
+        "That is official even if the title is generic ('TikTok - Make Your Day', 'YouTube') "
+        "or the handle has a numeric suffix.\n"
         "- More followers is not a reason to pick a lookalike.\n\n"
         + "\n".join(lines)
     )
@@ -2118,11 +2129,17 @@ def _pick_official_profile(
                 break
         source = source or "llm"
     elif cards:
+        # LLM "none" (ok=True, i=-1) must not veto a footer / Gemini official link.
         for want in ("website", "gemini"):
             hit = next((c for c in cards if c.get("source") == want), None)
-            if hit and not pick.get("ok"):
+            if hit:
                 url = hit.get("url") or ""
                 source = want
+                print(
+                    f"[SOCIAL] {platform} keep {want} over llm-none "
+                    f"{url} title={hit.get('title')!r}",
+                    flush=True,
+                )
                 break
     n = _followers_for_platform(platform, url) if url else None
     print(

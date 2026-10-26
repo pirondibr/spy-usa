@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Callable, Optional  # noqa: F401 — Any used in helpers
 
@@ -1315,41 +1315,80 @@ def _run_independent_extras(
         return report
     extras = sorted(extras, key=lambda e: int(e.get("priority") or 0), reverse=True)
     workers = _extra_workers(len(extras))
-    names = ", ".join(ex["tag"] for ex in extras)
+    names = ", ".join(
+        f"{ex['tag']}{(' after ' + str(ex['after'])) if ex.get('after') else ''}"
+        for ex in extras
+    )
     emit("log", line=f"[PARALLEL] {len(extras)} channels · {workers} workers · {names}")
     t0 = time.time()
+
+    def _finish(ex: dict[str, Any], err: Optional[str], elapsed: float) -> None:
+        nonlocal report
+        if err:
+            emit("log", line=f"[{ex['tag']}] Partial failure: {err}")
+        emit("log", line=f"[PARALLEL] done {ex['tag']} in {elapsed}s")
+        kind = str(ex.get("kind") or "json").lower()
+        if kind == "xlsx":
+            try:
+                xlsx_now = find_metricas_xlsx(slug)
+                if xlsx_now:
+                    report = build_report_from_xlsx(
+                        xlsx_now,
+                        client_name=client_name,
+                        preferred_competitors=preferred_competitors,
+                    )
+            except Exception as e:
+                emit("log", line=f"[{ex['tag']}] XLSX rebuild skipped: {e}")
+            report = _attach_all_sidecars(report, slug)
+        elif ex.get("attach"):
+            report = ex["attach"](report, slug)
+        report = tag_report(report)
+        for section in _sections(ex):
+            emit(
+                "partial",
+                section=section,
+                data=report.get(section) or {},
+                client=client_name,
+            )
+        for sid in _steps(ex):
+            _emit_progress(emit, set_step, sid, "done", ex.get("done") or f"{sid} ready")
+
+    pending = list(extras)
+    in_flight: dict[Any, dict[str, Any]] = {}
+    done_tags: set[str] = set()
+
+    def _can_start(ex: dict[str, Any]) -> bool:
+        dep = str(ex.get("after") or "").strip()
+        return not dep or dep in done_tags
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futs = [pool.submit(_one, ex) for ex in extras]
-        for fut in as_completed(futs):
-            ex, err, elapsed = fut.result()
-            if err:
-                emit("log", line=f"[{ex['tag']}] Partial failure: {err}")
-            emit("log", line=f"[PARALLEL] done {ex['tag']} in {elapsed}s")
-            kind = str(ex.get("kind") or "json").lower()
-            if kind == "xlsx":
-                try:
-                    xlsx_now = find_metricas_xlsx(slug)
-                    if xlsx_now:
-                        report = build_report_from_xlsx(
-                            xlsx_now,
-                            client_name=client_name,
-                            preferred_competitors=preferred_competitors,
-                        )
-                except Exception as e:
-                    emit("log", line=f"[{ex['tag']}] XLSX rebuild skipped: {e}")
-                report = _attach_all_sidecars(report, slug)
-            elif ex.get("attach"):
-                report = ex["attach"](report, slug)
-            report = tag_report(report)
-            for section in _sections(ex):
-                emit(
-                    "partial",
-                    section=section,
-                    data=report.get(section) or {},
-                    client=client_name,
-                )
-            for sid in _steps(ex):
-                _emit_progress(emit, set_step, sid, "done", ex.get("done") or f"{sid} ready")
+        def _submit_ready() -> None:
+            still: list[dict[str, Any]] = []
+            for ex in pending:
+                if _can_start(ex) and len(in_flight) < workers:
+                    in_flight[pool.submit(_one, ex)] = ex
+                else:
+                    still.append(ex)
+            pending[:] = still
+
+        _submit_ready()
+        while in_flight or pending:
+            if not in_flight:
+                for ex in pending:
+                    emit(
+                        "log",
+                        line=f"[PARALLEL] skip {ex['tag']}: after={ex.get('after')} never finished",
+                    )
+                    for sid in _steps(ex):
+                        _emit_progress(emit, set_step, sid, "done", "Skipped (dep missing)")
+                break
+            done_futs, _ = wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+            for fut in done_futs:
+                ex = in_flight.pop(fut)
+                _ex, err, elapsed = fut.result()
+                _finish(_ex, err, elapsed)
+                done_tags.add(str(ex.get("tag") or ""))
+            _submit_ready()
     emit(
         "log",
         line=f"[PARALLEL] channels wall {round(time.time() - t0, 2)}s (vs sequential sum of each channel)",
@@ -2734,6 +2773,7 @@ def run_pipeline(
                 "timeout": 600,
                 "kind": "json",
                 "priority": 80,
+                "after": "SOCIAL",
                 "running": "Instagram Influencers (Search + page download)...",
                 "done": "Instagram Influencers ready",
                 "attach": _attach_instagram_influencers,

@@ -90,6 +90,19 @@ def _load_entities(slug: str) -> list[dict]:
             "is_client": True,
             "similaridade": "Cliente",
         }]
+    sidecar = METRICAS_DIR / slug / f"official-socials-{slug}.json"
+    sidecar_ig = ""
+    if sidecar.exists():
+        try:
+            blob = json.loads(sidecar.read_text(encoding="utf-8"))
+            sidecar_ig = str((blob.get("instagram") or {}).get("url") or "").strip()
+        except Exception:
+            sidecar_ig = ""
+    if sidecar_ig:
+        for ent in entities:
+            if not ent.get("instagram_url"):
+                ent["instagram_url"] = sidecar_ig
+                print(f"[IG-INF] sidecar official IG {sidecar_ig}", flush=True)
     return entities
 
 
