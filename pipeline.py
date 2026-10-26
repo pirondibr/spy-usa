@@ -50,6 +50,16 @@ BRIEFING_DIR = _OUT_ROOT / "entender"
 CONCORRENTES_DIR = _OUT_ROOT / "concorrentes"
 RUNS_DIR = _OUT_ROOT / "runs"
 
+
+def _enable_llm_log(run_id: str) -> str:
+    if not run_id:
+        return ""
+    path = RUNS_DIR / run_id / "llm.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.environ["SPY_LLM_LOG"] = str(path)
+    return str(path)
+
+
 EmitFn = Callable[..., None]
 
 COMPETITORS_ONLY_STEPS = [
@@ -192,6 +202,13 @@ def _bind_step_clock(
 def _unbind_step_clock(token: Any) -> None:
     if token is not None:
         _STEP_CLOCK.reset(token)
+
+
+def _brand_dfs_needs_llm(slug: str) -> bool:
+    data = _load_brand_dfs(slug)
+    if data is None:
+        return False
+    return str(data.get("keyword_method") or "") != "llm_title_desc"
 
 
 def _load_brand_dfs(slug: str) -> Optional[dict]:
@@ -1445,6 +1462,7 @@ def _run_compare_all_pipeline(
     """Ensure per-slug caches, then merge into one compare_all report (no multi-peer scrape)."""
     market = _normalize_market(market)
     os.environ["SPY_MARKET"] = market
+    _enable_llm_log(run_id)
     url = normalize_url(parsed.url) or parsed.url
     if not url:
         raise ValueError("Company URL is required.")
@@ -1631,6 +1649,25 @@ def _run_compare_all_pipeline(
                     )
                 except Exception as e:
                     emit("log", line=f"[ALL] WARN X influencers refresh {c_slug}: {e}")
+            if _brand_dfs_needs_llm(c_slug):
+                emit(
+                    "log",
+                    line=f"[ALL] ({i + 1}/{len(companies)}) Refresh brand keyword (LLM) {c_name} ({c_slug})",
+                )
+                _emit_progress(
+                    emit, set_step, "brand_dfs", "running",
+                    f"All: Brand keyword LLM {c_name} ({i + 1}/{len(companies)})",
+                )
+                try:
+                    _run_script(
+                        [sys.executable, str(SCRIPT_BRAND_DFS), c_slug],
+                        FINAL_DIR,
+                        lambda line: emit("log", line=line),
+                        timeout_sec=180,
+                        env={"SPY_SITE_ONLY": "1", "SPY_MARKET": market, "SPY_COMPARE_ALL": "1"},
+                    )
+                except Exception as e:
+                    emit("log", line=f"[ALL] WARN brand keyword refresh {c_slug}: {e}")
             if _yt_official_needs_llm(c_slug):
                 emit(
                     "log",
@@ -1955,6 +1992,7 @@ def run_competitors_only_pipeline(
 
     market = _normalize_market(market)
     os.environ["SPY_MARKET"] = market
+    _enable_llm_log(run_id)
     url = normalize_url(parsed.url) or parsed.url
     if not url:
         raise ValueError("Company URL is required.")
@@ -2194,6 +2232,7 @@ def run_pipeline(
     }
     # Ensure parent process market helpers (report_builder) see the same market
     os.environ["SPY_MARKET"] = market
+    _enable_llm_log(run_id)
 
     recorder = RunRecorder()
     emit = _wrap_emit_logger(emit, recorder)
@@ -2326,6 +2365,19 @@ def run_pipeline(
                 )
             except Exception as e:
                 emit("log", line=f"[SOCIAL] YouTube official refresh failed: {e}")
+        if _brand_dfs_needs_llm(slug):
+            emit("log", line=f"[CACHE] Refreshing brand keyword via LLM for {slug}")
+            _emit_progress(emit, set_step, "brand_dfs", "running", "Brand keyword (LLM)…")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_BRAND_DFS), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=180,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[BRAND/DFS] keyword refresh failed: {e}")
         emit("log", line=f"[CACHE] Using existing metrics: {existing.name}")
         report = build_report_from_xlsx(
             existing,

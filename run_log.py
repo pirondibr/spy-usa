@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 # Approximate unit costs (USD). Override via env if needed.
@@ -638,6 +640,15 @@ def collect_api_pulls(report: Optional[dict[str, Any]] = None) -> dict[str, list
 def attach_run_log(report: dict[str, Any], recorder: RunRecorder) -> dict[str, Any]:
     payload = recorder.finalize(report)
     payload["api_pulls"] = collect_api_pulls(report)
+    try:
+        vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+        if str(vendor) not in sys.path:
+            sys.path.insert(0, str(vendor))
+        from llm_trace import load_calls
+
+        payload["llm_calls"] = load_calls()
+    except Exception:
+        payload["llm_calls"] = []
     report["run_log"] = payload
     return report
 

@@ -150,7 +150,11 @@ html[data-ui="v6"] header.topbar{display:none!important}
 #analysis-v2 .exec-body .tw{border:1px solid var(--line);border-radius:10px}
 #analysis-v2 details.raw summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--accent)}
 #analysis-v2 .ex-switch{display:flex;flex-direction:column;gap:14px}
-#analysis-v2 .ex-tabs{display:inline-flex;gap:4px;background:#F4F5F7;border-radius:10px;padding:4px;align-self:flex-start}
+#analysis-v2 .ex-tabs{display:flex;flex-wrap:wrap;gap:4px;background:#F4F5F7;border-radius:10px;padding:4px;align-self:flex-start}
+#analysis-v2 .llm-call{margin:0 0 16px;padding:12px 14px;border:1px solid #E5E7EB;border-radius:10px;background:#fff}
+#analysis-v2 .llm-call header{font-size:12px;color:var(--muted);margin-bottom:8px}
+#analysis-v2 .llm-call h4{margin:10px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+#analysis-v2 .llm-call pre{margin:0;max-height:280px;overflow:auto;padding:10px 12px;background:#0E1116;color:#D7DCE2;border-radius:8px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
 #analysis-v2 .ex-tabs button{appearance:none;border:0;background:none;padding:7px 13px;border-radius:7px;font:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer}
 #analysis-v2 .ex-tabs button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,17,22,.1)}
 #analysis-v2 .ex-pane[hidden]{display:none}

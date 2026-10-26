@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.5.06"
+REPORT_UI_VERSION = "0.5.07"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2524,9 +2524,14 @@ def _resolve_run_log(
     run_meta: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     payload = report.get("run_log")
+    run_id = str((run_meta or {}).get("id") or report.get("run_id") or "").strip()
     if isinstance(payload, dict) and (payload.get("channels") or payload.get("lines")):
+        if not payload.get("llm_calls") and run_id:
+            try:
+                payload["llm_calls"] = _load_llm_sidecar(_runs_dir() / run_id)
+            except Exception:
+                pass
         return payload
-    run_id = str((run_meta or {}).get("id") or "").strip()
     if not run_id:
         return None
     # Fallback: load persisted sidecar files (older / partial saves)
@@ -2542,10 +2547,27 @@ def _resolve_run_log(
                 ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()
             ]
         if stats.get("channels") or stats.get("lines"):
+            if not stats.get("llm_calls"):
+                stats["llm_calls"] = _load_llm_sidecar(run_dir)
             return stats
     except Exception:
         return None
     return None
+
+
+def _load_llm_sidecar(run_dir: Path) -> list[dict[str, Any]]:
+    path = Path(run_dir) / "llm.jsonl"
+    if not path.exists():
+        return []
+    try:
+        vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+        if str(vendor) not in sys.path:
+            sys.path.insert(0, str(vendor))
+        from llm_trace import load_calls
+
+        return load_calls(path)
+    except Exception:
+        return []
 
 
 def _step_is_skipped(ch: dict[str, Any]) -> bool:
@@ -2667,6 +2689,28 @@ def _pulls_table_html(title: str, items: list[dict[str, Any]]) -> str:
     """
 
 
+def _llm_call_pane_html(calls: list[dict[str, Any]]) -> str:
+    if not calls:
+        return '<p class="muted">Nenhuma chamada neste task.</p>'
+    blocks: list[str] = []
+    for i, row in enumerate(calls, 1):
+        status = "ok" if row.get("ok") else "erro"
+        model = row.get("model") or "—"
+        extra = row.get("extra") or {}
+        extra_txt = ""
+        if extra:
+            extra_txt = " · " + ", ".join(f"{k}={v}" for k, v in extra.items() if v not in (None, ""))
+        blocks.append(
+            f'<article class="llm-call">'
+            f"<header><b>#{i}</b> · {_esc(model)} · {_esc(status)}"
+            f"{_esc(extra_txt)}</header>"
+            f"<h4>Prompt</h4><pre>{_esc(row.get('prompt') or '')}</pre>"
+            f"<h4>Resposta</h4><pre>{_esc(row.get('response') or row.get('error') or '—')}</pre>"
+            f"</article>"
+        )
+    return "".join(blocks)
+
+
 def exec_tabs_html(
     *,
     channels: list[dict[str, Any]],
@@ -2674,6 +2718,7 @@ def exec_tabs_html(
     log_text: str = "",
     rates: str = "",
     api_pulls: Optional[dict[str, Any]] = None,
+    llm_calls: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Resumo por área + log completo, em abas."""
     from run_log import apply_cost_shares, cost_rates_note
@@ -2734,16 +2779,38 @@ def exec_tabs_html(
         f'{_pulls_table_html("YouTube", yt_items)}'
         f'{_pulls_table_html("TikTok", tt_items)}'
     )
+    llm_btns = ""
+    llm_panes = ""
+    try:
+        vendor = Path(__file__).resolve().parent / "scripts" / "vendor"
+        if str(vendor) not in sys.path:
+            sys.path.insert(0, str(vendor))
+        from llm_trace import group_calls
+
+        grouped = group_calls(list(llm_calls or []))
+    except Exception:
+        grouped = []
+    for task, label, rows in grouped:
+        llm_btns += (
+            f'<button type="button" data-ex="llm-{_esc(task)}" aria-pressed="false">'
+            f"{_esc(label)} · {len(rows)}</button>"
+        )
+        llm_panes += (
+            f'<div class="ex-pane" data-ex-pane="llm-{_esc(task)}" hidden>'
+            f"{_llm_call_pane_html(rows)}</div>"
+        )
     return f"""
     <div class="ex-switch">
       <div class="ex-tabs" role="tablist" aria-label="Execução">
         <button type="button" data-ex="resumo" aria-pressed="true">Resumo</button>
         <button type="button" data-ex="log" aria-pressed="false">Log{f" · {n_log}" if n_log else ""}</button>
         <button type="button" data-ex="pulls" aria-pressed="false">Puxados{f" · {n_pulls}" if n_pulls else ""}</button>
+        {llm_btns}
       </div>
       <div class="ex-pane" data-ex-pane="resumo">{summary}</div>
       <div class="ex-pane" data-ex-pane="log" hidden>{log_pane}</div>
       <div class="ex-pane" data-ex-pane="pulls" hidden>{pulls_pane}</div>
+      {llm_panes}
     </div>
     """
 
@@ -2775,6 +2842,7 @@ def _section_run_log(
           log_text=log_text,
           rates=str(payload.get("rates_note") or "").strip(),
           api_pulls=pulls,
+          llm_calls=list(payload.get("llm_calls") or []),
       )}
     </section>
     """
@@ -3643,7 +3711,11 @@ p.note{margin:0 0 12px;background:#fffbeb;border:1px solid #fde68a;padding:8px 1
   .hero-val{font-size:24px}
 }
 .ex-switch{display:flex;flex-direction:column;gap:14px}
-.ex-tabs{display:inline-flex;gap:4px;background:#F1F5F9;border-radius:10px;padding:4px;align-self:flex-start}
+.ex-tabs{display:flex;flex-wrap:wrap;gap:4px;background:#F1F5F9;border-radius:10px;padding:4px;align-self:flex-start}
+.llm-call{margin:0 0 16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:#fff}
+.llm-call header{font-size:12px;color:var(--muted);margin-bottom:8px}
+.llm-call h4{margin:10px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.llm-call pre{margin:0;max-height:280px;overflow:auto;padding:10px 12px;background:#0E1116;color:#D7DCE2;border-radius:8px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
 .ex-tabs button{appearance:none;border:0;background:none;padding:7px 13px;border-radius:7px;font:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer}
 .ex-tabs button[aria-pressed="true"]{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(15,23,42,.08)}
 .ex-pane[hidden]{display:none}

@@ -391,7 +391,7 @@ RETURN JSON ONLY:
 """
 
     try:
-        raw = call_openrouter(prompt, max_tokens=1500, temperature=0.3)
+        raw = call_openrouter(prompt, max_tokens=1500, temperature=0.3, task="concorrentes")
         data = extract_json(raw)
     except Exception as e:
         print(f"[LLM/1] Falha ao chamar/parsear LLM: {e}")

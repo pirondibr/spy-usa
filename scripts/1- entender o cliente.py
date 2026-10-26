@@ -334,20 +334,12 @@ CLASSIFICAR2_FIELDS = [
 
 
 def call_openrouter(prompt: str, max_tokens: int = 1500, temperature: float = 0.2) -> str:
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    r = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=90)
-    r.raise_for_status()
-    data = r.json()
-    return data["choices"][0]["message"]["content"]
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    from llm_trace import chat
+
+    return chat(task="briefing", prompt=prompt, max_tokens=max_tokens, temperature=temperature)
 
 
 def extract_json(text: str) -> dict:

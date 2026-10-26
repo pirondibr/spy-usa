@@ -98,35 +98,80 @@ def resolve_brand_keyword(
     url: str,
     *,
     title: str = "",
+    description: str = "",
     company_hint: str = "",
 ) -> dict[str, str]:
-    """Escolhe a keyword de marca a consultar no DataForSEO."""
+    """Keyword de marca: domínio + title + description, decisão via LLM."""
     domain_brand = brand_from_domain(url)
     title_brand = brand_from_title(title, domain_brand)
     hint = (company_hint or "").strip()
-    # Prefer explicit company hint if short brand-like
     if hint:
         hint_clean = re.split(r"[|\-:]", hint)[0].strip()
         if 2 <= len(hint_clean) <= 40 and len(hint_clean.split()) <= 3:
-            # Prefer domain token if company hint is legal name like "Semrush Inc"
             if domain_brand and domain_brand in _fold(hint_clean):
-                keyword = domain_brand
+                fallback = domain_brand
             else:
-                keyword = hint_clean.lower() if " " not in hint_clean else hint_clean
+                fallback = hint_clean.lower() if " " not in hint_clean else hint_clean
         else:
-            keyword = domain_brand or title_brand or hint_clean
+            fallback = domain_brand or title_brand or hint_clean
     else:
-        keyword = domain_brand or title_brand
+        fallback = domain_brand or title_brand
+    fallback = re.sub(r"[!@%^()={};~'<>?\\|―*]+", "", fallback or "").strip()
+    fallback = re.sub(r"\s+", " ", fallback)
+    keyword = fallback
+    reason = "heuristic"
+    method = "heuristic"
+    try:
+        from llm_trace import chat, extract_json
 
-    keyword = re.sub(r"[!@%^()={};~'<>?\\|―*]+", "", keyword or "").strip()
-    keyword = re.sub(r"\s+", " ", keyword)
+        prompt = (
+            "Choose the Google brand-search keyword for this company.\n\n"
+            f"Domain token: {domain_brand or '—'}\n"
+            f"Website: {url or '—'}\n"
+            f"Homepage title: {(title or '—').strip()}\n"
+            f"Homepage description: {(description or '—').strip()[:400]}\n"
+            f"Company hint: {hint or '—'}\n\n"
+            "Return JSON only:\n"
+            '{"keyword":"turbo ai","reason":"title is Turbo AI"}\n\n'
+            "Rules:\n"
+            "- 1 to 3 words people type when they search THIS brand.\n"
+            "- If the title or description uses a two-word product name (Turbo AI, Higgsfield AI), keep both words.\n"
+            "- Do not use a generic dictionary word alone when the site brand is Name + AI/App/etc.\n"
+            "- No TLD (.ai, .com, .io). No tagline. Lowercase.\n"
+        )
+        raw = chat(
+            task="brand_keyword",
+            prompt=prompt,
+            max_tokens=200,
+            temperature=0.1,
+            extra={"url": url, "domain": domain_brand},
+        )
+        data = extract_json(raw)
+        picked = re.sub(r"[!@%^()={};~'<>?\\|―*]+", "", str(data.get("keyword") or "")).strip()
+        picked = re.sub(r"\s+", " ", picked)
+        if picked and 1 <= len(picked.split()) <= 4:
+            keyword = picked.lower()
+            reason = str(data.get("reason") or "llm")[:160]
+            method = "llm_title_desc"
+    except Exception as e:
+        reason = f"llm_fallback:{e}"[:160]
+        method = "heuristic"
+        print(f"[BRAND/DFS] llm keyword fail {url}: {e}", flush=True)
+    print(
+        f"[BRAND/DFS] keyword={keyword!r} method={method} "
+        f"title={(title or '')[:40]!r} reason={reason}",
+        flush=True,
+    )
     return {
         "keyword": keyword,
         "domain_brand": domain_brand,
         "title_brand": title_brand,
         "company_hint": hint,
         "title": title or "",
+        "description": (description or "")[:400],
         "url": url,
+        "keyword_method": method,
+        "keyword_reason": reason,
     }
 
 
@@ -301,12 +346,18 @@ def brand_report_for_entity(
     *,
     url: str,
     title: str = "",
+    description: str = "",
     company_hint: str = "",
     domain: str = "",
     name: str = "",
     is_client: bool = False,
 ) -> dict[str, Any]:
-    meta = resolve_brand_keyword(url or domain, title=title, company_hint=company_hint or name)
+    meta = resolve_brand_keyword(
+        url or domain,
+        title=title,
+        description=description,
+        company_hint=company_hint or name,
+    )
     keyword = meta["keyword"]
     volumes = fetch_brand_volumes([keyword]) if keyword else {}
     data = volumes.get((keyword or "").lower()) or {}
@@ -363,6 +414,7 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
         meta = resolve_brand_keyword(
             e.get("url") or e.get("domain") or "",
             title=e.get("title") or "",
+            description=e.get("description") or e.get("meta_description") or "",
             company_hint=e.get("company") or e.get("name") or e.get("title") or "",
         )
         metas.append(meta)
@@ -383,9 +435,12 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
             "is_client": bool(e.get("is_client")),
             "similaridade": e.get("similaridade") or ("Cliente" if e.get("is_client") else "—"),
             "brand_keyword": meta["keyword"],
+            "keyword_method": meta.get("keyword_method") or "",
+            "keyword_reason": meta.get("keyword_reason") or "",
             "domain_brand": meta["domain_brand"],
             "title_brand": meta["title_brand"],
             "site_title": meta.get("title") or e.get("title") or "",
+            "site_description": meta.get("description") or e.get("description") or "",
             "latest_label": latest.get("label"),
             "latest_volume": latest.get("volume"),
             "volume_1y": (comps.get("1y") or {}).get("volume"),

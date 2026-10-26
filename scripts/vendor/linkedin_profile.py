@@ -325,31 +325,26 @@ def openrouter_online_linkedin(
         )
     t0 = time.time()
     try:
-        r = requests.post(
-            OPENROUTER_URL,
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
-                "max_tokens": 400,
-                "plugins": [
-                    {
-                        "id": "web",
-                        "engine": "exa",
-                        "max_results": 5,
-                        "include_domains": ["linkedin.com"],
-                    }
-                ],
-            },
-            timeout=90,
+        from llm_trace import chat
+
+        text = chat(
+            task="linkedin",
+            prompt=prompt,
+            max_tokens=400,
+            temperature=0.1,
+            plugins=[
+                {
+                    "id": "web",
+                    "engine": "exa",
+                    "max_results": 5,
+                    "include_domains": ["linkedin.com"],
+                }
+            ],
+            extra={"company": brand, "domain": domain},
         )
-        r.raise_for_status()
-        payload = r.json() if r.content else {}
     except Exception as e:
         return {"ok": False, "error": str(e), "elapsed_sec": round(time.time() - t0, 2)}
-    msg = ((payload.get("choices") or [{}])[0].get("message") or {})
-    text = str(msg.get("content") or "")
+    msg = {}
     data = _extract_llm_json(text)
     kind, url = normalize_linkedin_url(str(data.get("url") or known_url or ""))
     followers = data.get("followers")

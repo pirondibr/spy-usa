@@ -81,50 +81,11 @@ def load_briefing_xyz(slug: str) -> dict[str, str]:
     return {"nicho": nicho, "produto": produto}
 
 
-def _call_openrouter_json(prompt: str, *, max_tokens: int = 8000) -> dict:
-    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    if not key:
-        raise RuntimeError("OPENROUTER_API_KEY ausente")
-    last_err: Optional[Exception] = None
-    for attempt in range(5):
-        r = requests.post(
-            OPENROUTER_URL,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": OPENROUTER_MODEL,
-                "temperature": 0.1,
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=90,
-        )
-        if r.status_code == 429 or r.status_code >= 500:
-            try:
-                wait = float(r.headers.get("Retry-After") or "")
-            except (TypeError, ValueError):
-                wait = (2 ** attempt) + 0.3
-            wait = max(1.0, min(wait, 45.0))
-            print(
-                f"[BRAND-LLM] {r.status_code} — retry {attempt + 1}/5 in {wait:.1f}s",
-                flush=True,
-            )
-            time.sleep(wait)
-            last_err = RuntimeError(f"OpenRouter HTTP {r.status_code}")
-            continue
-        r.raise_for_status()
-        content = (
-            r.json().get("choices", [{}])[0].get("message", {}).get("content") or ""
-        )
-        m = re.search(r"\{[\s\S]*\}", content)
-        if not m:
-            raise RuntimeError("OpenRouter returned no JSON")
-        return json.loads(m.group(0))
-    if last_err:
-        raise last_err
-    raise RuntimeError("OpenRouter call failed")
+def _call_openrouter_json(prompt: str, *, max_tokens: int = 8000, task: str = "youtube_titulos") -> dict:
+    from llm_trace import chat, extract_json
+
+    raw = chat(task=task, prompt=prompt, max_tokens=max_tokens, temperature=0.1)
+    return extract_json(raw)
 
 
 def _item_line(i: int, v: dict[str, Any]) -> str:
@@ -191,7 +152,13 @@ def apply_llm_labels(
         + "\n".join(lines)
     )
     try:
-        parsed = _call_openrouter_json(prompt)
+        task = {
+            "youtube": "youtube_titulos",
+            "tiktok": "tiktok_titulos",
+            "x": "x_titulos",
+            "twitter": "x_titulos",
+        }.get((channel or "youtube").lower(), "youtube_titulos")
+        parsed = _call_openrouter_json(prompt, task=task)
         by_i: dict[int, dict[str, Any]] = {}
         for it in parsed.get("items") or []:
             if not isinstance(it, dict):

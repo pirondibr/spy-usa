@@ -120,22 +120,9 @@ def _extract_json(text: str) -> Any:
 
 
 def _call_llm(prompt: str) -> str:
-    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    if not key:
-        raise RuntimeError("OPENROUTER_API_KEY missing")
-    r = requests.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={
-            "model": OPENROUTER_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 500,
-            "temperature": 0.1,
-        },
-        timeout=15,
-    )
-    r.raise_for_status()
-    return str(r.json()["choices"][0]["message"]["content"] or "")
+    from llm_trace import chat
+
+    return chat(task="brand_fp", prompt=prompt, max_tokens=500, temperature=0.1)
 
 
 def _llm_false_positives(

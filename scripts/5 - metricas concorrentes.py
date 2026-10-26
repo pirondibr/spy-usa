@@ -1382,19 +1382,15 @@ def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str,
         "- Prefer the handle that matches the brand name on the official website.\n"
     )
     try:
-        r = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 400,
-                "temperature": 0.1,
-            },
-            timeout=45,
+        from llm_trace import chat
+
+        raw = chat(
+            task="sociais",
+            prompt=prompt,
+            max_tokens=400,
+            temperature=0.1,
+            extra={"company": company, "domain": domain},
         )
-        r.raise_for_status()
-        raw = (((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "")
         data = _extract_llm_json(raw)
     except Exception as e:
         print(f"[SOCIAL] gemini failed: {e}", flush=True)
@@ -1690,19 +1686,15 @@ def _llm_pick_youtube(
         + "\n".join(lines)
     )
     try:
-        r = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 300,
-                "temperature": 0.1,
-            },
-            timeout=45,
+        from llm_trace import chat
+
+        raw = chat(
+            task="youtube_oficial",
+            prompt=prompt,
+            max_tokens=300,
+            temperature=0.1,
+            extra={"company": company, "domain": domain},
         )
-        r.raise_for_status()
-        raw = (((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "")
         data = _extract_llm_json(raw)
         try:
             idx = int(data.get("official_i", -1))

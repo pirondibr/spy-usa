@@ -885,6 +885,8 @@ def build_analysis_compare(
             totals=totals,
             log_text=log_text,
             rates=str(payload.get("rates_note") or "").strip(),
+            api_pulls=payload.get("api_pulls") if isinstance(payload.get("api_pulls"), dict) else None,
+            llm_calls=list(payload.get("llm_calls") or []),
         )}
       </div>
     </details>"""

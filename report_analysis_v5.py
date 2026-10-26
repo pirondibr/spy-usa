@@ -578,6 +578,7 @@ def build_v5_payload(
             "log": "\n".join(lines),
             "rates": cost_rates_note(),
             "pulls": log.get("api_pulls") if isinstance(log.get("api_pulls"), dict) else collect_api_pulls(report),
+            "llm": log.get("llm_calls") if isinstance(log.get("llm_calls"), list) else [],
         },
     }
 

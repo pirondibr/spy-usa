@@ -21,7 +21,7 @@ from workspace_paths import setup_workspace, OUT_METRICAS, OUT_CONCORRENTES  # n
 
 setup_workspace()
 
-from brand_dataforseo import brand_reports_batch, resolve_brand_keyword  # noqa: E402
+from brand_dataforseo import brand_reports_batch  # noqa: E402
 from find_concorrentes import find_client_xlsx, read_briefing_from_xlsx  # noqa: E402
 from seo_pipeline import scrape_site, brand_token_from_domain, normalize_domain  # noqa: E402
 
@@ -40,9 +40,11 @@ def _load_competitor_entities(slug: str, briefing: dict) -> list[dict]:
     client_url = briefing.get("url") or ""
     client_dom = normalize_domain(client_url)
     title = ""
+    description = ""
     try:
         site = scrape_site(client_url) if client_url else {}
         title = (site.get("title") or "").strip()
+        description = (site.get("meta_description") or "").strip()
     except Exception as e:
         print(f"[BRAND/DFS] scrape title fail: {e}", flush=True)
 
@@ -58,6 +60,7 @@ def _load_competitor_entities(slug: str, briefing: dict) -> list[dict]:
         "domain": client_dom,
         "url": client_url,
         "title": title,
+        "description": description,
         "is_client": True,
         "similaridade": "Cliente",
     })
@@ -135,14 +138,16 @@ def main() -> None:
     entities = _load_competitor_entities(slug, briefing)
     print(f"[BRAND/DFS] entidades={len(entities)} slug={slug}", flush=True)
     for e in entities:
-        meta = resolve_brand_keyword(
-            e.get("url") or e.get("domain") or "",
-            title=e.get("title") or "",
-            company_hint=e.get("company") or e.get("name") or "",
-        )
+        if not e.get("description") and (e.get("url") or e.get("domain")):
+            try:
+                site = scrape_site(e.get("url") or f"https://{e.get('domain')}/")
+                e["title"] = e.get("title") or (site.get("title") or "").strip()
+                e["description"] = (site.get("meta_description") or "").strip()
+            except Exception as err:
+                print(f"[BRAND/DFS] scrape {e.get('domain')} fail: {err}", flush=True)
         print(
-            f"  - {e.get('domain')} keyword='{meta['keyword']}' "
-            f"title='{(e.get('title') or '')[:40]}'",
+            f"  - {e.get('domain')} title='{(e.get('title') or '')[:40]}' "
+            f"desc='{(e.get('description') or '')[:50]}'",
             flush=True,
         )
 
@@ -155,6 +160,7 @@ def main() -> None:
         "market": MARKET_SHORT,
         "location_code": LOCATION_CODE,
         "rows": rows,
+        "keyword_method": "llm_title_desc",
         "client_keyword": next((r.get("brand_keyword") for r in rows if r.get("is_client")), ""),
         "latest_label": next((r.get("latest_label") for r in rows if r.get("is_client")), None),
     }

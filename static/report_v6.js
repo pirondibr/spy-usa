@@ -479,6 +479,27 @@
     var ytPull = pulls.youtube || [];
     var ttPull = pulls.tiktok || [];
     var nPulls = ytPull.length + ttPull.length;
+    var llmCalls = EX.llm || [];
+    var llmGroups = {};
+    llmCalls.forEach(function (row) {
+      var k = row.task || "other";
+      (llmGroups[k] = llmGroups[k] || []).push(row);
+    });
+    var llmOrder = ["briefing","brand_keyword","sociais","youtube_oficial","youtube_titulos","tiktok_titulos","x_titulos","brand_fp","linkedin","seo","concorrentes"];
+    var llmKeys = llmOrder.filter(function (k) { return llmGroups[k]; }).concat(Object.keys(llmGroups).filter(function (k) { return llmOrder.indexOf(k) < 0; }));
+    var llmLabel = { briefing: "Briefing", brand_keyword: "Brand keyword", sociais: "Sociais oficiais", youtube_oficial: "YouTube oficial", youtube_titulos: "YouTube títulos", tiktok_titulos: "TikTok títulos", x_titulos: "X títulos", brand_fp: "Brand FP", linkedin: "LinkedIn", seo: "SEO", concorrentes: "Concorrentes" };
+    var llmBtn = llmKeys.map(function (k) {
+      return '<button type="button" data-ex="llm-' + esc(k) + '" aria-pressed="false">' + esc(llmLabel[k] || k) + " · " + llmGroups[k].length + "</button>";
+    }).join("");
+    var llmPane = function (rows) {
+      if (!rows.length) return '<div class="none">—</div>';
+      return rows.map(function (row, i) {
+        return '<article class="llm-call"><header><b>#' + (i + 1) + "</b> · " + esc(row.model || "—") + " · " + (row.ok ? "ok" : "erro") + "</header><h4>Prompt</h4><pre>" + esc(row.prompt || "") + "</pre><h4>Resposta</h4><pre>" + esc(row.response || row.error || "—") + "</pre></article>";
+      }).join("");
+    };
+    var llmPanes = llmKeys.map(function (k) {
+      return '<div class="ex-pane" data-ex-pane="llm-' + esc(k) + '" hidden>' + llmPane(llmGroups[k]) + "</div>";
+    }).join("");
     var cutL = function (lab) {
       lab = String(lab || "").toLowerCase();
       if (lab === "confirmed") return t("ex.kept");
@@ -501,7 +522,7 @@
       '<div class="ex-switch"><div class="ex-tabs" role="tablist" aria-label="' + t("ex.aria") + '">' +
       '<button type="button" data-ex="resumo" aria-pressed="true">' + t("ex.summary") + "</button>" +
       '<button type="button" data-ex="log" aria-pressed="false">' + t("ex.log") + (nLog ? " · " + nLog : "") + "</button>" +
-      '<button type="button" data-ex="pulls" aria-pressed="false">' + t("ex.pulls") + (nPulls ? " · " + nPulls : "") + "</button></div>" +
+      '<button type="button" data-ex="pulls" aria-pressed="false">' + t("ex.pulls") + (nPulls ? " · " + nPulls : "") + "</button>" + llmBtn + "</div>" +
       '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
       (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="5" class="none">' + t("ex.none") + "</td></tr>") +
       '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + '</th><th class="num">' + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
@@ -509,7 +530,7 @@
       (EX.rates ? '<p class="muted" style="margin-top:12px;font-size:12.5px;color:var(--soft)">' + esc(EX.rates) + "</p>" : "") +
       "</div>" +
       '<div class="ex-pane" data-ex-pane="log" hidden>' + (log ? "<pre>" + esc(log) + "</pre>" : '<div class="none">' + t("ex.empty") + "</div>") + "</div>" +
-      '<div class="ex-pane" data-ex-pane="pulls" hidden><p class="muted">' + t("ex.pulls_p") + "</p>" + pullTable(t("ex.pull_yt"), ytPull) + pullTable(t("ex.pull_tt"), ttPull) + "</div></div>";
+      '<div class="ex-pane" data-ex-pane="pulls" hidden><p class="muted">' + t("ex.pulls_p") + "</p>" + pullTable(t("ex.pull_yt"), ytPull) + pullTable(t("ex.pull_tt"), ttPull) + "</div>" + llmPanes + "</div>";
   }
 
   var coSeg = function (tab) {
