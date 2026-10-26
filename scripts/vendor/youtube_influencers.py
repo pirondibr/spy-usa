@@ -1364,7 +1364,7 @@ def analyze_company(
 
     apply_llm_labels(
         fetched,
-        brand=name,
+        brand=q or name,
         domain=domain,
         niche=niche or product_hint,
         product=product or product_hint or domain,

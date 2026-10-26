@@ -7,10 +7,12 @@ volume mensal nos EUA, comparando o mes mais recente com 1/2/3/5 anos.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import unicodedata
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -162,7 +164,7 @@ def resolve_brand_keyword(
         f"title={(title or '')[:40]!r} reason={reason}",
         flush=True,
     )
-    return {
+    meta = {
         "keyword": keyword,
         "domain_brand": domain_brand,
         "title_brand": title_brand,
@@ -173,6 +175,120 @@ def resolve_brand_keyword(
         "keyword_method": method,
         "keyword_reason": reason,
     }
+    slug = (os.environ.get("SPY_SLUG") or "").strip()
+    if slug and keyword:
+        save_brand_search_keyword(slug, meta)
+    return meta
+
+
+def _metricas_dir() -> Path:
+    try:
+        from workspace_paths import OUT_METRICAS
+
+        return Path(OUT_METRICAS)
+    except Exception:
+        return Path(__file__).resolve().parents[1] / "outputs" / "metricas"
+
+
+def brand_keyword_path(slug: str) -> Path:
+    return _metricas_dir() / slug / f"brand-keyword-{slug}.json"
+
+
+def load_brand_search_keyword(slug: str = "") -> str:
+    env = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
+    if env:
+        return env
+    slug = (slug or os.environ.get("SPY_SLUG") or "").strip()
+    if not slug:
+        return ""
+    paths = (
+        brand_keyword_path(slug),
+        _metricas_dir() / slug / f"brand-dataforseo-{slug}.json",
+    )
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        kw = str(data.get("keyword") or data.get("client_keyword") or "").strip()
+        if not kw:
+            for row in data.get("rows") or []:
+                if isinstance(row, dict) and row.get("is_client") and row.get("brand_keyword"):
+                    kw = str(row.get("brand_keyword") or "").strip()
+                    break
+        if kw:
+            return kw
+    return ""
+
+
+def save_brand_search_keyword(slug: str, meta: dict[str, Any]) -> None:
+    if not slug or not (meta or {}).get("keyword"):
+        return
+    path = brand_keyword_path(slug)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        return
+
+
+def ensure_brand_search_keyword(
+    slug: str,
+    *,
+    url: str = "",
+    title: str = "",
+    description: str = "",
+    company: str = "",
+) -> dict[str, str]:
+    """Reuse the brand-search LLM keyword (sidecar / env / DFS), or decide it now."""
+    existing = load_brand_search_keyword(slug)
+    if existing:
+        return {"keyword": existing, "keyword_method": "cached"}
+    if not title and url:
+        try:
+            from seo_pipeline import scrape_site
+
+            site = scrape_site(url)
+            title = (site.get("title") or "").strip()
+            description = (site.get("meta_description") or "").strip()
+        except Exception as e:
+            print(f"[BRAND/DFS] ensure scrape fail {url}: {e}", flush=True)
+    meta = resolve_brand_keyword(
+        url,
+        title=title,
+        description=description,
+        company_hint=company,
+    )
+    if slug and meta.get("keyword"):
+        save_brand_search_keyword(slug, meta)
+        os.environ["SPY_BRAND_KEYWORD"] = meta["keyword"]
+    return meta
+
+
+def influencer_search_query(
+    slug: str,
+    *,
+    name: str = "",
+    domain: str = "",
+    url: str = "",
+    is_client: bool = False,
+    override: str = "",
+) -> str:
+    """Client search term = brand-search LLM keyword. Peers keep the pack/heuristic."""
+    if override and is_client:
+        return override.strip()
+    if is_client:
+        site = url or (f"https://{domain}/" if domain else "")
+        meta = ensure_brand_search_keyword(slug, url=site, company=name or slug)
+        if meta.get("keyword"):
+            return str(meta["keyword"]).strip()
+    from tiktok_brand_filter import search_query
+
+    return search_query(name or slug, domain=domain)
 
 
 def _pct(new: Optional[int], old: Optional[int]) -> Optional[float]:

@@ -244,7 +244,7 @@ def analyze_company(
     videos = [_row_to_video(row, by_id.get(str(row.get("id") or ""), {})) for row in classified]
     apply_llm_labels(
         videos,
-        brand=name,
+        brand=q or name,
         domain=domain,
         niche=niche,
         product=product or domain,

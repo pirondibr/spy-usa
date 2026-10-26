@@ -18,8 +18,8 @@ if str(FINAL_DIR) not in sys.path:
     sys.path.insert(0, str(FINAL_DIR))
 
 from workspace_paths import OUT_METRICAS as METRICAS_DIR  # noqa: E402
+from brand_dataforseo import influencer_search_query  # noqa: E402
 from brand_llm_filter import load_briefing_xyz  # noqa: E402
-from tiktok_brand_filter import search_query  # noqa: E402
 from youtube_influencers import analyze_company, official_hint_from_url  # noqa: E402
 
 
@@ -114,6 +114,7 @@ def main() -> None:
                 os.environ[k] = v
 
     slug = sys.argv[1].strip()
+    os.environ["SPY_SLUG"] = slug
     override_query = sys.argv[2].strip() if len(sys.argv) >= 3 else ""
     market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
     site_only = os.environ.get("SPY_SITE_ONLY", "").strip().lower() in ("1", "true", "yes")
@@ -140,8 +141,15 @@ def main() -> None:
     for ent in entities:
         name = ent.get("name") or slug
         domain = ent.get("domain") or ""
-        q = override_query if (override_query and ent.get("is_client")) else search_query(name, domain=domain)
-        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (scrapingbee + llm)", flush=True)
+        q = influencer_search_query(
+            slug,
+            name=name,
+            domain=domain,
+            url=str(ent.get("url") or ""),
+            is_client=bool(ent.get("is_client")),
+            override=override_query,
+        )
+        print(f"[YT-INF] -> {name} ({domain}) query={q!r} (brand-search + llm)", flush=True)
         try:
             result = analyze_company(
                 name,

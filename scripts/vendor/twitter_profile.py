@@ -241,6 +241,66 @@ def scrapingbee_fetch_followers(profile_url: str, *, country: str = "us") -> dic
     }
 
 
+def _llm_pick_x(
+    *,
+    company: str,
+    domain: str,
+    cards: list[dict[str, Any]],
+    website: str = "",
+) -> dict[str, Any]:
+    empty = {"ok": False, "url": "", "reason": "", "i": -1}
+    if not cards:
+        return empty
+    lines = []
+    for i, card in enumerate(cards):
+        lines.append(
+            f"[{i}] url={card.get('url')!r} handle={card.get('handle')!r} "
+            f"title={card.get('title')!r} description={card.get('snippet')!r}"
+        )
+    prompt = (
+        "You pick the official X / Twitter profile of ONE company, or none.\n\n"
+        f"Company / brand: {company or domain}\n"
+        f"Website: {website or domain}\n"
+        f"Domain: {domain}\n\n"
+        "Return JSON only, no markdown:\n"
+        '{"official_i":0,"reason":"short"}\n\n'
+        "Rules:\n"
+        "- official_i is THIS company's own account.\n"
+        "- Use -1 if none of the candidates is that company.\n"
+        "- A meme coin, rapper, car, or lookalike handle is not this company.\n"
+        "- Prefer a title/bio that mentions the website or product.\n"
+        "- More followers is not a reason to pick a lookalike.\n\n"
+        + "\n".join(lines)
+    )
+    try:
+        from llm_trace import chat, extract_json
+
+        raw = chat(
+            task="x_oficial",
+            prompt=prompt,
+            max_tokens=300,
+            temperature=0.1,
+            extra={"company": company, "domain": domain},
+        )
+        data = extract_json(raw)
+        try:
+            idx = int(data.get("official_i", -1))
+        except (TypeError, ValueError):
+            idx = -1
+        reason = str(data.get("reason") or "")[:160]
+        if 0 <= idx < len(cards):
+            return {
+                "ok": True,
+                "url": cards[idx].get("url") or "",
+                "reason": reason or "llm",
+                "i": idx,
+            }
+        return {"ok": True, "url": "", "reason": reason or "none", "i": -1}
+    except Exception as e:
+        print(f"[TW] llm pick failed: {e}", flush=True)
+        return {"ok": False, "url": "", "reason": str(e)[:160], "i": -1}
+
+
 def analyze_company(
     company: str,
     *,
@@ -260,10 +320,29 @@ def analyze_company(
     }
 
     search = tinyfish_search_twitter(q, location=loc)
+    cards = list(search.get("candidates") or [])
+    pick = _llm_pick_x(
+        company=q,
+        domain=domain,
+        cards=cards,
+        website=f"https://{domain}/" if domain else "",
+    )
     prof = search.get("profile") or {}
+    if pick.get("url"):
+        prof = next(
+            (
+                c for c in cards
+                if (c.get("url") or "").rstrip("/") == str(pick.get("url") or "").rstrip("/")
+            ),
+            {"url": pick["url"], "handle": handle_from_url(pick["url"]), "title": "", "snippet": ""},
+        )
+    elif pick.get("ok"):
+        prof = {}
     followers = prof.get("followers_hint")
     followers_text = ""
     followers_source = "google_snippet" if followers is not None else None
+    if pick.get("ok"):
+        followers_source = (followers_source or "llm") if followers is not None else "llm"
 
     if prof.get("url"):
         fetched = scrapingbee_fetch_followers(prof["url"], country=loc.lower()[:2])
@@ -271,11 +350,12 @@ def analyze_company(
         if fetched.get("followers") is not None:
             followers = fetched["followers"]
             followers_text = fetched.get("followers_text") or ""
-            followers_source = "scrapingbee_profile"
+            followers_source = "scrapingbee_profile+llm" if pick.get("ok") else "scrapingbee_profile"
         elif followers is None:
             usage["profile_fetch_error"] = fetched.get("error")
 
-    handle = (prof.get("handle") or "").lstrip("@")
+    handle = (prof.get("handle") or handle_from_url(str(prof.get("url") or ""))).lstrip("@")
+    usage["llm_pick"] = {"ok": pick.get("ok"), "reason": pick.get("reason"), "i": pick.get("i")}
     return {
         "ok": bool(prof.get("url")),
         "company": company,

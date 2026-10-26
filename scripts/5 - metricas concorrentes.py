@@ -1360,7 +1360,13 @@ def _validate_social_url(platform: str, url: str) -> str:
     return ""
 
 
-def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str, str]:
+def _llm_official_socials(
+    company: str,
+    site_url: str,
+    domain: str,
+    *,
+    brand_keyword: str = "",
+) -> dict[str, str]:
     """Ask Gemini (OpenRouter) for official YT / IG / TikTok accounts."""
     empty = {"youtube": "", "instagram": "", "tiktok": ""}
     key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
@@ -1370,6 +1376,7 @@ def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str,
     prompt = (
         "Find the official social-media accounts for this company.\n\n"
         f"Company: {company or domain}\n"
+        f"Brand search keyword: {brand_keyword or company or domain}\n"
         f"Website: {site_url or domain}\n"
         f"Domain: {domain}\n\n"
         "Return JSON only, no markdown:\n"
@@ -1379,7 +1386,7 @@ def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str,
         "- Only the company's own official account, never a fan page, article, or a single video/post.\n"
         "- Use an empty string when you are not sure of the exact handle. Do not guess a similar handle "
         "(underscores, extra words, or a close spelling).\n"
-        "- Prefer the handle that matches the brand name on the official website.\n"
+        "- Prefer the handle that matches the brand search keyword and the official website.\n"
     )
     try:
         from llm_trace import chat
@@ -1389,7 +1396,7 @@ def _llm_official_socials(company: str, site_url: str, domain: str) -> dict[str,
             prompt=prompt,
             max_tokens=400,
             temperature=0.1,
-            extra={"company": company, "domain": domain},
+            extra={"company": company, "domain": domain, "keyword": brand_keyword},
         )
         data = _extract_llm_json(raw)
     except Exception as e:
@@ -1616,10 +1623,19 @@ def _open_youtube_about_text(url: str) -> tuple[str, str]:
     return "", ""
 
 
+def _looks_like_video_title(title: str) -> bool:
+    t = (title or "").strip()
+    if not t:
+        return False
+    return bool(re.search(r"[|🆚🎬]|official video|\bvs\b|subscribe", t, flags=re.I))
+
+
 def _fill_youtube_card(card: dict[str, str]) -> dict[str, str]:
     url = card.get("url") or ""
     title = (card.get("title") or "").strip()
     desc = (card.get("description") or "").strip()
+    if _looks_like_video_title(title):
+        title = ""
     src = "serp" if (title or desc) else ""
     if not title or len(desc) < 20:
         g_title, g_desc = _google_text_for_youtube(url)
@@ -1627,7 +1643,11 @@ def _fill_youtube_card(card: dict[str, str]) -> dict[str, str]:
         desc = desc or g_desc
         if g_title or g_desc:
             src = src or "google"
-    if not title or len(desc) < 20:
+        if _looks_like_video_title(title):
+            title = ""
+    if not title or len(desc) < 20 or _looks_like_video_title(title):
+        if _looks_like_video_title(title):
+            title = ""
         p_title, p_desc = _open_youtube_about_text(url)
         title = title or p_title
         desc = desc or p_desc
@@ -1645,7 +1665,103 @@ def _fill_youtube_card(card: dict[str, str]) -> dict[str, str]:
     return card
 
 
-def _llm_pick_youtube(
+def _og_title_desc(html: str) -> tuple[str, str]:
+    if not html:
+        return "", ""
+    title = ""
+    desc = ""
+    for pat in (
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title',
+        r"<title>([^<]+)</title>",
+    ):
+        m = re.search(pat, html, flags=re.I)
+        if m:
+            title = _html_unescape(m.group(1))
+            title = re.sub(r"\s*[•|]\s*(?:Instagram|TikTok|YouTube).*$", "", title, flags=re.I).strip()
+            if title:
+                break
+    for pat in (
+        r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)',
+    ):
+        m = re.search(pat, html, flags=re.I)
+        if m:
+            desc = _html_unescape(m.group(1))
+            if desc:
+                break
+    return title[:220], desc[:500]
+
+
+def _fill_profile_card(platform: str, card: dict[str, str]) -> dict[str, str]:
+    if platform == "youtube":
+        return _fill_youtube_card(card)
+    url = card.get("url") or ""
+    title = (card.get("title") or "").strip()
+    desc = (card.get("description") or "").strip()
+    src = "serp" if (title or desc) else ""
+    if not title or len(desc) < 20:
+        html = fetch_url_text(url, allow_proxy=True, prefer_proxy=True, render_js=True) or ""
+        if not html:
+            html = fetch_url_text(url, allow_proxy=True, prefer_proxy=True, render_js=False) or ""
+        p_title, p_desc = _og_title_desc(html)
+        title = title or p_title
+        desc = desc or p_desc
+        if p_title or p_desc:
+            src = "profile"
+    card["title"] = title
+    card["description"] = desc
+    card["text_src"] = src or "none"
+    card["handle"] = _social_handle_from_url(platform, url)
+    print(
+        f"[SOCIAL] {platform} card {url} text={card['text_src']} title={title[:80]!r}",
+        flush=True,
+    )
+    return card
+
+
+def _google_social_cards(platform: str, label: str, site_url: str, domain: str) -> list[dict[str, str]]:
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from google_serp import google_serp
+    except Exception as e:
+        print(f"[SOCIAL] {platform} google cards import failed: {e}", flush=True)
+        return []
+    market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
+    host_map = {"instagram": "instagram.com", "tiktok": "tiktok.com", "youtube": "youtube.com"}
+    host = host_map.get(platform, "")
+    queries = [f"{label} official {platform}", f"{label} {platform}"]
+    cards: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for query in queries:
+        try:
+            res = google_serp(query, market=market, include_domains=host or None)
+        except Exception as e:
+            print(f"[SOCIAL] {platform} google '{query}' failed: {e}", flush=True)
+            continue
+        for item in res.get("items") or []:
+            url = _validate_social_url(platform, str(item.get("url") or ""))
+            if not url:
+                continue
+            key = _social_url_key(platform, url)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            cards.append({
+                "url": url,
+                "title": str(item.get("title") or "").strip(),
+                "description": str(item.get("snippet") or item.get("extended_snippet") or "").strip(),
+                "source": "google",
+            })
+        if cards:
+            break
+    return cards[:8]
+
+
+def _llm_pick_official(
+    platform: str,
     *,
     company: str,
     site_url: str,
@@ -1653,6 +1769,7 @@ def _llm_pick_youtube(
     niche: str,
     product: str,
     cards: list[dict[str, str]],
+    brand_keyword: str = "",
 ) -> dict[str, Any]:
     empty = {"ok": False, "url": "", "reason": "", "i": -1}
     if not cards:
@@ -1668,32 +1785,40 @@ def _llm_pick_youtube(
             f"[{i}] url={card.get('url')!r} handle={card.get('handle')!r} "
             f"title={card.get('title')!r} description={card.get('description')!r}"
         )
+    label = {"youtube": "YouTube channel", "instagram": "Instagram profile", "tiktok": "TikTok profile"}.get(
+        platform, f"{platform} profile"
+    )
+    task = {"youtube": "youtube_oficial", "instagram": "instagram_oficial", "tiktok": "tiktok_oficial"}.get(
+        platform, f"{platform}_oficial"
+    )
     prompt = (
-        "You pick the official YouTube channel of ONE company, or none.\n\n"
+        f"You pick the official {label} of ONE company, or none.\n\n"
         f"Company / brand: {company or domain}\n"
+        f"Brand search keyword: {brand_keyword or company or domain}\n"
         f"Website: {site_url or domain}\n"
         f"Domain: {domain}\n"
         f"Niche / market: {niche or 'unknown'}\n"
         f"What they sell: {product or site_url or domain}\n\n"
-        "Title and description come from Google or the channel About page.\n"
+        "Title and description come from Google or the profile/About page.\n"
         "Return JSON only, no markdown:\n"
         '{"official_i":0,"reason":"short"}\n\n'
         "Rules:\n"
-        "- official_i is the index of THIS company's own channel for this product/niche.\n"
+        "- official_i is the index of THIS company's own account for this product/niche.\n"
         "- Use -1 if none of the candidates is that company.\n"
-        "- A handle that only shares a common word (rapper, movie, car channel, gamer) is not this company.\n"
-        "- Prefer a title/description that mentions the website, product, or niche.\n\n"
+        "- A handle that only shares a common word (rapper, movie, car, gamer, meme coin) is not this company.\n"
+        "- Prefer a title/description that mentions the website, product, niche, or brand search keyword.\n"
+        "- More followers is not a reason to pick a lookalike.\n\n"
         + "\n".join(lines)
     )
     try:
         from llm_trace import chat
 
         raw = chat(
-            task="youtube_oficial",
+            task=task,
             prompt=prompt,
             max_tokens=300,
             temperature=0.1,
-            extra={"company": company, "domain": domain},
+            extra={"company": company, "domain": domain, "platform": platform, "keyword": brand_keyword},
         )
         data = _extract_llm_json(raw)
         try:
@@ -1711,26 +1836,63 @@ def _llm_pick_youtube(
             }
         return {"ok": True, "url": "", "reason": reason or "none", "i": -1, "model": model}
     except Exception as e:
-        print(f"[SOCIAL] youtube llm pick failed: {e}", flush=True)
+        print(f"[SOCIAL] {platform} llm pick failed: {e}", flush=True)
         return {"ok": False, "url": "", "reason": str(e)[:160], "i": -1}
 
 
-def _write_youtube_official_sidecar(payload: dict[str, Any]) -> None:
+def _llm_pick_youtube(
+    *,
+    company: str,
+    site_url: str,
+    domain: str,
+    niche: str,
+    product: str,
+    cards: list[dict[str, str]],
+    brand_keyword: str = "",
+) -> dict[str, Any]:
+    return _llm_pick_official(
+        "youtube",
+        company=company,
+        site_url=site_url,
+        domain=domain,
+        niche=niche,
+        product=product,
+        cards=cards,
+        brand_keyword=brand_keyword,
+    )
+
+
+def _write_official_sidecar(platform: str, payload: dict[str, Any]) -> None:
     slug = (os.environ.get("SPY_SLUG") or "").strip()
     if not slug:
         return
     try:
         folder = OUTPUT_DIR / slug
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / f"youtube-official-{slug}.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        if platform == "youtube":
+            (folder / f"youtube-official-{slug}.json").write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        path = folder / f"official-socials-{slug}.json"
+        blob: dict[str, Any] = {}
+        if path.exists():
+            try:
+                blob = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                blob = {}
+        blob[platform] = payload
+        path.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
-        print(f"[SOCIAL] youtube sidecar failed: {e}", flush=True)
+        print(f"[SOCIAL] {platform} sidecar failed: {e}", flush=True)
 
 
-def _pick_youtube_official(
+def _write_youtube_official_sidecar(payload: dict[str, Any]) -> None:
+    _write_official_sidecar("youtube", payload)
+
+
+def _pick_official_profile(
+    platform: str,
     cands: list[tuple[str, str]],
     *,
     label: str,
@@ -1739,58 +1901,61 @@ def _pick_youtube_official(
     niche: str,
     product: str,
     serp: dict[str, dict[str, str]],
+    brand_keyword: str = "",
 ) -> tuple[str, str, int | None]:
     cards: list[dict[str, str]] = []
     seen: set[str] = set()
     for url, source in cands:
-        key = _social_url_key("youtube", url)
+        key = _social_url_key(platform, url)
         if not key or key in seen:
             continue
         seen.add(key)
         extra = serp.get(key) or {}
-        cards.append(_fill_youtube_card({
+        cards.append(_fill_profile_card(platform, {
             "url": url,
             "source": source,
             "title": extra.get("title") or "",
             "description": extra.get("description") or "",
         }))
-    pick = _llm_pick_youtube(
+    pick = _llm_pick_official(
+        platform,
         company=label,
         site_url=site_url,
         domain=domain,
         niche=niche,
         product=product,
         cards=cards,
+        brand_keyword=brand_keyword,
     )
     url = (pick.get("url") or "").strip()
     source = ""
     if url:
         for card in cards:
-            if _social_url_key("youtube", card.get("url") or "") == _social_url_key("youtube", url):
+            if _social_url_key(platform, card.get("url") or "") == _social_url_key(platform, url):
                 source = card.get("source") or "llm"
                 break
         source = source or "llm"
     elif cards:
-        # LLM down: keep Gemini/website, never the biggest Google lookalike.
         for want in ("website", "gemini"):
             hit = next((c for c in cards if c.get("source") == want), None)
             if hit and not pick.get("ok"):
                 url = hit.get("url") or ""
                 source = want
                 break
-    n = parse_youtube_followers(url) if url else None
+    n = _followers_for_platform(platform, url) if url else None
     print(
-        f"[SOCIAL] youtube llm pick ok={pick.get('ok')} i={pick.get('i')} "
+        f"[SOCIAL] {platform} llm pick ok={pick.get('ok')} i={pick.get('i')} "
         f"url={url or '—'} reason={pick.get('reason') or '—'}",
         flush=True,
     )
-    _write_youtube_official_sidecar({
+    _write_official_sidecar(platform, {
         "llm_confirm": bool(pick.get("ok")),
         "url": url,
         "reason": pick.get("reason") or "",
         "model": pick.get("model") or (os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash"),
         "nicho": niche,
         "produto": product,
+        "keyword": brand_keyword,
         "candidates": [
             {
                 "url": c.get("url"),
@@ -1805,18 +1970,55 @@ def _pick_youtube_official(
     return url, source, n
 
 
+def _pick_youtube_official(
+    cands: list[tuple[str, str]],
+    *,
+    label: str,
+    site_url: str,
+    domain: str,
+    niche: str,
+    product: str,
+    serp: dict[str, dict[str, str]],
+    brand_keyword: str = "",
+) -> tuple[str, str, int | None]:
+    return _pick_official_profile(
+        "youtube",
+        cands,
+        label=label,
+        site_url=site_url,
+        domain=domain,
+        niche=niche,
+        product=product,
+        serp=serp,
+        brand_keyword=brand_keyword,
+    )
+
+
 def discover_official_socials(
     company_name: str, site_url: str, domain: str = "",
     *,
     niche: str = "",
     product: str = "",
 ) -> tuple[dict[str, str], dict[str, int | None]]:
-    """Official YT / IG / TikTok. YouTube: title/description + LLM, not handle+followers."""
+    """Official YT / IG / TikTok: title/description + LLM, not handle+followers."""
     label = (company_name or social_search_label(site_url) or domain or "").strip()
+    slug = (os.environ.get("SPY_SLUG") or "").strip()
+    brand_kw = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
+    if not brand_kw and slug:
+        try:
+            from brand_dataforseo import ensure_brand_search_keyword
+
+            brand_kw = str(
+                ensure_brand_search_keyword(slug, url=site_url, company=label).get("keyword") or ""
+            ).strip()
+        except Exception:
+            brand_kw = ""
+    search_label = brand_kw or label
     out = {"instagram": "", "youtube": "", "tiktok": ""}
     src = {k: "" for k in out}
     counts: dict[str, int | None] = {}
     candidates: dict[str, list[tuple[str, str]]] = {k: [] for k in out}
+    serp: dict[str, dict[str, dict[str, str]]] = {k: {} for k in out}
 
     def _add(platform: str, url: str, source: str) -> None:
         clean = _validate_social_url(platform, url)
@@ -1826,7 +2028,8 @@ def discover_official_socials(
         if _social_handle_is_impersonator(handle) and source != "website":
             print(f"[SOCIAL] drop {platform} {clean} src={source} (impersonator)", flush=True)
             return
-        if source != "website" and not social_url_matches_brand(platform, clean, label, site_url):
+        match_name = search_label or label
+        if source != "website" and not social_url_matches_brand(platform, clean, match_name, site_url):
             print(f"[SOCIAL] drop {platform} {clean} src={source} (handle≠brand)", flush=True)
             return
         key = _social_url_key(platform, clean)
@@ -1834,11 +2037,11 @@ def discover_official_socials(
             return
         candidates[platform].append((clean, source))
 
-    llm = _llm_official_socials(label, site_url, domain)
+    llm = _llm_official_socials(search_label, site_url, domain, brand_keyword=brand_kw)
     for key_name in out:
         _add(key_name, llm.get(key_name) or "", "gemini")
     print(
-        f"[SOCIAL] gemini {label}: yt={llm.get('youtube') or '—'} "
+        f"[SOCIAL] gemini {search_label}: yt={llm.get('youtube') or '—'} "
         f"ig={llm.get('instagram') or '—'} tt={llm.get('tiktok') or '—'}",
         flush=True,
     )
@@ -1848,26 +2051,10 @@ def discover_official_socials(
         for key_name in out:
             _add(key_name, web.get(key_name) or "", "website")
         print(
-            f"[SOCIAL] website {label}: yt={web.get('youtube') or '—'} "
+            f"[SOCIAL] website {search_label}: yt={web.get('youtube') or '—'} "
             f"ig={web.get('instagram') or '—'} tt={web.get('tiktok') or '—'}",
             flush=True,
         )
-
-    def _best_of(platform: str, cands: list[tuple[str, str]]) -> tuple[str, str, int | None]:
-        if not cands:
-            return "", "", None
-        # Homepage link wins even if a Gemini/Google lookalike has more followers.
-        website = [(u, s) for u, s in cands if s == "website"]
-        pool = website or cands
-        best_url, best_src, best_n = pool[0][0], pool[0][1], -1
-        best_count: int | None = None
-        for url, source in pool:
-            n = _followers_for_platform(platform, url)
-            n_i = -1 if n is None else int(n)
-            print(f"[SOCIAL] candidate {platform} {url} src={source} followers={n}", flush=True)
-            if n_i > best_n:
-                best_url, best_src, best_n, best_count = url, source, n_i, n
-        return best_url, best_src, best_count
 
     nicho = (niche or "").strip()
     produto = (product or "").strip()
@@ -1875,55 +2062,44 @@ def discover_official_socials(
         try:
             from brand_llm_filter import load_briefing_xyz
 
-            xyz = load_briefing_xyz((os.environ.get("SPY_SLUG") or "").strip())
+            xyz = load_briefing_xyz(slug)
             nicho = nicho or xyz.get("nicho") or ""
             produto = produto or xyz.get("produto") or ""
         except Exception:
             pass
 
-    yt_serp: dict[str, dict[str, str]] = {}
-    for card in _google_youtube_cards(label, site_url, domain):
-        _add("youtube", card.get("url") or "", "google")
-        key = _social_url_key("youtube", card.get("url") or "")
-        if key:
-            yt_serp[key] = card
+    for platform in out:
+        cards = (
+            _google_youtube_cards(search_label, site_url, domain)
+            if platform == "youtube"
+            else _google_social_cards(platform, search_label, site_url, domain)
+        )
+        for card in cards:
+            _add(platform, card.get("url") or "", "google")
+            key = _social_url_key(platform, card.get("url") or "")
+            if key:
+                serp[platform][key] = card
 
-    _WEAK_FOLLOWERS = 200
     for key_name in out:
-        if key_name == "youtube":
-            url, source, n = _pick_youtube_official(
-                candidates["youtube"],
-                label=label,
-                site_url=site_url,
-                domain=domain,
-                niche=nicho,
-                product=produto,
-                serp=yt_serp,
-            )
-            if url:
-                out[key_name] = url
-                src[key_name] = source or "llm"
-                if n is not None:
-                    counts[key_name] = n
-            continue
-        url, source, n = _best_of(key_name, candidates[key_name])
-        weak = (not url) or n is None or int(n) < _WEAK_FOLLOWERS
-        if weak:
-            before = {_social_url_key(key_name, u) for u, _ in candidates[key_name]}
-            _add(key_name, search_social_profile_google(key_name, label, site_url), "google")
-            added = any(
-                _social_url_key(key_name, u) not in before for u, _ in candidates[key_name]
-            )
-            if added or not url:
-                url, source, n = _best_of(key_name, candidates[key_name])
+        url, source, n = _pick_official_profile(
+            key_name,
+            candidates[key_name],
+            label=search_label,
+            site_url=site_url,
+            domain=domain,
+            niche=nicho,
+            product=produto,
+            serp=serp[key_name],
+            brand_keyword=brand_kw,
+        )
         if not url:
             continue
         out[key_name] = url
-        src[key_name] = source
+        src[key_name] = source or "llm"
         if n is not None:
             counts[key_name] = n
 
-    print(f"[SOCIAL] official {label} sources={src}", flush=True)
+    print(f"[SOCIAL] official {search_label} sources={src} keyword={brand_kw or '—'}", flush=True)
     return out, counts
 
 

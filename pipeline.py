@@ -204,6 +204,26 @@ def _unbind_step_clock(token: Any) -> None:
         _STEP_CLOCK.reset(token)
 
 
+def _prime_brand_keyword(slug: str, url: str, name: str, emit: EmitFn) -> str:
+    vendor = FINAL_DIR / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from brand_dataforseo import ensure_brand_search_keyword
+
+        meta = ensure_brand_search_keyword(slug, url=url, company=name)
+        kw = str((meta or {}).get("keyword") or "").strip()
+        if kw:
+            emit(
+                "log",
+                line=f"[BRAND/KW] search term={kw!r} method={meta.get('keyword_method') or '—'}",
+            )
+        return kw
+    except Exception as e:
+        emit("log", line=f"[BRAND/KW] resolve failed: {e}")
+        return ""
+
+
 def _brand_dfs_needs_llm(slug: str) -> bool:
     data = _load_brand_dfs(slug)
     if data is None:
@@ -563,7 +583,9 @@ def _tt_json_missing(slug: str) -> bool:
         return True
     if "v2_neg_strong_brand" not in str(data.get("brand_filter") or ""):
         return True
-    return not bool(data.get("llm_title_filter"))
+    if not bool(data.get("llm_title_filter")):
+        return True
+    return _inf_query_stale(data, slug)
 
 
 def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
@@ -653,7 +675,9 @@ def _x_inf_json_missing(slug: str) -> bool:
     data = _load_twitter_influencers(slug)
     if data is None:
         return True
-    return not bool(data.get("llm_title_filter"))
+    if not bool(data.get("llm_title_filter")):
+        return True
+    return _inf_query_stale(data, slug)
 
 
 def _attach_twitter_influencers(report: dict, slug: str) -> dict:
@@ -899,6 +923,8 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
             return True
         if not data.get("llm_title_filter"):
             return True
+        if _inf_query_stale(data, slug):
+            return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
         fetched = []
@@ -918,17 +944,54 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         return True
 
 
-def _yt_official_needs_llm(slug: str) -> bool:
-    path = METRICAS_DIR / slug / f"youtube-official-{slug}.json"
-    if not path.exists():
+def _saved_brand_keyword(slug: str) -> str:
+    for name in (f"brand-keyword-{slug}.json", f"brand-dataforseo-{slug}.json"):
+        path = METRICAS_DIR / slug / name
+        if not path.exists():
+            continue
+        try:
+            import json
+
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        kw = str(data.get("keyword") or data.get("client_keyword") or "").strip()
+        if kw:
+            return kw
+    return ""
+
+
+def _inf_query_stale(data: Optional[dict], slug: str) -> bool:
+    kw = _saved_brand_keyword(slug).lower()
+    if not kw or not data:
+        return False
+    rows = data.get("rows") or []
+    if not rows:
         return True
+    row = next((r for r in rows if r.get("is_client")), rows[0])
+    q = str((row or {}).get("query") or "").lower()
+    return kw not in q
+
+
+def _yt_official_needs_llm(slug: str) -> bool:
+    path = METRICAS_DIR / slug / f"official-socials-{slug}.json"
+    yt = METRICAS_DIR / slug / f"youtube-official-{slug}.json"
     try:
         import json
 
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return not bool(data.get("llm_confirm"))
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for plat in ("instagram", "tiktok", "youtube"):
+                row = data.get(plat) or {}
+                if not bool(row.get("llm_confirm")):
+                    return True
+            return False
+        if yt.exists():
+            data = json.loads(yt.read_text(encoding="utf-8"))
+            return not bool(data.get("llm_confirm"))
     except Exception:
         return True
+    return True
 
 
 def _xlsx_needs_meta_ig_method(xlsx: Optional[Path]) -> bool:
@@ -2229,9 +2292,11 @@ def run_pipeline(
         "SPY_SITE_ONLY": "1" if site_only else "0",
         "SPY_MARKET": market,
         "SPY_COMPARE_ALL": "0",
+        "SPY_SLUG": slug,
     }
     # Ensure parent process market helpers (report_builder) see the same market
     os.environ["SPY_MARKET"] = market
+    os.environ["SPY_SLUG"] = slug
     _enable_llm_log(run_id)
 
     recorder = RunRecorder()
@@ -2497,6 +2562,11 @@ def run_pipeline(
     report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
     emit("partial", section="seo", data=report.get("seo") or {}, client=client_name)
     _emit_progress(emit, set_step, "seo", "done", "SEO ready")
+
+    brand_kw = _prime_brand_keyword(slug, url, client_name, emit)
+    if brand_kw:
+        script_env["SPY_BRAND_KEYWORD"] = brand_kw
+        os.environ["SPY_BRAND_KEYWORD"] = brand_kw
 
     # 3+) Independent channels after SEO (XLSX writers lock+re-merge; JSON extras are sidecar files)
     _tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()

@@ -76,14 +76,13 @@ def _min_likes() -> int:
 
 
 def search_term(brand: str, *, domain: str = "", min_likes: int = _MIN_LIKES) -> str:
+    env = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
     cfg = resolve_brand(brand, domain=domain)
-    name = re.sub(r"\s+ai$", "", str(cfg.get("name") or brand).strip(), flags=re.I)
-    if not name:
-        name = (domain.split(".")[0] if domain else brand).strip()
-    if " " in name:
-        q = f'"{name}" min_faves:{min_likes}'
-    else:
-        q = f"{name} min_faves:{min_likes}"
+    q = env or str(cfg.get("query") or brand or "").strip()
+    if not q:
+        q = (domain.split(".")[0] if domain else brand).strip()
+    if "min_faves" not in q.lower():
+        q = f"{q} min_faves:{min_likes}"
     return q
 
 
@@ -302,7 +301,7 @@ def analyze_company(
     videos = [_row_to_video(row, by_id.get(str(row.get("id") or ""), {})) for row in classified]
     apply_llm_labels(
         videos,
-        brand=name,
+        brand=term.split("min_faves")[0].strip() or name,
         domain=domain,
         niche=niche,
         product=product or domain,

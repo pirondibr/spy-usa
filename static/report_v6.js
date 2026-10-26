@@ -485,9 +485,9 @@
       var k = row.task || "other";
       (llmGroups[k] = llmGroups[k] || []).push(row);
     });
-    var llmOrder = ["briefing","brand_keyword","sociais","youtube_oficial","youtube_titulos","tiktok_titulos","x_titulos","brand_fp","linkedin","seo","concorrentes"];
+    var llmOrder = ["briefing","brand_keyword","sociais","youtube_oficial","instagram_oficial","tiktok_oficial","x_oficial","youtube_titulos","tiktok_titulos","x_titulos","brand_fp","linkedin","seo","concorrentes"];
     var llmKeys = llmOrder.filter(function (k) { return llmGroups[k]; }).concat(Object.keys(llmGroups).filter(function (k) { return llmOrder.indexOf(k) < 0; }));
-    var llmLabel = { briefing: "Briefing", brand_keyword: "Brand keyword", sociais: "Sociais oficiais", youtube_oficial: "YouTube oficial", youtube_titulos: "YouTube títulos", tiktok_titulos: "TikTok títulos", x_titulos: "X títulos", brand_fp: "Brand FP", linkedin: "LinkedIn", seo: "SEO", concorrentes: "Concorrentes" };
+    var llmLabel = { briefing: "Briefing", brand_keyword: "Brand keyword", sociais: "Sociais oficiais", youtube_oficial: "YouTube oficial", instagram_oficial: "Instagram oficial", tiktok_oficial: "TikTok oficial", x_oficial: "X oficial", youtube_titulos: "YouTube títulos", tiktok_titulos: "TikTok títulos", x_titulos: "X títulos", brand_fp: "Brand FP", linkedin: "LinkedIn", seo: "SEO", concorrentes: "Concorrentes" };
     var llmBtn = llmKeys.map(function (k) {
       return '<button type="button" data-ex="llm-' + esc(k) + '" aria-pressed="false">' + esc(llmLabel[k] || k) + " · " + llmGroups[k].length + "</button>";
     }).join("");

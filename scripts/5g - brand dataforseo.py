@@ -9,6 +9,7 @@ Uso:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -128,6 +129,7 @@ def main() -> None:
         sys.exit(1)
     client = sys.argv[1].strip()
     slug = _slugify(client)
+    os.environ["SPY_SLUG"] = slug
     out_path = OUT_METRICAS / slug / f"brand-dataforseo-{slug}.json"
     for i, a in enumerate(sys.argv):
         if a == "--out" and i + 1 < len(sys.argv):
