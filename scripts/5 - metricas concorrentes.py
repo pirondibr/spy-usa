@@ -1864,9 +1864,13 @@ def _google_social_cards(platform: str, label: str, site_url: str, domain: str) 
 
 
 def _llm_pick_is_echo(data: dict[str, Any]) -> bool:
-    """Gemini sometimes copies the prompt example {'official_i':0,'reason':'short'}."""
-    reason = str(data.get("reason") or "").strip().lower()
-    return reason in {"short", "reason"}
+    """Gemini sometimes copies the prompt example instead of picking."""
+    reason = str(data.get("reason") or "").strip().lower().rstrip(".")
+    return reason in {
+        "short",
+        "reason",
+        "none of these is the company account",
+    }
 
 
 def _llm_pick_official(
@@ -1910,8 +1914,7 @@ def _llm_pick_official(
         f"Niche / market: {niche or 'unknown'}\n"
         f"What they sell: {product or site_url or domain}\n\n"
         "Title and description come from Google or the profile/About page.\n"
-        "Return JSON only, no markdown. Replace both values; do not copy the example.\n"
-        '{"official_i":-1,"reason":"none of these is the company account"}\n\n'
+        "Return JSON only, no markdown. Keys: official_i (integer index or -1), reason (one sentence).\n\n"
         "Rules:\n"
         "- official_i is the index of THIS company's own account for this product/niche.\n"
         "- Use -1 if none of the candidates is that company.\n"

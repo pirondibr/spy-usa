@@ -83,6 +83,17 @@ def handle_from_url(url: str) -> str:
     return h if h.lower() not in SKIP_HANDLES else ""
 
 
+def handle_matches_brand(handle: str, company: str, domain: str = "") -> bool:
+    h = re.sub(r"[^a-z0-9]+", "", (handle or "").lower())
+    if len(h) < 3:
+        return False
+    for tok in _brand_tokens(company, domain):
+        t = re.sub(r"[^a-z0-9]+", "", tok)
+        if t and len(t) >= 4 and (h == t or t in h):
+            return True
+    return False
+
+
 def _brand_tokens(company: str, domain: str = "") -> list[str]:
     raw = []
     for part in (company, domain.split(".")[0] if domain else ""):
@@ -262,8 +273,8 @@ def _llm_pick_x(
         f"Company / brand: {company or domain}\n"
         f"Website: {website or domain}\n"
         f"Domain: {domain}\n\n"
-        "Return JSON only, no markdown. Replace both values; do not copy the example.\n"
-        '{"official_i":-1,"reason":"none of these is the company account"}\n\n'
+        "Return JSON only, no markdown. Keys: official_i (integer index or -1), reason (one sentence).\n"
+        "A handle that matches the brand/domain WINS over a tutorial or lookalike.\n\n"
         "Rules:\n"
         "- official_i is THIS company's own account.\n"
         "- Use -1 if none of the candidates is that company.\n"
@@ -284,7 +295,12 @@ def _llm_pick_x(
         )
         data = extract_json(raw)
         reason = str(data.get("reason") or "")[:160]
-        if reason.strip().lower() in {"short", "reason"}:
+        reason_l = reason.strip().lower().rstrip(".")
+        if reason_l in {
+            "short",
+            "reason",
+            "none of these is the company account",
+        }:
             return {"ok": False, "url": "", "reason": "echo", "i": -1}
         try:
             idx = int(data.get("official_i", -1))
@@ -330,6 +346,11 @@ def analyze_company(
         website=f"https://{domain}/" if domain else "",
     )
     prof = search.get("profile") or {}
+    brand_cards = [
+        c for c in cards
+        if handle_matches_brand(str(c.get("handle") or ""), q, domain)
+    ]
+    brand_cards.sort(key=lambda c: -int(c.get("score") or 0))
     if pick.get("url"):
         prof = next(
             (
@@ -338,6 +359,20 @@ def analyze_company(
             ),
             {"url": pick["url"], "handle": handle_from_url(pick["url"]), "title": "", "snippet": ""},
         )
+        if brand_cards and not handle_matches_brand(str(prof.get("handle") or ""), q, domain):
+            print(
+                f"[TW] keep brand @{brand_cards[0].get('handle')} over llm "
+                f"{prof.get('handle') or pick.get('url')}",
+                flush=True,
+            )
+            prof = brand_cards[0]
+    elif brand_cards:
+        if pick.get("reason") == "echo" or pick.get("i") == -1:
+            print(
+                f"[TW] llm none/echo, keep brand @{brand_cards[0].get('handle')}",
+                flush=True,
+            )
+        prof = brand_cards[0]
     elif pick.get("ok"):
         prof = {}
     followers = prof.get("followers_hint")

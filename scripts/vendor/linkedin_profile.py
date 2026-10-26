@@ -101,16 +101,16 @@ def _compact(text: str) -> str:
 
 
 def _is_brand(slug: str, title: str, snippet: str, tokens: list[str]) -> bool:
+    """Brand match on slug or title only. Snippet-only hits ('lovable' as English) are too weak."""
     slug_c = _compact(slug)
     title_c = _compact(title)
-    snip_c = _compact(snippet)
     for tok in tokens:
         t = _compact(tok)
-        if not t:
+        if not t or len(t) < 4:
             continue
         if t == slug_c or t in slug_c or (len(slug_c) >= 4 and slug_c in t):
             return True
-        if t in title_c or t in snip_c:
+        if t in title_c:
             return True
     return False
 
@@ -153,7 +153,6 @@ def _candidate_from_item(item: dict[str, Any], tokens: list[str]) -> Optional[di
             brand = True
         if t in snip_c:
             score += 10
-            brand = True
     followers = None
     followers_text = ""
     m = FOLLOWERS_RE.search(f"{title} {snippet}")
@@ -176,15 +175,11 @@ def _candidate_from_item(item: dict[str, Any], tokens: list[str]) -> Optional[di
 
 
 def _pick_profile(candidates: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
-    companies = [c for c in candidates if c.get("kind") == "company"]
-    # First Google company link that is the brand.
-    first_brand = next((c for c in companies if c.get("brand")), None)
-    if first_brand:
-        return first_brand
-    scored = next((c for c in companies if int(c.get("score") or 0) >= 40), None)
-    if scored:
-        return scored
-    return companies[0] if companies else (candidates[0] if candidates else None)
+    companies = [c for c in candidates if c.get("kind") == "company" and c.get("brand")]
+    if not companies:
+        return None
+    companies.sort(key=lambda c: (-int(c.get("score") or 0), int(c.get("position") or 99)))
+    return companies[0]
 
 
 def search_linkedin_brand(
@@ -246,7 +241,7 @@ def search_linkedin_brand(
                 prev["score"] = max(int(prev.get("score") or 0), int(c.get("score") or 0))
         all_candidates.extend(c for c in uniq if c["url"] not in {x["url"] for x in all_candidates})
         picked = _pick_profile(uniq)
-        if picked and (picked.get("brand") or picked.get("kind") == "company"):
+        if picked and picked.get("brand"):
             used_query = q
             used_source = str(serp.get("source") or "")
             usage["source"] = used_source
@@ -317,11 +312,11 @@ def openrouter_online_linkedin(
         )
     else:
         prompt = (
-            f"Find the official LinkedIn company page for {brand} (website {domain or brand}) "
-            "and how many followers it has. Use the web results.\n"
-            "Reply JSON only, no markdown:\n"
-            '{"followers":123456,"followers_text":"123K","url":"https://www.linkedin.com/company/..."}\n'
-            "Only the company's own /company/ page, never a person, job, or post."
+            f"Find the official LinkedIn company page for the software/product company {brand} "
+            f"(website {domain or brand}) and how many followers it has. Use the web results.\n"
+            "Reply JSON only, no markdown. Keys: followers (number or null), followers_text, url.\n"
+            "Only that company's own /company/ page. The slug or page title must contain the brand. "
+            "Never a person, job, post, or an unrelated company that only shares a common English word."
         )
     t0 = time.time()
     try:
@@ -410,8 +405,11 @@ def analyze_company(
     )
     followers_source = "google_snippet" if prof.get("followers") is not None else None
     known_url = str(prof.get("url") or "")
-    if (prof.get("kind") or "") == "person":
+    tokens = _brand_tokens(q, domain)
+    if (prof.get("kind") or "") == "person" or not prof.get("brand"):
         known_url = ""
+        if not prof.get("brand"):
+            prof = {}
     if prof.get("followers") is None:
         online = openrouter_online_linkedin(
             q, domain=domain, known_url=known_url
@@ -426,15 +424,6 @@ def analyze_company(
         usage["search_cost_usd"] = round(
             float(usage.get("search_cost_usd") or 0) + float(online.get("cost_usd") or 0), 6
         )
-        if online.get("followers") is not None:
-            prof["followers"] = online["followers"]
-            prof["followers_text"] = online.get("followers_text") or ""
-            followers_source = "openrouter_online"
-            print(
-                f"[LI] openrouter online followers={online.get('followers_text') or online.get('followers')} "
-                f"url={online.get('url') or prof.get('url') or '—'}",
-                flush=True,
-            )
         online_url = str(online.get("url") or "")
         take_url = online_url and (
             not prof.get("url")
@@ -442,10 +431,26 @@ def analyze_company(
         )
         if take_url:
             kind, url = normalize_linkedin_url(online_url)
-            if url:
+            slug = url.rstrip("/").split("/")[-1] if url else ""
+            if url and _is_brand(slug, slug, "", tokens):
                 prof["url"] = url
                 prof["kind"] = kind or "company"
-                prof["slug"] = url.rstrip("/").split("/")[-1]
+                prof["slug"] = slug
+                prof["brand"] = True
+            elif url:
+                print(
+                    f"[LI] reject openrouter url={url} (slug≠brand {q})",
+                    flush=True,
+                )
+        if online.get("followers") is not None and prof.get("url"):
+            prof["followers"] = online["followers"]
+            prof["followers_text"] = online.get("followers_text") or ""
+            followers_source = "openrouter_online"
+            print(
+                f"[LI] openrouter online followers={online.get('followers_text') or online.get('followers')} "
+                f"url={prof.get('url') or '—'}",
+                flush=True,
+            )
         if online.get("error") and prof.get("followers") is None:
             usage["openrouter_error"] = online["error"]
 
