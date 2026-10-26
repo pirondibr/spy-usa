@@ -901,6 +901,19 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
         return True
 
 
+def _yt_official_needs_llm(slug: str) -> bool:
+    path = METRICAS_DIR / slug / f"youtube-official-{slug}.json"
+    if not path.exists():
+        return True
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return not bool(data.get("llm_confirm"))
+    except Exception:
+        return True
+
+
 def _xlsx_needs_meta_ig_method(xlsx: Optional[Path]) -> bool:
     """Old metricas sheets lack Meta Method — refresh Meta via Instagram verify."""
     if not xlsx or not xlsx.exists():
@@ -1618,6 +1631,25 @@ def _run_compare_all_pipeline(
                     )
                 except Exception as e:
                     emit("log", line=f"[ALL] WARN X influencers refresh {c_slug}: {e}")
+            if _yt_official_needs_llm(c_slug):
+                emit(
+                    "log",
+                    line=f"[ALL] ({i + 1}/{len(companies)}) Refresh YouTube official (LLM) {c_name} ({c_slug})",
+                )
+                _emit_progress(
+                    emit, set_step, "youtube", "running",
+                    f"All: YouTube official LLM {c_name} ({i + 1}/{len(companies)})",
+                )
+                try:
+                    _run_script(
+                        [sys.executable, str(SCRIPT_SOCIAL), c_slug],
+                        FINAL_DIR,
+                        lambda line: emit("log", line=line),
+                        timeout_sec=600,
+                        env={"SPY_SITE_ONLY": "1", "SPY_MARKET": market, "SPY_COMPARE_ALL": "1"},
+                    )
+                except Exception as e:
+                    emit("log", line=f"[ALL] WARN YouTube official refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
 
@@ -2281,6 +2313,19 @@ def run_pipeline(
                 )
             except Exception as e:
                 emit("log", line=f"[X-INF] Refresh failed: {e}")
+        if _yt_official_needs_llm(slug):
+            emit("log", line=f"[CACHE] Refreshing YouTube official via LLM for {slug}")
+            _emit_progress(emit, set_step, "youtube", "running", "YouTube official (LLM)…")
+            try:
+                _run_script(
+                    [sys.executable, str(SCRIPT_SOCIAL), slug],
+                    FINAL_DIR,
+                    on_log,
+                    timeout_sec=600,
+                    env=script_env,
+                )
+            except Exception as e:
+                emit("log", line=f"[SOCIAL] YouTube official refresh failed: {e}")
         emit("log", line=f"[CACHE] Using existing metrics: {existing.name}")
         report = build_report_from_xlsx(
             existing,

@@ -1477,10 +1477,349 @@ def _followers_for_platform(platform: str, url: str) -> int | None:
     return None
 
 
+def _html_unescape(text: str) -> str:
+    from html import unescape
+
+    return unescape(text or "").replace("\\n", " ").replace("\\u0026", "&").strip()
+
+
+def _yt_title_desc_from_html(html: str) -> tuple[str, str]:
+    if not html:
+        return "", ""
+    title = ""
+    desc = ""
+    title_pats = (
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title',
+        r'"channelMetadataRenderer"\s*:\s*\{[^{}]{0,400}"title"\s*:\s*"([^"]+)"',
+        r"<title>([^<]+)</title>",
+    )
+    desc_pats = (
+        r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)',
+        r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)',
+        r'"channelMetadataRenderer"\s*:\s*\{.{0,2500}?"description"\s*:\s*"((?:\\.|[^"\\])*)"',
+    )
+    for pat in title_pats:
+        m = re.search(pat, html, flags=re.I | re.S)
+        if not m:
+            continue
+        title = _html_unescape(m.group(1))
+        title = re.sub(r"\s*[-|]\s*YouTube\s*$", "", title, flags=re.I).strip()
+        if title:
+            break
+    for pat in desc_pats:
+        m = re.search(pat, html, flags=re.I | re.S)
+        if not m:
+            continue
+        desc = _html_unescape(m.group(1))
+        if desc:
+            break
+    return title[:220], desc[:500]
+
+
+def _google_youtube_cards(label: str, site_url: str, domain: str) -> list[dict[str, str]]:
+    """Page-1 Google profiles with title/snippet — not a winner, just evidence."""
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from google_serp import google_serp
+    except Exception as e:
+        print(f"[SOCIAL] youtube google cards import failed: {e}", flush=True)
+        return []
+    market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
+    host = (domain or "").strip()
+    queries = [
+        f"{label} official youtube",
+        f"{label} {host} youtube" if host else "",
+        f"{label} youtube",
+    ]
+    cards: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for query in queries:
+        if not query:
+            continue
+        try:
+            res = google_serp(query, market=market, include_domains="youtube.com")
+        except Exception as e:
+            print(f"[SOCIAL] youtube google '{query}' failed: {e}", flush=True)
+            continue
+        for item in res.get("items") or []:
+            url = _validate_social_url("youtube", str(item.get("url") or ""))
+            if not url:
+                continue
+            key = _social_url_key("youtube", url)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            cards.append({
+                "url": url,
+                "title": str(item.get("title") or "").strip(),
+                "description": str(
+                    item.get("snippet")
+                    or item.get("extended_snippet")
+                    or item.get("extra")
+                    or ""
+                ).strip(),
+                "source": "google",
+            })
+        if cards:
+            break
+    return cards[:8]
+
+
+def _google_text_for_youtube(url: str) -> tuple[str, str]:
+    handle = _social_handle_from_url("youtube", url)
+    if not handle:
+        return "", ""
+    vendor = Path(__file__).resolve().parent / "vendor"
+    if str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+    try:
+        from google_serp import google_serp
+    except Exception:
+        return "", ""
+    market = (os.environ.get("SPY_MARKET") or "us").strip().lower()
+    try:
+        res = google_serp(f"@{handle} youtube", market=market, include_domains="youtube.com")
+    except Exception:
+        return "", ""
+    needle = handle.lower().lstrip("@")
+    for item in res.get("items") or []:
+        blob = " ".join(
+            str(item.get(k) or "")
+            for k in ("url", "title", "snippet", "extended_snippet")
+        ).lower()
+        if needle not in blob:
+            continue
+        return (
+            str(item.get("title") or "").strip(),
+            str(item.get("snippet") or item.get("extended_snippet") or "").strip(),
+        )
+    return "", ""
+
+
+def _open_youtube_about_text(url: str) -> tuple[str, str]:
+    base = normalize_youtube_url(url).rstrip("/")
+    pages = [f"{base}/about", base] if base else [url]
+    for page in pages:
+        text = ""
+        try:
+            text = _fetch_via_scrapingbee(
+                page,
+                render_js=True,
+                wait="3000",
+                premium_proxy=True,
+                country_code="us",
+            )
+        except Exception:
+            text = fetch_url_text(page, allow_proxy=True, prefer_proxy=True, render_js=True)
+        title, desc = _yt_title_desc_from_html(text or "")
+        if title or desc:
+            return title, desc
+    return "", ""
+
+
+def _fill_youtube_card(card: dict[str, str]) -> dict[str, str]:
+    url = card.get("url") or ""
+    title = (card.get("title") or "").strip()
+    desc = (card.get("description") or "").strip()
+    src = "serp" if (title or desc) else ""
+    if not title or len(desc) < 20:
+        g_title, g_desc = _google_text_for_youtube(url)
+        title = title or g_title
+        desc = desc or g_desc
+        if g_title or g_desc:
+            src = src or "google"
+    if not title or len(desc) < 20:
+        p_title, p_desc = _open_youtube_about_text(url)
+        title = title or p_title
+        desc = desc or p_desc
+        if p_title or p_desc:
+            src = "profile"
+    card["title"] = title
+    card["description"] = desc
+    card["text_src"] = src or "none"
+    card["handle"] = _social_handle_from_url("youtube", url)
+    print(
+        f"[SOCIAL] youtube card {url} text={card['text_src']} "
+        f"title={title[:80]!r}",
+        flush=True,
+    )
+    return card
+
+
+def _llm_pick_youtube(
+    *,
+    company: str,
+    site_url: str,
+    domain: str,
+    niche: str,
+    product: str,
+    cards: list[dict[str, str]],
+) -> dict[str, Any]:
+    empty = {"ok": False, "url": "", "reason": "", "i": -1}
+    if not cards:
+        return empty
+    key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        empty["reason"] = "no_openrouter_key"
+        return empty
+    model = (os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash").strip()
+    lines = []
+    for i, card in enumerate(cards):
+        lines.append(
+            f"[{i}] url={card.get('url')!r} handle={card.get('handle')!r} "
+            f"title={card.get('title')!r} description={card.get('description')!r}"
+        )
+    prompt = (
+        "You pick the official YouTube channel of ONE company, or none.\n\n"
+        f"Company / brand: {company or domain}\n"
+        f"Website: {site_url or domain}\n"
+        f"Domain: {domain}\n"
+        f"Niche / market: {niche or 'unknown'}\n"
+        f"What they sell: {product or site_url or domain}\n\n"
+        "Title and description come from Google or the channel About page.\n"
+        "Return JSON only, no markdown:\n"
+        '{"official_i":0,"reason":"short"}\n\n'
+        "Rules:\n"
+        "- official_i is the index of THIS company's own channel for this product/niche.\n"
+        "- Use -1 if none of the candidates is that company.\n"
+        "- A handle that only shares a common word (rapper, movie, car channel, gamer) is not this company.\n"
+        "- Prefer a title/description that mentions the website, product, or niche.\n\n"
+        + "\n".join(lines)
+    )
+    try:
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+                "temperature": 0.1,
+            },
+            timeout=45,
+        )
+        r.raise_for_status()
+        raw = (((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+        data = _extract_llm_json(raw)
+        try:
+            idx = int(data.get("official_i", -1))
+        except (TypeError, ValueError):
+            idx = -1
+        reason = str(data.get("reason") or "")[:160]
+        if 0 <= idx < len(cards):
+            return {
+                "ok": True,
+                "url": cards[idx].get("url") or "",
+                "reason": reason or "llm",
+                "i": idx,
+                "model": model,
+            }
+        return {"ok": True, "url": "", "reason": reason or "none", "i": -1, "model": model}
+    except Exception as e:
+        print(f"[SOCIAL] youtube llm pick failed: {e}", flush=True)
+        return {"ok": False, "url": "", "reason": str(e)[:160], "i": -1}
+
+
+def _write_youtube_official_sidecar(payload: dict[str, Any]) -> None:
+    slug = (os.environ.get("SPY_SLUG") or "").strip()
+    if not slug:
+        return
+    try:
+        folder = OUTPUT_DIR / slug
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"youtube-official-{slug}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[SOCIAL] youtube sidecar failed: {e}", flush=True)
+
+
+def _pick_youtube_official(
+    cands: list[tuple[str, str]],
+    *,
+    label: str,
+    site_url: str,
+    domain: str,
+    niche: str,
+    product: str,
+    serp: dict[str, dict[str, str]],
+) -> tuple[str, str, int | None]:
+    cards: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for url, source in cands:
+        key = _social_url_key("youtube", url)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        extra = serp.get(key) or {}
+        cards.append(_fill_youtube_card({
+            "url": url,
+            "source": source,
+            "title": extra.get("title") or "",
+            "description": extra.get("description") or "",
+        }))
+    pick = _llm_pick_youtube(
+        company=label,
+        site_url=site_url,
+        domain=domain,
+        niche=niche,
+        product=product,
+        cards=cards,
+    )
+    url = (pick.get("url") or "").strip()
+    source = ""
+    if url:
+        for card in cards:
+            if _social_url_key("youtube", card.get("url") or "") == _social_url_key("youtube", url):
+                source = card.get("source") or "llm"
+                break
+        source = source or "llm"
+    elif cards:
+        # LLM down: keep Gemini/website, never the biggest Google lookalike.
+        for want in ("website", "gemini"):
+            hit = next((c for c in cards if c.get("source") == want), None)
+            if hit and not pick.get("ok"):
+                url = hit.get("url") or ""
+                source = want
+                break
+    n = parse_youtube_followers(url) if url else None
+    print(
+        f"[SOCIAL] youtube llm pick ok={pick.get('ok')} i={pick.get('i')} "
+        f"url={url or '—'} reason={pick.get('reason') or '—'}",
+        flush=True,
+    )
+    _write_youtube_official_sidecar({
+        "llm_confirm": bool(pick.get("ok")),
+        "url": url,
+        "reason": pick.get("reason") or "",
+        "model": pick.get("model") or (os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.5-flash"),
+        "nicho": niche,
+        "produto": product,
+        "candidates": [
+            {
+                "url": c.get("url"),
+                "handle": c.get("handle"),
+                "title": c.get("title"),
+                "source": c.get("source"),
+                "text_src": c.get("text_src"),
+            }
+            for c in cards
+        ],
+    })
+    return url, source, n
+
+
 def discover_official_socials(
     company_name: str, site_url: str, domain: str = "",
+    *,
+    niche: str = "",
+    product: str = "",
 ) -> tuple[dict[str, str], dict[str, int | None]]:
-    """Official YT / IG / TikTok: gather Gemini + website + Google, then keep the biggest profile."""
+    """Official YT / IG / TikTok. YouTube: title/description + LLM, not handle+followers."""
     label = (company_name or social_search_label(site_url) or domain or "").strip()
     out = {"instagram": "", "youtube": "", "tiktok": ""}
     src = {k: "" for k in out}
@@ -1538,9 +1877,43 @@ def discover_official_socials(
                 best_url, best_src, best_n, best_count = url, source, n_i, n
         return best_url, best_src, best_count
 
-    # Google when a platform is empty *or* the best Gemini/website pick looks like a stub.
+    nicho = (niche or "").strip()
+    produto = (product or "").strip()
+    if not nicho or not produto:
+        try:
+            from brand_llm_filter import load_briefing_xyz
+
+            xyz = load_briefing_xyz((os.environ.get("SPY_SLUG") or "").strip())
+            nicho = nicho or xyz.get("nicho") or ""
+            produto = produto or xyz.get("produto") or ""
+        except Exception:
+            pass
+
+    yt_serp: dict[str, dict[str, str]] = {}
+    for card in _google_youtube_cards(label, site_url, domain):
+        _add("youtube", card.get("url") or "", "google")
+        key = _social_url_key("youtube", card.get("url") or "")
+        if key:
+            yt_serp[key] = card
+
     _WEAK_FOLLOWERS = 200
     for key_name in out:
+        if key_name == "youtube":
+            url, source, n = _pick_youtube_official(
+                candidates["youtube"],
+                label=label,
+                site_url=site_url,
+                domain=domain,
+                niche=nicho,
+                product=produto,
+                serp=yt_serp,
+            )
+            if url:
+                out[key_name] = url
+                src[key_name] = source or "llm"
+                if n is not None:
+                    counts[key_name] = n
+            continue
         url, source, n = _best_of(key_name, candidates[key_name])
         weak = (not url) or n is None or int(n) < _WEAK_FOLLOWERS
         if weak:
@@ -1927,7 +2300,13 @@ def build_metric_rows(
                 or social_search_label(base_url)
                 or dom
             )
-            socials, pre_counts = discover_official_socials(str(social_name), base_url, dom)
+            socials, pre_counts = discover_official_socials(
+                str(social_name),
+                base_url,
+                dom,
+                niche=str(comp.get("nicho") or ""),
+                product="",
+            )
             t_links = time.time()
             instagram_followers = pre_counts.get("instagram")
             youtube_followers = pre_counts.get("youtube")
@@ -2321,6 +2700,7 @@ def main() -> None:
         sys.exit(1)
 
     client_slug = slugify_client(client_input)
+    os.environ["SPY_SLUG"] = client_slug
     print(f"\n=== Metricas Final 09: '{client_input}' | modo {mode} ===\n", flush=True)
 
     t0 = time.time()
