@@ -16,7 +16,8 @@ def main() -> None:
         print('Uso: python "5f - social ig yt.py" <cliente>')
         sys.exit(1)
     client = sys.argv[1].strip()
-    cmd = [sys.executable, str(CORE), client, "social"]
+    mode = sys.argv[2].strip().lower() if len(sys.argv) >= 3 else "social"
+    cmd = [sys.executable, str(CORE), client, mode]
     raise SystemExit(subprocess.call(cmd, cwd=str(FINAL_DIR)))
 
 

@@ -2053,20 +2053,21 @@ def _write_official_sidecar(platform: str, payload: dict[str, Any]) -> None:
     try:
         folder = OUTPUT_DIR / slug
         folder.mkdir(parents=True, exist_ok=True)
-        if platform == "youtube":
-            (folder / f"youtube-official-{slug}.json").write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
         path = folder / f"official-socials-{slug}.json"
-        blob: dict[str, Any] = {}
-        if path.exists():
-            try:
-                blob = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                blob = {}
-        blob[platform] = payload
-        path.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")
+        with _xlsx_write_lock(path):
+            if platform == "youtube":
+                (folder / f"youtube-official-{slug}.json").write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            blob: dict[str, Any] = {}
+            if path.exists():
+                try:
+                    blob = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    blob = {}
+            blob[platform] = payload
+            path.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         print(f"[SOCIAL] {platform} sidecar failed: {e}", flush=True)
 
@@ -2194,89 +2195,159 @@ def _pick_youtube_official(
     )
 
 
+def _ensure_social_seed(
+    company_name: str, site_url: str, domain: str = "",
+    *,
+    niche: str = "",
+    product: str = "",
+) -> dict[str, Any]:
+    """Gemini + homepage candidates, cached per slug/domain so IG/YT/TT jobs share one scrape."""
+    label = (company_name or social_search_label(site_url) or domain or "").strip()
+    slug = (os.environ.get("SPY_SLUG") or "").strip()
+    dom = normalize_domain(domain or site_url or "") or "unknown"
+    folder = OUTPUT_DIR / (slug or "_tmp") / "social-seed"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{dom}.json"
+
+    def _read() -> Optional[dict[str, Any]]:
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("candidates"):
+                return data
+        except Exception:
+            return None
+        return None
+
+    hit = _read()
+    if hit:
+        print(f"[SOCIAL] seed cache {dom}", flush=True)
+        return hit
+
+    with _xlsx_write_lock(path):
+        hit = _read()
+        if hit:
+            print(f"[SOCIAL] seed cache {dom}", flush=True)
+            return hit
+        brand_kw = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
+        if not brand_kw and slug:
+            try:
+                from brand_dataforseo import ensure_brand_search_keyword
+
+                brand_kw = str(
+                    ensure_brand_search_keyword(slug, url=site_url, company=label).get("keyword") or ""
+                ).strip()
+            except Exception:
+                brand_kw = ""
+        search_label = brand_kw or label
+        candidates: dict[str, list[list[str]]] = {k: [] for k in ("instagram", "youtube", "tiktok")}
+
+        def _add(platform: str, url: str, source: str) -> None:
+            clean = _validate_social_url(platform, url)
+            if not clean:
+                return
+            handle = _social_handle_from_url(platform, clean)
+            if _social_handle_is_impersonator(handle) and source != "website":
+                print(f"[SOCIAL] drop {platform} {clean} src={source} (impersonator)", flush=True)
+                return
+            match_name = search_label or label
+            keep_yt_uc = platform == "youtube" and _youtube_is_uc_channel(clean)
+            if (
+                source != "website"
+                and not keep_yt_uc
+                and not social_url_matches_brand(platform, clean, match_name, site_url)
+            ):
+                print(f"[SOCIAL] drop {platform} {clean} src={source} (handle≠brand)", flush=True)
+                return
+            key = _social_url_key(platform, clean)
+            if any(_social_url_key(platform, existing) == key for existing, _ in candidates[platform]):
+                return
+            candidates[platform].append([clean, source])
+
+        llm = _llm_official_socials(search_label, site_url, domain, brand_keyword=brand_kw)
+        for key_name in candidates:
+            _add(key_name, llm.get(key_name) or "", "gemini")
+        print(
+            f"[SOCIAL] gemini {search_label}: yt={llm.get('youtube') or '—'} "
+            f"ig={llm.get('instagram') or '—'} tt={llm.get('tiktok') or '—'}",
+            flush=True,
+        )
+        web: dict[str, list[str]] = {"youtube": [], "instagram": [], "tiktok": []}
+        if site_url:
+            web = social_links_from_homepage(site_url, label)
+            for key_name in candidates:
+                for u in web.get(key_name) or []:
+                    _add(key_name, u, "website")
+            print(
+                f"[SOCIAL] website {search_label}: "
+                f"yt={', '.join(web.get('youtube') or []) or '—'} "
+                f"ig={', '.join(web.get('instagram') or []) or '—'} "
+                f"tt={', '.join(web.get('tiktok') or []) or '—'}",
+                flush=True,
+            )
+        nicho = (niche or "").strip()
+        produto = (product or "").strip()
+        if not nicho or not produto:
+            try:
+                from brand_llm_filter import load_briefing_xyz
+
+                xyz = load_briefing_xyz(slug)
+                nicho = nicho or xyz.get("nicho") or ""
+                produto = produto or xyz.get("produto") or ""
+            except Exception:
+                pass
+        seed = {
+            "label": label,
+            "search_label": search_label,
+            "brand_kw": brand_kw,
+            "nicho": nicho,
+            "produto": produto,
+            "candidates": candidates,
+        }
+        path.write_text(json.dumps(seed, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[SOCIAL] seed wrote {dom}", flush=True)
+        return seed
+
+
 def discover_official_socials(
     company_name: str, site_url: str, domain: str = "",
     *,
     niche: str = "",
     product: str = "",
+    platforms: tuple[str, ...] | None = None,
 ) -> tuple[dict[str, str], dict[str, int | None]]:
     """Official YT / IG / TikTok: title/description + LLM, not handle+followers."""
-    label = (company_name or social_search_label(site_url) or domain or "").strip()
-    slug = (os.environ.get("SPY_SLUG") or "").strip()
-    brand_kw = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
-    if not brand_kw and slug:
-        try:
-            from brand_dataforseo import ensure_brand_search_keyword
-
-            brand_kw = str(
-                ensure_brand_search_keyword(slug, url=site_url, company=label).get("keyword") or ""
-            ).strip()
-        except Exception:
-            brand_kw = ""
-    search_label = brand_kw or label
+    wanted = tuple(platforms or ("instagram", "youtube", "tiktok"))
+    seed = _ensure_social_seed(
+        company_name, site_url, domain, niche=niche, product=product,
+    )
+    search_label = str(seed.get("search_label") or company_name or "")
+    brand_kw = str(seed.get("brand_kw") or "")
+    nicho = str(seed.get("nicho") or niche or "")
+    produto = str(seed.get("produto") or product or "")
     out = {"instagram": "", "youtube": "", "tiktok": ""}
     src = {k: "" for k in out}
     counts: dict[str, int | None] = {}
     candidates: dict[str, list[tuple[str, str]]] = {k: [] for k in out}
+    for plat, pairs in (seed.get("candidates") or {}).items():
+        if plat not in candidates:
+            continue
+        for item in pairs or []:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                candidates[plat].append((str(item[0]), str(item[1])))
     serp: dict[str, dict[str, dict[str, str]]] = {k: {} for k in out}
 
     def _add(platform: str, url: str, source: str) -> None:
         clean = _validate_social_url(platform, url)
         if not clean:
             return
-        handle = _social_handle_from_url(platform, clean)
-        if _social_handle_is_impersonator(handle) and source != "website":
-            print(f"[SOCIAL] drop {platform} {clean} src={source} (impersonator)", flush=True)
-            return
-        match_name = search_label or label
-        keep_yt_uc = platform == "youtube" and _youtube_is_uc_channel(clean)
-        if (
-            source != "website"
-            and not keep_yt_uc
-            and not social_url_matches_brand(platform, clean, match_name, site_url)
-        ):
-            print(f"[SOCIAL] drop {platform} {clean} src={source} (handle≠brand)", flush=True)
-            return
         key = _social_url_key(platform, clean)
         if any(_social_url_key(platform, existing) == key for existing, _ in candidates[platform]):
             return
         candidates[platform].append((clean, source))
 
-    llm = _llm_official_socials(search_label, site_url, domain, brand_keyword=brand_kw)
-    for key_name in out:
-        _add(key_name, llm.get(key_name) or "", "gemini")
-    print(
-        f"[SOCIAL] gemini {search_label}: yt={llm.get('youtube') or '—'} "
-        f"ig={llm.get('instagram') or '—'} tt={llm.get('tiktok') or '—'}",
-        flush=True,
-    )
-
-    if site_url:
-        web = social_links_from_homepage(site_url, label)
-        for key_name in out:
-            for u in web.get(key_name) or []:
-                _add(key_name, u, "website")
-        print(
-            f"[SOCIAL] website {search_label}: "
-            f"yt={', '.join(web.get('youtube') or []) or '—'} "
-            f"ig={', '.join(web.get('instagram') or []) or '—'} "
-            f"tt={', '.join(web.get('tiktok') or []) or '—'}",
-            flush=True,
-        )
-
-    nicho = (niche or "").strip()
-    produto = (product or "").strip()
-    if not nicho or not produto:
-        try:
-            from brand_llm_filter import load_briefing_xyz
-
-            xyz = load_briefing_xyz(slug)
-            nicho = nicho or xyz.get("nicho") or ""
-            produto = produto or xyz.get("produto") or ""
-        except Exception:
-            pass
-
-    for platform in out:
+    for platform in wanted:
         cards = (
             _google_youtube_cards(search_label, site_url, domain)
             if platform == "youtube"
@@ -2288,7 +2359,7 @@ def discover_official_socials(
             if key:
                 serp[platform][key] = card
 
-    for key_name in out:
+    for key_name in wanted:
         url, source, n = _pick_official_profile(
             key_name,
             candidates[key_name],
@@ -2307,7 +2378,11 @@ def discover_official_socials(
         if n is not None:
             counts[key_name] = n
 
-    print(f"[SOCIAL] official {search_label} sources={src} keyword={brand_kw or '—'}", flush=True)
+    print(
+        f"[SOCIAL] official {search_label} plats={','.join(wanted)} "
+        f"sources={src} keyword={brand_kw or '—'}",
+        flush=True,
+    )
     return out, counts
 
 
@@ -2661,15 +2736,17 @@ def build_metric_rows(
     google_ads_map: dict[str, dict],
     linkedin_map: dict[str, dict],
     collect_social: bool = True,
+    social_platforms: tuple[str, ...] | None = None,
 ) -> list[dict]:
     rows = []
     n = len(competitors)
+    plats = tuple(social_platforms or ("instagram", "youtube", "tiktok"))
     for i, comp in enumerate(competitors, 1):
         t0 = time.time()
         dom = comp["domain"]
         base_url = comp.get("url") or comp.get("domain", "")
         if collect_social:
-            print(f"[SOCIAL] ({i}/{n}) {dom} ...", flush=True)
+            print(f"[SOCIAL] ({i}/{n}) {dom} plats={','.join(plats)} ...", flush=True)
             social_name = (
                 comp.get("company")
                 or comp.get("title")
@@ -2682,6 +2759,7 @@ def build_metric_rows(
                 dom,
                 niche=str(comp.get("nicho") or ""),
                 product="",
+                platforms=plats,
             )
             t_links = time.time()
             instagram_followers = pre_counts.get("instagram")
@@ -2735,12 +2813,12 @@ def build_metric_rows(
                 else ""
             ),
             "linkedin_ads_url": linkedin.get("linkedin_search_url", ""),
-            "instagram_url": socials["instagram"] or meta.get("instagram_url") or "",
-            "youtube_url": socials["youtube"],
-            "tiktok_url": socials["tiktok"],
-            "instagram_followers": instagram_followers,
-            "youtube_followers": youtube_followers,
-            "tiktok_followers": tiktok_followers,
+            "instagram_url": (socials["instagram"] or meta.get("instagram_url") or "") if "instagram" in plats else "",
+            "youtube_url": socials["youtube"] if "youtube" in plats else "",
+            "tiktok_url": socials["tiktok"] if "tiktok" in plats else "",
+            "instagram_followers": instagram_followers if "instagram" in plats else None,
+            "youtube_followers": youtube_followers if "youtube" in plats else None,
+            "tiktok_followers": tiktok_followers if "tiktok" in plats else None,
         })
     return rows
 
@@ -2876,8 +2954,14 @@ def _merge_preserved_channels(
     keep_google: bool = False,
     keep_linkedin: bool = False,
     keep_social: bool = False,
+    collected_social: set[str] | None = None,
 ) -> None:
     """Preserva canais ja coletados quando o modo atual nao os recalcula."""
+    preserve_social = {"instagram", "youtube", "tiktok"}
+    if collected_social:
+        preserve_social -= set(collected_social)
+    elif not keep_social:
+        preserve_social = set()
     for row in metric_rows:
         prev = existing_maps.get(row.get("domain") or "", {})
         if not prev:
@@ -2899,14 +2983,13 @@ def _merge_preserved_channels(
         if keep_linkedin and row.get("linkedin_ads") is None:
             row["linkedin_ads"] = prev.get("linkedin_ads")
             row["linkedin_ads_url"] = prev.get("linkedin_search_url") or row.get("linkedin_ads_url") or ""
-        if keep_social:
-            for prefix in ("instagram", "youtube", "tiktok"):
-                url_k = f"{prefix}_url"
-                fol_k = f"{prefix}_followers"
-                if not row.get(url_k) and prev.get(url_k):
-                    row[url_k] = prev.get(url_k) or ""
-                if row.get(fol_k) in (None, "", "—") and prev.get(fol_k) not in (None, "", "—"):
-                    row[fol_k] = prev.get(fol_k)
+        for prefix in preserve_social:
+            url_k = f"{prefix}_url"
+            fol_k = f"{prefix}_followers"
+            if not row.get(url_k) and prev.get(url_k):
+                row[url_k] = prev.get(url_k) or ""
+            if row.get(fol_k) in (None, "", "—") and prev.get(fol_k) not in (None, "", "—"):
+                row[fol_k] = prev.get(fol_k)
 
 
 def filtered_sheet(rows: list[list[str]], keep_domains: set[str], include_client: bool = False) -> list[list[str]]:
@@ -3057,7 +3140,10 @@ def write_metrics_xlsx(
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print('Uso: python "5 - metricas concorrentes.py" <cliente> [google_ads|seo|brand|meta|linkedin|social|full]')
+        print(
+            'Uso: python "5 - metricas concorrentes.py" <cliente> '
+            "[google_ads|seo|brand|meta|linkedin|social|social_ig|social_yt|social_tt|full]"
+        )
         sys.exit(1)
 
     t_all = time.time()
@@ -3070,7 +3156,10 @@ def main() -> None:
 
     client_input = sys.argv[1].strip()
     mode = (sys.argv[2].strip().lower() if len(sys.argv) >= 3 else "full")
-    valid_modes = {"full", "google_ads", "seo", "brand", "meta", "linkedin", "social"}
+    valid_modes = {
+        "full", "google_ads", "seo", "brand", "meta", "linkedin",
+        "social", "social_ig", "social_yt", "social_tt",
+    }
     if mode not in valid_modes:
         print(f"ERRO: modo '{mode}' invalido. Opcoes: {', '.join(sorted(valid_modes))}")
         sys.exit(1)
@@ -3108,7 +3197,14 @@ def main() -> None:
     google_ads_map: dict[str, dict] = {}
     linkedin_map: dict[str, dict] = {}
     collect_social = False
+    social_platforms: tuple[str, ...] | None = None
     keep_meta = keep_google = keep_linkedin = keep_social = False
+    SOCIAL_MODES = {
+        "social": ("instagram", "youtube", "tiktok"),
+        "social_ig": ("instagram",),
+        "social_yt": ("youtube",),
+        "social_tt": ("tiktok",),
+    }
 
     if mode == "full":
         t0 = time.time()
@@ -3148,9 +3244,13 @@ def main() -> None:
         mark("LinkedIn Ads (ScrapingBee)", t0)
         keep_meta = keep_google = keep_social = True
 
-    elif mode == "social":
+    elif mode in SOCIAL_MODES:
         t0 = time.time()
-        print("[METRICAS] Subetapa Instagram + YouTube (sem TikTok) ...", flush=True)
+        social_platforms = SOCIAL_MODES[mode]
+        print(
+            f"[METRICAS] Subetapa social {mode} ({', '.join(social_platforms)}) ...",
+            flush=True,
+        )
         collect_social = True
         keep_meta = keep_google = keep_linkedin = True
         mark("setup social (ads rematched under lock)", t0)
@@ -3165,9 +3265,10 @@ def main() -> None:
     collected_rows = None
     if collect_social:
         t0 = time.time()
-        print("[METRICAS] Subetapa redes sociais (homepage + followers, sem TikTok) ...", flush=True)
+        print("[METRICAS] Subetapa redes sociais (homepage + followers) ...", flush=True)
         collected_rows = build_metric_rows(
-            metric_entities, traffic_map, meta_map, google_ads_map, linkedin_map, collect_social=True,
+            metric_entities, traffic_map, meta_map, google_ads_map, linkedin_map,
+            collect_social=True, social_platforms=social_platforms,
         )
         mark("Redes sociais (links+followers)", t0)
 
@@ -3200,6 +3301,7 @@ def main() -> None:
                 keep_google=keep_google,
                 keep_linkedin=keep_linkedin,
                 keep_social=False,
+                collected_social=set(social_platforms or ("instagram", "youtube", "tiktok")),
             )
         else:
             metric_rows = build_metric_rows(

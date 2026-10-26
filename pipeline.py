@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Spy USA pipeline: briefing → (concorrentes?) → SEO → independent channels in parallel."""
+"""Spy USA pipeline: briefing → (concorrentes?) → SEO + channels in parallel."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ APP_DIR = Path(__file__).resolve().parent
 FINAL_DIR = APP_DIR / "scripts"
 SCRIPT_ENTENDER = FINAL_DIR / "1- entender o cliente.py"
 SCRIPT_CONCORRENTES = FINAL_DIR / "3 - concorrentes Geral.py"
+SCRIPT_METRICAS = FINAL_DIR / "5 - metricas concorrentes.py"
 SCRIPT_SEO = FINAL_DIR / "5b - seo organico.py"
 SCRIPT_BRAND = FINAL_DIR / "5c - brand search.py"
 SCRIPT_GOOGLE = FINAL_DIR / "5a - google ads.py"
@@ -1264,12 +1265,12 @@ def _run_script(
 
 
 def _extra_workers(n: int) -> int:
-    raw = (os.environ.get("SPY_EXTRA_WORKERS") or "3").strip()
+    raw = (os.environ.get("SPY_EXTRA_WORKERS") or "6").strip()
     try:
         want = int(raw)
     except ValueError:
-        want = 3
-    return max(1, min(want, 3, n))
+        want = 6
+    return max(1, min(want, 8, n))
 
 
 def _run_independent_extras(
@@ -1285,7 +1286,7 @@ def _run_independent_extras(
     tag_report: Callable[[dict], dict],
     preferred_competitors: Optional[list] = None,
 ) -> dict:
-    """Run independent post-SEO channels together. Cap at 3. XLSX writers lock+re-merge."""
+    """Run independent channels together (SEO included). Cap at 8. XLSX writers lock+re-merge."""
     lock = threading.Lock()
 
     def _safe_log(line: str) -> None:
@@ -1308,8 +1309,9 @@ def _run_independent_extras(
             emit("log", line=f"[PARALLEL] start {ex['tag']}")
         err = None
         try:
+            argv = list(ex.get("argv") or [slug])
             _run_script(
-                [sys.executable, str(ex["script"]), slug],
+                [sys.executable, str(ex["script"]), *argv],
                 FINAL_DIR,
                 _safe_log,
                 timeout_sec=ex["timeout"],
@@ -2639,28 +2641,15 @@ def run_pipeline(
             f"{early.get('competitors_count', 0)} competitors",
         )
 
-    # 2) SEO
-    _emit_progress(emit, set_step, "seo", "running", "Building US SEO ranking...")
-    _run_script(
-        [sys.executable, str(SCRIPT_SEO), slug],
-        FINAL_DIR,
-        on_log,
-        timeout_sec=180,
-        env=script_env,
-    )
-    xlsx = find_metricas_xlsx(slug)
-    if not xlsx:
-        raise FileNotFoundError(f"Metrics XLSX not generated for '{slug}'")
-    report = build_report_from_xlsx(xlsx, client_name=client_name, preferred_competitors=parsed.competitors)
-    emit("partial", section="seo", data=report.get("seo") or {}, client=client_name)
-    _emit_progress(emit, set_step, "seo", "done", "SEO ready")
-
     brand_kw = _prime_brand_keyword(slug, url, client_name, emit)
     if brand_kw:
         script_env["SPY_BRAND_KEYWORD"] = brand_kw
         os.environ["SPY_BRAND_KEYWORD"] = brand_kw
 
-    # 3+) Independent channels after SEO (XLSX writers lock+re-merge; JSON extras are sidecar files)
+    report: dict[str, Any] = {"client": client_name, "url": url}
+    xlsx = find_metricas_xlsx(slug)
+
+    # 2+) SEO + independent channels in parallel (XLSX writers lock+re-merge; JSON extras are sidecars)
     _tf = (os.environ.get("TINYFISH_API_KEY") or "").strip()
     _sb = (os.environ.get("SCRAPINGBEE_API_KEY") or "").strip()
     _dfs = bool(
@@ -2669,6 +2658,17 @@ def run_pipeline(
     )
     extras: list[dict[str, Any]] = []
 
+    extras.append({
+        "tag": "SEO",
+        "step": "seo",
+        "section": "seo",
+        "script": SCRIPT_SEO,
+        "timeout": 180,
+        "kind": "xlsx",
+        "priority": 95,
+        "running": "Building US SEO ranking...",
+        "done": "SEO ready",
+    })
     extras.append({
         "tag": "BRAND",
         "step": "brand",
@@ -2744,16 +2744,40 @@ def run_pipeline(
     else:
         _emit_progress(emit, set_step, "linkedin", "done", "Skipped")
     extras.append({
-        "tag": "SOCIAL",
+        "tag": "SOCIAL-IG",
         "step": "instagram",
-        "steps": ["instagram", "youtube", "tiktok"],
-        "sections": ["instagram", "youtube", "tiktok"],
-        "script": SCRIPT_SOCIAL,
-        "timeout": 600,
+        "section": "instagram",
+        "script": SCRIPT_METRICAS,
+        "argv": [slug, "social_ig"],
+        "timeout": 420,
         "kind": "xlsx",
-        "priority": 75,
-        "running": "Instagram / YouTube / TikTok...",
-        "done": "Social ready",
+        "priority": 78,
+        "running": "Instagram official...",
+        "done": "Instagram ready",
+    })
+    extras.append({
+        "tag": "SOCIAL-YT",
+        "step": "youtube",
+        "section": "youtube",
+        "script": SCRIPT_METRICAS,
+        "argv": [slug, "social_yt"],
+        "timeout": 420,
+        "kind": "xlsx",
+        "priority": 76,
+        "running": "YouTube official...",
+        "done": "YouTube ready",
+    })
+    extras.append({
+        "tag": "SOCIAL-TT",
+        "step": "tiktok",
+        "section": "tiktok",
+        "script": SCRIPT_METRICAS,
+        "argv": [slug, "social_tt"],
+        "timeout": 420,
+        "kind": "xlsx",
+        "priority": 74,
+        "running": "TikTok official...",
+        "done": "TikTok ready",
     })
 
     if include_youtube_influencers:
@@ -2789,7 +2813,7 @@ def run_pipeline(
                 "timeout": 600,
                 "kind": "json",
                 "priority": 80,
-                "after": "SOCIAL",
+                "after": "SOCIAL-IG",
                 "running": "Instagram Influencers (Search + page download)...",
                 "done": "Instagram Influencers ready",
                 "attach": _attach_instagram_influencers,
