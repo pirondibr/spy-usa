@@ -400,9 +400,9 @@
     var nLog = log ? log.split("\n").filter(function (l) { return l.trim(); }).length : 0;
     var rowHtml = function (r) {
       if (Array.isArray(r)) {
-        return "<tr><td>" + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td class="num">' + esc(r[3]) + '</td><td class="num">—</td><td></td></tr>';
+        return "<tr><td>" + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td class="num">' + esc(r[3]) + "</td><td>—</td><td class=\"num\">—</td><td></td></tr>";
       }
-      return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + '</td><td class="num">' + esc(r.pct || "—") + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(stL(r.status || "done")) + "</td></tr>";
+      return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + "</td><td>" + esc(r.apis || "—") + '</td><td class="num">' + esc(r.pct || "—") + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(stL(r.status || "done")) + "</td></tr>";
     };
     var pulls = EX.pulls || {};
     var ytPull = pulls.youtube || [];
@@ -452,9 +452,9 @@
       '<button type="button" data-ex="resumo" aria-pressed="true">' + t("ex.summary") + "</button>" +
       '<button type="button" data-ex="log" aria-pressed="false">' + t("ex.log") + (nLog ? " · " + nLog : "") + "</button>" +
       '<button type="button" data-ex="pulls" aria-pressed="false">' + t("ex.pulls") + (nPulls ? " · " + nPulls : "") + "</button>" + llmBtn + "</div>" +
-      '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
-      (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="5" class="none">' + t("ex.none") + "</td></tr>") +
-      '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + '</th><th class="num">' + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
+      '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.apis_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
+      (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="6" class="none">' + t("ex.none") + "</td></tr>") +
+      '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + "</th><th></th><th class=\"num\">" + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
       (EX.runs_per ? '<p class="runlog-runs">' + t("ex.runs_per", { n: EX.runs_per }) + "</p>" : "") +
       (EX.rates ? '<p class="muted" style="margin-top:12px;font-size:12.5px;color:var(--soft)">' + esc(EX.rates) + "</p>" : "") +
       "</div>" +

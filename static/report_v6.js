@@ -33,6 +33,9 @@
 
   var GR = {};
   var LBL = [];
+  var WORD = [];
+  var DESC = [];
+  var GCOL = { paid: "#C2702E", org: "#4A6FA5", inf: "#7B5BB0" };
   var $ = function (id) { return root.querySelector("#" + id); };
   var esc = function (s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -159,13 +162,15 @@
     var st = chStats(ch);
     return !!(st.lead && st.lead.c === c);
   };
-  var bub = function (v) {
-    if (v == null) return '<span class="bb bn-c"><span style="font-size:11px;color:var(--soft)">' + t("nc") + "</span></span>";
-    return '<span class="bb b' + v + '" role="img" aria-label="' + LBL[v] + '"><i></i></span>';
+  var bub = function (v, sm) {
+    if (v == null) {
+      return '<span class="bb b0' + (sm ? " sm" : "") + ' bn-c" aria-hidden="true"><i></i></span>';
+    }
+    return '<span class="bb b' + v + (sm ? " sm" : "") + '" role="img" aria-label="' + (WORD[v] || LBL[v] || "") + '"><i></i></span>';
   };
 
   var sel = ME.k;
-  var flt = "all";
+  var flt = null;
   var rkSel = "visits";
   var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, x: ME.k, li: ME.k, rd: ME.k };
   var FIXED = ["perfil", "canais"];
@@ -268,34 +273,97 @@
     try { open ? localStorage.setItem("spy-min-tab", open) : localStorage.removeItem("spy-min-tab"); } catch (e) {}
   }
 
-  function renderBoard() {
-    var rows = CH.filter(function (ch) {
+  function boardRows() {
+    return CH.filter(function (ch) {
       if (ch.g === "inf") return true;
       return !CO.every(function (c) { return chSlot(ch, c)[0] == null; });
     });
+  }
+  function catTip(c, g, rows) {
+    var lv = (c.cat || {})[g];
+    var bits = rows.filter(function (ch) { return ch.g === g; }).map(function (ch) {
+      return ch.l + " " + fmt(chSlot(ch, c)[1]);
+    });
+    return (t("board.g." + g) || GR[g]) + ": " + (lv == null ? t("nc") : (WORD[lv] || LBL[lv])) +
+      (bits.length ? " · " + bits.join(", ") : "");
+  }
+  function strongChip(ch, c) {
+    var s = chSlot(ch, c);
+    var v = s[0], n = s[1], w = (ch.w || {})[c.k];
+    var inner = '<span class="sc v' + v + '" title="' + chipTip(ch, c) + '">' +
+      bub(v, true) + esc(ch.l) + ' <b class="num">' + fmt(n) + "</b>" +
+      (w ? '<span class="wf">!</span>' : "") + "</span>";
+    return wrapCanal(inner, ch, c);
+  }
+  function strongCell(c, rows) {
+    var S = rows.filter(function (ch) { return (chSlot(ch, c)[0] || 0) >= 2; }).sort(function (a, b) {
+      var va = chSlot(a, c)[0] || 0, vb = chSlot(b, c)[0] || 0;
+      if (vb !== va) return vb - va;
+      return (chSlot(b, c)[1] || 0) - (chSlot(a, c)[1] || 0);
+    });
+    if (!S.length) {
+      var best = rows.filter(function (ch) { return chSlot(ch, c)[0] === 1; }).sort(function (a, b) {
+        return (chSlot(b, c)[1] || 0) - (chSlot(a, c)[1] || 0);
+      }).slice(0, 2);
+      return '<div class="stg">' +
+        (best.length ? best.map(function (ch) { return strongChip(ch, c); }).join("") : '<span class="no">' + t("board.noyet") + "</span>") +
+        '<span class="nohi">' + t("board.nohi") + "</span></div>";
+    }
+    var show = S.slice(0, 3);
+    var more = S.length - show.length;
+    return '<div class="stg">' + show.map(function (ch) { return strongChip(ch, c); }).join("") +
+      (more ? '<span class="more">+' + more + "</span>" : "") + "</div>";
+  }
+  function actCell(c, rows) {
+    var A = rows.filter(function (ch) { return (chSlot(ch, c)[0] || 0) > 0; });
+    return '<span class="act"><b class="num">' + A.length + "</b> <span>" + t("board.of") + " " + rows.length +
+      '</span><div class="mt">' +
+      rows.map(function (ch) { return '<i class="' + ((chSlot(ch, c)[0] || 0) > 0 ? "on" : "") + '" title="' + esc(chName(ch)) + '"></i>'; }).join("") +
+      "</div></span>";
+  }
+
+  function renderBoard() {
+    var rows = boardRows();
     var order = CO.slice().sort(function (x, y) { return (y.visits || 0) - (x.visits || 0); });
     var mxv = Math.max.apply(null, CO.map(function (c) { return c.visits || 0; }).concat([1]));
     var mxb = Math.max.apply(null, CO.map(function (c) { return (c.brand && c.brand[c.brand.length - 1]) || 0; }).concat([1]));
     var vbar = function (v, mx, col, chg, per) {
       var w = mx ? Math.max(2, (v || 0) / mx * 100) : 2;
-      return '<div class="vb"><div class="tp"><span class="val num">' + fmt(v) + '</span><span class="pill ' + (chg >= 0 ? "up" : "dn") + '">' + (chg >= 0 ? "▲" : "▼") + " " + pct(Math.abs(chg)).replace("+", "") + '</span></div><div class="tk"><i style="width:' + w.toFixed(1) + "%;background:" + col + '"></i></div><span class="per">' + esc(per) + "</span></div>";
+      var hasChg = chg != null && isFinite(Number(chg));
+      var pill = hasChg
+        ? '<span class="pill ' + (chg >= 0 ? "up" : "dn") + '">' + (chg >= 0 ? "▲" : "▼") + " " + pct(Math.abs(chg)).replace("+", "") + "</span>"
+        : "";
+      return '<div class="vb"><div class="tp"><span class="val num">' + fmt(v) + "</span>" + pill +
+        '</div><div class="tk"><i style="width:' + w.toFixed(1) + "%;background:" + col + '"></i></div><span class="per">' + esc(per) + "</span></div>";
     };
-    var h = "<thead><tr><th></th><th>" + t("board.company") + "</th><th>" + t("board.visits") + '</th><th class="hide-s">' + t("board.brand") + '</th><th class="c">' + t("board.groups") + "</th><th>" + t("board.leads") + '</th><th class="hide-s">' + t("board.active") + "</th></tr></thead><tbody>";
+    var key = $("v6-keyA");
+    if (key) {
+      key.innerHTML = '<div class="keyA"><span class="kt">' + t("lv.key") + "</span>" +
+        [3, 2, 1, 0].map(function (v) {
+          return "<span>" + bub(v, true) + '<span class="t' + v + '">' + WORD[v] + "</span><small>" + DESC[v] + "</small></span>";
+        }).join("") + "</div>";
+    }
+    var groups = ["paid", "org", "inf"];
+    var h = '<thead><tr><th colspan="4" class="grp"></th><th colspan="3" class="grp"><span>' + t("board.strength") +
+      '</span></th><th colspan="2" class="grp"></th></tr><tr><th></th><th>' + t("board.company") + "</th><th>" +
+      t("board.visits") + "</th><th>" + t("board.brand") + "</th>" +
+      groups.map(function (g) {
+        return '<th class="c" title="' + esc(t("board.g." + g + "_tip")) + '"><span class="gcat"><span class="gm" style="background:' + GCOL[g] + '"></span>' + t("board.g." + g) + "</span></th>";
+      }).join("") +
+      '<th title="' + esc(t("board.strong_tip")) + '">' + t("board.strong") + "</th><th>" + t("board.active") + "</th></tr></thead><tbody>";
     order.forEach(function (c, i) {
-      var L = rows.filter(function (ch) { return isLead(ch, c) && !chStats(ch).free; });
-      var A = rows.filter(function (ch) { return (chSlot(ch, c)[0] || 0) > 0; });
       var brandNow = (c.brand && c.brand[c.brand.length - 1]) || 0;
-      h += '<tr class="row' + (c.k === sel ? " sel" : "") + '" data-co="' + c.k + '" tabindex="0" aria-label="' + t("board.see", { name: c.name }) + '">' +
+      h += '<tr class="row' + (c.me ? " me" : "") + (c.k === sel ? " sel" : "") + '" data-co="' + c.k + '" tabindex="0" aria-label="' + t("board.see", { name: c.name }) + '">' +
         '<td class="pos">' + nth(i + 1) + "</td>" +
-        "<td><div class=\"nm\">" + coDot(c) + esc(c.name) + (c.me ? you() : "") + "</div></td>" +
+        '<td><div class="nm">' + coDot(c) + esc(c.name) + (c.me ? you() : "") + "</div></td>" +
         "<td>" + vbar(c.visits, mxv, c.color, c.vg, t("board.mo2")) + "</td>" +
-        '<td class="hide-s">' + vbar(brandNow, mxb, c.color, c.bg, t("board.yr1")) + "</td>" +
-        '<td class="c"><span class="trio" title="' + ["paid", "org", "inf"].map(function (g) { return GR[g] + ": " + LBL[(c.cat || {})[g] || 0]; }).join(" · ") + '">' +
-        ["paid", "org", "inf"].map(function (g) { return bub((c.cat || {})[g]); }).join("") + "</span></td>" +
-        '<td><div class="ldr">' + (L.length ? L.map(function (ch) { return "<span>" + esc(chName(ch)) + "</span>"; }).join("") : '<span class="no">' + t("board.none") + "</span>") + "</div></td>" +
-        '<td class="hide-s act"><b class="num">' + A.length + "</b> <span>" + t("board.of") + " " + rows.length + '</span><div class="mt">' +
-        rows.map(function (ch) { return '<i class="' + ((chSlot(ch, c)[0] || 0) > 0 ? "on" : "") + '" title="' + esc(chName(ch)) + '"></i>'; }).join("") +
-        "</div></td></tr>";
+        "<td>" + vbar(brandNow, mxb, c.color, c.bg, t("board.yr1")) + "</td>" +
+        groups.map(function (g) {
+          var lv = (c.cat || {})[g];
+          return '<td class="c" title="' + esc(catTip(c, g, rows)) + '"><span class="lvc">' + bub(lv) +
+            '<small class="t' + (lv == null ? "0" : lv) + '">' + (lv == null ? t("nc") : WORD[lv]) + "</small></span></td>";
+        }).join("") +
+        "<td>" + strongCell(c, rows) + "</td><td>" + actCell(c, rows) + "</td></tr>";
     });
     $("v6-board").innerHTML = h + "</tbody>";
   }
@@ -391,10 +459,7 @@
   }
 
   function renderCanais() {
-    var rows = CH.filter(function (ch) {
-      if (ch.g === "inf") return true;
-      return !CO.every(function (c) { return chSlot(ch, c)[0] == null; });
-    });
+    var rows = boardRows();
     var nc = CH.filter(function (ch) {
       if (ch.g === "inf") return false;
       return CO.every(function (c) { return chSlot(ch, c)[0] == null; });
@@ -402,34 +467,45 @@
     var free = rows.filter(function (ch) {
       return CO.every(function (c) { return chSlot(ch, c)[0] === 0; });
     });
-    var F = [["all", t("flt.all")], ["3", t("lv.3")], ["2", t("lv.2")], ["1", t("lv.1")], ["0", t("lv.0")]];
-    var h = '<div class="seg" role="group" aria-label="' + t("flt.aria") + '"><span class="seglab">' + t("flt.label") + "</span>" + F.map(function (pair) {
-      return '<button type="button" data-flt="' + pair[0] + '" aria-pressed="' + (flt === pair[0]) + '">' + (pair[0] === "all" ? "" : bub(+pair[0])) + pair[1] + "</button>";
-    }).join("") + "</div>";
-    h += '<div class="bx' + (flt !== "all" ? " fon" : "") + '"><table><thead><tr><th class="cl"></th>' +
+    var counts = [0, 1, 2, 3].map(function (v) {
+      return rows.reduce(function (n, ch) {
+        return n + CO.filter(function (c) { return chSlot(ch, c)[0] === v; }).length;
+      }, 0);
+    });
+    var h = '<div class="keyB" role="group" aria-label="' + t("flt.aria") + '">' +
+      [3, 2, 1, 0].map(function (v) {
+        return '<button type="button" class="kb v' + v + '" data-flt="' + v + '" aria-pressed="' + (flt === String(v)) + '">' +
+          bub(v) + "<b>" + WORD[v] + "</b><small>" + DESC[v] + ' · <span class="cnt">' + counts[v] + "</span></small></button>";
+      }).join("") + "</div>" +
+      '<button type="button" class="clear" data-clr="1"' + (flt == null ? " hidden" : "") + ">" + t("map.showall") + "</button>";
+    h += '<div class="bx' + (flt != null ? " fon" : "") + '"><table><thead><tr><th class="cl"></th>' +
       CO.map(function (c) {
         return '<th class="' + (c.me ? "me" : "") + '"><span class="ch-h">' + coDot(c) + esc(c.name) + "</span>" + (c.me ? you() : "") + "</th>";
       }).join("") + "</tr></thead><tbody>";
     ["paid", "org", "inf"].forEach(function (g) {
       var chs = rows.filter(function (ch) { return ch.g === g; });
       if (!chs.length) return;
-      h += '<tr class="gr"><td colspan="' + (CO.length + 1) + '"><span class="gl gl-' + g + '"><span class="gm g-' + g + '"></span>' + GR[g] + "</span></td></tr>";
+      h += '<tr class="gr"><td colspan="' + (CO.length + 1) + '"><span class="gl gl-' + g + '"><i style="background:' + GCOL[g] + '"></i>' + t("map.g." + g) + "</span></td></tr>";
       chs.forEach(function (ch) {
         var empty = free.indexOf(ch) >= 0;
         h += "<tr" + (empty ? ' class="er"' : "") + '><td class="cl"><b>' + esc(ch.l) + "</b><span>" + esc(unitOf(ch)) + (empty ? " · <em>" + t("flt.nobody") + "</em>" : "") + "</span></td>" +
           CO.map(function (c) {
             var s = chSlot(ch, c);
             var v = s[0], n = s[1], w = (ch.w || {})[c.k];
-            var tip = esc(c.name) + " · " + esc(ch.l) + ": " + (v == null ? t("tip.not_collected") : (n == null ? "—" : num(n) + " " + unitOf(ch) + " · " + LBL[v])) + (w ? " — " + t("tip.verify", { note: w }) : "");
-            return '<td class="c' + (c.me ? " me" : "") + (flt !== "all" && String(v) === flt ? " hit" : "") + '" title="' + tip + '">' + wrapCanal('<span class="bc">' + bub(v) + '<span class="bv num' + (v === 0 ? " z" : "") + '">' + (v == null ? "" : fmt(n)) + (w ? ' <span class="wf">!</span>' : "") + "</span></span>", ch, c) + "</td>";
+            var hit = flt != null && String(v) === String(flt);
+            var tip = esc(c.name) + " · " + esc(ch.l) + ": " + (v == null ? t("tip.not_collected") : (n == null ? "—" : num(n) + " " + unitOf(ch) + " · " + (WORD[v] || LBL[v]))) + (w ? " — " + t("tip.verify", { note: w }) : "");
+            var pill = '<span class="cbp v' + (v == null ? "0" : v) + (hit ? " hit" : "") + (v == null ? " na" : "") + '">' +
+              bub(v) + '<span class="n num">' + (v == null ? t("nc") : fmt(n)) + "</span>" +
+              (v ? '<span class="lv">' + WORD[v] + "</span>" : "") +
+              (w ? '<span class="wf">!</span>' : "") + "</span>";
+            return '<td class="c' + (c.me ? " me" : "") + (hit ? " hit" : "") + '" title="' + tip + '">' + wrapCanal(pill, ch, c) + "</td>";
           }).join("") + "</tr>";
       });
     });
-    h += '</tbody></table></div><div class="note">' +
-      '<span class="blg">' + [3, 2, 1, 0].map(function (v) { return "<span>" + bub(v) + LBL[v] + "</span>"; }).join("") + "</span>" +
-      (free.length ? "<span>" + t("flt.free") + " <b>" + free.map(function (x) { return x.l; }).join(" · ") + "</b></span>" : "") +
-      (nc.length ? "<span>" + t("flt.nc") + " <b>" + nc.map(function (x) { return x.g === "inf" ? t("ch.creators", { name: x.l }) : t("ch.followers", { name: x.l }); }).join(" · ") + "</b></span>" : "") +
-      "</div>";
+    h += '</tbody></table></div><p class="note">' + t("map.note") +
+      (free.length ? " " + t("flt.free") + " <b>" + free.map(function (x) { return x.l; }).join(" · ") + "</b>." : "") +
+      (nc.length ? " " + t("flt.nc") + " <b>" + nc.map(function (x) { return x.g === "inf" ? t("ch.creators", { name: x.l }) : t("ch.followers", { name: x.l }); }).join(" · ") + "</b>." : "") +
+      "</p>";
     $("v6-pb-canais").innerHTML = h;
   }
 
@@ -499,9 +575,9 @@
     var nLog = log ? log.split("\n").filter(function (l) { return l.trim(); }).length : 0;
     var rowHtml = function (r) {
       if (Array.isArray(r)) {
-        return "<tr><td>" + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td class="num">' + esc(r[3]) + '</td><td class="num">—</td><td></td></tr>';
+        return "<tr><td>" + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td class="num">' + esc(r[3]) + "</td><td>—</td><td class=\"num\">—</td><td></td></tr>";
       }
-      return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + '</td><td class="num">' + esc(r.pct || "—") + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(stL(r.status || "done")) + "</td></tr>";
+      return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + "</td><td>" + esc(r.apis || "—") + '</td><td class="num">' + esc(r.pct || "—") + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(stL(r.status || "done")) + "</td></tr>";
     };
     var pulls = EX.pulls || {};
     var ytPull = pulls.youtube || [];
@@ -551,9 +627,9 @@
       '<button type="button" data-ex="resumo" aria-pressed="true">' + t("ex.summary") + "</button>" +
       '<button type="button" data-ex="log" aria-pressed="false">' + t("ex.log") + (nLog ? " · " + nLog : "") + "</button>" +
       '<button type="button" data-ex="pulls" aria-pressed="false">' + t("ex.pulls") + (nPulls ? " · " + nPulls : "") + "</button>" + llmBtn + "</div>" +
-      '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
-      (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="5" class="none">' + t("ex.none") + "</td></tr>") +
-      '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + '</th><th class="num">' + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
+      '<div class="ex-pane" data-ex-pane="resumo"><div class="mx"><table class="tb"><thead><tr><th>' + t("ex.area") + "</th><th>" + t("ex.time_col") + "</th><th>" + t("ex.cost_col") + "</th><th>" + t("ex.apis_col") + "</th><th>" + t("ex.pct_col") + "</th><th>" + t("ex.status") + "</th></tr></thead><tbody>" +
+      (steps.length ? steps.map(rowHtml).join("") : '<tr><td colspan="6" class="none">' + t("ex.none") + "</td></tr>") +
+      '</tbody><tfoot><tr class="runlog-total"><th>' + t("ex.total") + '</th><th class="num">' + esc(EX.duration || "—") + '</th><th class="num">' + esc(EX.cost || "—") + "</th><th></th><th class=\"num\">" + esc(EX.pct || "—") + "</th><th></th></tr></tfoot></table></div>" +
       (EX.runs_per ? '<p class="runlog-runs">' + t("ex.runs_per", { n: EX.runs_per }) + "</p>" : "") +
       (EX.rates ? '<p class="muted" style="margin-top:12px;font-size:12.5px;color:var(--soft)">' + esc(EX.rates) + "</p>" : "") +
       "</div>" +
@@ -719,6 +795,8 @@
   function renderAll() {
     GR = { paid: t("g.paid"), org: t("g.org"), inf: t("g.inf") };
     LBL = [t("lv.0"), t("lv.1"), t("lv.2"), t("lv.3")];
+    WORD = [t("lv.word.0"), t("lv.word.1"), t("lv.word.2"), t("lv.word.3")];
+    DESC = [t("lv.desc.0"), t("lv.desc.1"), t("lv.desc.2"), t("lv.desc.3")];
     paintChrome();
     renderShell();
     renderBoard();
@@ -745,7 +823,7 @@
       var x = e.target.closest("[data-close]");
       if (x && root.contains(x)) { open = null; renderTags(); return; }
       var c = e.target.closest("[data-co]");
-      if (c && root.contains(c)) { pick(c.dataset.co); if (c.tagName === "TR") $("v6-pn-perfil").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+      if (c && root.contains(c) && !e.target.closest("a")) { pick(c.dataset.co); if (c.tagName === "TR") $("v6-pn-perfil").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
       var tc = e.target.closest("[data-tco]");
       if (tc && root.contains(tc)) {
         var parts = tc.dataset.tco.split(":");
@@ -761,7 +839,14 @@
         return;
       }
       var fl = e.target.closest("[data-flt]");
-      if (fl && root.contains(fl)) { flt = fl.dataset.flt; renderCanais(); return; }
+      if (fl && root.contains(fl)) {
+        var next = fl.dataset.flt;
+        flt = flt === next ? null : next;
+        renderCanais();
+        return;
+      }
+      var clr = e.target.closest("[data-clr]");
+      if (clr && root.contains(clr)) { flt = null; renderCanais(); return; }
       var r = e.target.closest("[data-rk]");
       if (r && root.contains(r)) { rkSel = r.dataset.rk; renderGanha(); }
     });

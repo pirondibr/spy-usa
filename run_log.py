@@ -53,8 +53,8 @@ STEP_TO_SECTION = {
 }
 
 CHANNEL_APIS = {
-    "briefing_concorrentes": ["OpenRouter", "ScrapingBee"],
-    "competitors_discover": ["OpenRouter", "DataForSEO", "Semrush"],
+    "briefing_concorrentes": ["OpenRouter Gemini", "ScrapingBee"],
+    "competitors_discover": ["OpenRouter Gemini", "DataForSEO", "Semrush"],
     "brand_growth": ["DataForSEO"],
     "similarweb_alto": ["Apify"],
     "seo": ["Semrush"],
@@ -73,8 +73,52 @@ CHANNEL_APIS = {
     "twitter_influencers": ["Apify"],
     "reddit": ["TinyFish", "ScrapingBee"],
     "twitter": ["TinyFish", "ScrapingBee"],
-    "linkedin_profile": ["TinyFish", "ScrapingBee", "DataForSEO", "OpenRouter"],
+    "linkedin_profile": ["TinyFish", "ScrapingBee", "DataForSEO", "OpenRouter Gemini"],
 }
+
+_API_FROM_NOTE = (
+    (re.compile(r"scrapingbee|\bsb\b|sb_credits", re.I), "ScrapingBee"),
+    (re.compile(r"dataforseo|\blabs\b|keyword_overview|search_volume", re.I), "DataForSEO"),
+    (re.compile(r"\bapify\b", re.I), "Apify"),
+    (re.compile(r"tinyfish|\btf\b", re.I), "TinyFish"),
+    (re.compile(r"openrouter|gemini", re.I), "OpenRouter Gemini"),
+    (re.compile(r"semrush", re.I), "Semrush"),
+)
+
+
+def _normalize_api_name(name: str) -> str:
+    n = (name or "").strip()
+    low = n.lower()
+    if low in {"openrouter", "gemini", "openrouter gemini"}:
+        return "OpenRouter Gemini"
+    if low in {"sb", "scraping bee"}:
+        return "ScrapingBee"
+    if low in {"dfs", "dataforseo labs"}:
+        return "DataForSEO"
+    if low in {"tf"}:
+        return "TinyFish"
+    return n
+
+
+def apis_for_cost(note: str, fallback: Optional[list[str]] = None) -> list[str]:
+    """APIs that produced the dollar amount in cost_note, else the channel defaults."""
+    found: list[str] = []
+    blob = note or ""
+    for rx, label in _API_FROM_NOTE:
+        if rx.search(blob) and label not in found:
+            found.append(label)
+    if found:
+        return found
+    out: list[str] = []
+    for raw in fallback or []:
+        lab = _normalize_api_name(str(raw))
+        if lab and lab not in out:
+            out.append(lab)
+    return out
+
+
+def _fmt_apis(apis: list[str]) -> str:
+    return ", ".join(apis) if apis else "—"
 
 _CREDIT_RE = re.compile(
     r"(?:credits?|creditos?|sb_credits|scrapingbee(?:\s+credits?)?)\s*[:=]\s*(\d+(?:\.\d+)?)",
@@ -262,6 +306,22 @@ def apply_cost_shares(
     refresh_apify_step_costs(channels)
     refresh_dfs_step_costs(channels)
     refresh_duplicate_usage_costs(channels)
+    for ch in channels:
+        if not isinstance(ch, dict):
+            continue
+        apis = ch.get("apis")
+        if not isinstance(apis, list) or not apis:
+            apis = apis_for_cost(
+                str(ch.get("cost_note") or ""),
+                CHANNEL_APIS.get(str(ch.get("id") or ""), []),
+            )
+        else:
+            apis = [_normalize_api_name(str(a)) for a in apis if str(a).strip()]
+            from_note = apis_for_cost(str(ch.get("cost_note") or ""), None)
+            if from_note:
+                apis = from_note
+        ch["apis"] = apis
+        ch["apis_fmt"] = _fmt_apis(apis)
     total = 0.0
     for ch in channels:
         if not isinstance(ch, dict) or _channel_is_skipped(ch):
@@ -636,9 +696,10 @@ class RunRecorder:
             status = str(row.get("status") or "")
             detail = str(row.get("detail") or "")
             if status == "done" and detail.lower().startswith("skip"):
-                cost_usd, note, apis = None, "skipped", CHANNEL_APIS.get(sid, [])
+                cost_usd, note, apis = None, "skipped", list(CHANNEL_APIS.get(sid, []))
             else:
                 cost_usd, note, apis = _estimate_step_cost(sid, report, log_credits)
+            apis = apis_for_cost(note, apis or CHANNEL_APIS.get(sid, []))
             if isinstance(cost_usd, (int, float)):
                 total_cost += float(cost_usd)
                 cost_known = True
@@ -650,7 +711,7 @@ class RunRecorder:
                 "status": status,
                 "detail": detail,
                 "apis": apis,
-                "apis_fmt": ", ".join(apis) if apis else "—",
+                "apis_fmt": _fmt_apis(apis),
                 "cost_usd": cost_usd,
                 "cost_fmt": _fmt_usd(cost_usd),
                 "cost_note": note,

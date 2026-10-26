@@ -51,6 +51,7 @@ def build_analysis_v6(payload: dict[str, Any], *, ui_ver: str) -> str:
   </section>
   <section class="sec">
     <div class="sh"><h2 data-i18n="score.h">Scoreboard</h2><p data-i18n="score.p">Sorted by visits · click a company to see the profile</p></div>
+    <div id="v6-keyA"></div>
     <div class="bw"><table class="board" id="v6-board"></table></div>
     <details class="flags" id="v6-flags"></details>
   </section>
