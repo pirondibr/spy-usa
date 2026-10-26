@@ -156,10 +156,11 @@ def main() -> None:
     rows = brand_reports_batch(entities)
     from market import LOCATION_CODE, MARKET_SHORT  # noqa: E402
 
+    client_row = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
     payload = {
         "slug": slug,
-        "source": "dataforseo_google_ads",
-        "market": MARKET_SHORT,
+        "source": client_row.get("source") or "dataforseo_google_ads",
+        "market": client_row.get("market") or MARKET_SHORT,
         "location_code": LOCATION_CODE,
         "rows": rows,
         "keyword_method": "llm_title_desc",
@@ -173,7 +174,8 @@ def main() -> None:
         print(
             f"  {r.get('brand_keyword')}: {r.get('latest_label')}={r.get('latest_volume')} "
             f"1y={r.get('growth_1y_pct')}% 2y={r.get('growth_2y_pct')}% "
-            f"3y={r.get('growth_3y_pct')}% 5y={r.get('growth_5y_pct')}%",
+            f"3y={r.get('growth_3y_pct')}% 5y={r.get('growth_5y_pct')}% "
+            f"src={r.get('source')}",
             flush=True,
         )
 

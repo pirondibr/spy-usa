@@ -291,11 +291,20 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
         g3 = _dfs_growth(vol, r.get("volume_3y"))
         g5 = _dfs_growth(vol, r.get("volume_5y"))
         kw = (r.get("brand_keyword") or "").strip()
-        kw_url = (
-            f"https://www.semrush.com/analytics/keywordoverview/?q={quote(kw)}&db={db}"
-            if kw
-            else ""
-        )
+        src = str(r.get("source") or "dataforseo_google_ads")
+        sm_db = str(r.get("semrush_db") or db or "us")
+        domain = str(r.get("domain") or "").strip()
+        if src == "semrush_branded" and domain:
+            kw_url = (
+                f"https://www.semrush.com/analytics/overview/"
+                f"?q={quote(domain)}&searchType=domain&db={quote(sm_db)}"
+            )
+        elif kw:
+            kw_url = (
+                f"https://www.semrush.com/analytics/keywordoverview/?q={quote(kw)}&db={db}"
+            )
+        else:
+            kw_url = ""
         rows.append({
             "name": r.get("name") or r.get("brand_keyword"),
             "domain": r.get("domain"),
@@ -316,28 +325,41 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
             "growth_5y_pct": g5,
             "site_title": r.get("site_title"),
             "url": kw_url,
+            "source": src,
+            "semrush_db": sm_db,
         })
     client = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
     client_raw = next((r for r in rows_raw if r.get("is_client")), rows_raw[0] if rows_raw else {})
+    client_src = str(client_raw.get("source") or "dataforseo_google_ads")
+    used_sm = client_src == "semrush_branded"
+    sm_db = str(client_raw.get("semrush_db") or db)
+    src_label = (
+        f"Semrush Domain Overview branded ({sm_db})"
+        if used_sm
+        else f"DataForSEO Google Ads {mkt}"
+    )
     report["brand_dataforseo"] = {
-        "source": "dataforseo",
-        "market": mkt,
+        "source": "semrush_branded" if used_sm else "dataforseo",
+        "market": "ALL" if sm_db == "all" else mkt,
         "latest_label": data.get("latest_label") or client_raw.get("latest_label"),
         "client_keyword": data.get("client_keyword") or client_raw.get("brand_keyword"),
         "leader": (rows[0].get("name") if rows else "—"),
         "total_traffic_fmt": client.get("traffic_fmt") if client else (rows[0].get("traffic_fmt") if rows else "—"),
         "growth_fmt": client.get("growth_fmt") if client else "n/a",
         "growth_1y_pct": client.get("growth_1y_pct") if client else None,
-        "unit": "monthly searches",
+        "unit": "branded visits" if used_sm else "monthly searches",
         "rows": rows,
         "insight": (
             f"Brand keyword «{data.get('client_keyword') or client_raw.get('brand_keyword') or '—'}» "
             f"· latest month {data.get('latest_label') or client_raw.get('latest_label') or 'n/a'} "
             f"· growth 1y {client.get('growth_fmt') or 'n/a'} "
-            f"(DataForSEO Google Ads {mkt}). "
+            f"({src_label}"
+            f"{'; DataForSEO volume was 0' if used_sm else ''}). "
             f"Baseline 0 treated as 100 for growth math only."
         ),
-        "analysis_title": "Brand Search — DataForSEO",
+        "analysis_title": (
+            "Brand Search — Semrush branded" if used_sm else "Brand Search — DataForSEO"
+        ),
         "raw": data,
     }
     return report

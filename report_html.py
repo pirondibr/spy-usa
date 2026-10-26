@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.5.12"
+REPORT_UI_VERSION = "0.5.13"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2351,15 +2351,26 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
         str(section.get("growth_fmt") or "n/a")
     )
     hero = f"{hero_vol} <span class='kpi-unit'>· {_esc(hero_g)} Δ1y</span>"
+    src = str(section.get("source") or "dataforseo")
+    src_label = (
+        "Semrush Domain Overview branded"
+        if src == "semrush_branded"
+        else "DataForSEO"
+    )
     hero_sub = (
-        f"keyword {kw} · latest {latest} · DataForSEO · "
+        f"keyword {kw} · latest {latest} · {src_label} · "
         f"growth uses baseline 100 when historical volume is 0"
     )
     insight = section.get("insight") or ""
     analysis = section.get("analysis_title") or ""
+    h2 = (
+        "Brand Search — Semrush branded"
+        if src == "semrush_branded"
+        else "Brand Search — DataForSEO (US)"
+    )
     return f"""
     <section>
-      <h2>Brand Search — DataForSEO (US)</h2>
+      <h2>{_esc(h2)}</h2>
       <div class="hero"><div class="hero-val">{hero}</div><div class="hero-sub">{_esc(hero_sub)}</div></div>
       {_rows_table(headers, table_rows)}
       {f'<p class="insight"><strong>{_esc(analysis)}</strong><br>{_md_lite(insight)}</p>' if insight else ''}

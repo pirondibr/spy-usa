@@ -1023,7 +1023,7 @@ def _meta_page_for_instagram(handle: str, extra_queries: list[str]) -> tuple[dic
 
 
 def _lookup_meta_keyword_fallback(comp: dict) -> dict:
-    """Current keyword Ctrl+F method — only when Instagram was not found."""
+    """Keyword search by company name + Ctrl+F on Ad Library cards."""
     brand = extract_website_name(comp.get("url") or comp.get("domain", ""))
     base_url = comp.get("url") or comp.get("domain", "")
     domain = normalize_domain(base_url or comp.get("domain", ""))
@@ -1071,7 +1071,7 @@ def _lookup_meta_keyword_fallback(comp: dict) -> dict:
 
 
 def lookup_meta_ads(comp: dict) -> dict:
-    """Resolve Instagram, verify it on Ad Library, else fall back to keyword search."""
+    """Resolve Instagram, count page ads; if 0 or no IG, search company name + Ctrl+F."""
     ig_url, ig_source = _resolve_company_instagram(comp)
     handle = _ig_handle_from_url(ig_url)
     credits = 0
@@ -1093,7 +1093,7 @@ def lookup_meta_ads(comp: dict) -> dict:
                 f"id={page_id} ads={ads}",
                 flush=True,
             )
-            return {
+            page_result = {
                 "meta_ads": ads,
                 "meta_ads_total": ads,
                 "meta_ads_fmt": str(ads),
@@ -1106,6 +1106,25 @@ def lookup_meta_ads(comp: dict) -> dict:
                 "method": f"instagram_{ig_source}",
                 "spb_credits": credits,
             }
+            if ads > 0:
+                return page_result
+            print(
+                f"[META/SB] IG @{handle} page ads=0 — keyword name + Ctrl+F fallback",
+                flush=True,
+            )
+            kw = _lookup_meta_keyword_fallback(comp)
+            kw_credits = int(kw.get("spb_credits") or 0) + credits
+            kw_ads = kw.get("meta_ads")
+            if kw_ads not in (None, 0):
+                kw["instagram_url"] = f"https://www.instagram.com/{handle}/"
+                kw["ig_handle"] = handle
+                kw["page_id"] = page_id
+                kw["method"] = f"instagram_{ig_source}_zero_keyword"
+                kw["spb_credits"] = kw_credits
+                return kw
+            page_result["spb_credits"] = kw_credits
+            page_result["keyword_fallback"] = True
+            return page_result
         print(
             f"[META/SB] IG @{handle} ({ig_source}) not verified on Ad Library — keyword fallback",
             flush=True,

@@ -490,6 +490,96 @@ def fetch_brand_volumes(
     return out
 
 
+def _semrush_series_to_monthly(series: list[dict]) -> list[dict]:
+    monthly: list[dict] = []
+    for it in series or []:
+        date = str(it.get("date") or "")
+        parts = date.split("-")
+        if len(parts) < 2:
+            continue
+        try:
+            year, month = int(parts[0]), int(parts[1])
+        except (TypeError, ValueError):
+            continue
+        monthly.append({
+            "year": year,
+            "month": month,
+            "search_volume": int(it.get("branded") or 0),
+        })
+    return monthly
+
+
+def fetch_semrush_branded_fallback(domain: str) -> dict[str, Any]:
+    """Domain Overview branded traffic. Prefer database=all, else US."""
+    clean = (domain or "").strip()
+    if not clean:
+        return {}
+    try:
+        from seo_pipeline import fetch_semrush_monthly_trend
+    except Exception as e:
+        print(f"[BRAND/SM] import fail: {e}", flush=True)
+        return {}
+    series: list = []
+    used_db = ""
+    for db in ("all", "us"):
+        print(f"[BRAND/SM] branded fallback {clean} db={db}", flush=True)
+        try:
+            series = fetch_semrush_monthly_trend(clean, db=db) or []
+        except Exception as e:
+            print(f"[BRAND/SM] {clean} db={db} erro: {e}", flush=True)
+            series = []
+        if series:
+            used_db = db
+            break
+        print(f"[BRAND/SM] {clean} db={db} empty", flush=True)
+    if not series:
+        return {}
+    analysis = analyze_monthly_brand(_semrush_series_to_monthly(series))
+    latest = analysis.get("latest") or {}
+    print(
+        f"[BRAND/SM] {clean} db={used_db} latest={latest.get('label')} "
+        f"branded={latest.get('volume')} months={analysis.get('months_available')}",
+        flush=True,
+    )
+    return {**analysis, "semrush_db": used_db, "source": "semrush_branded"}
+
+
+def _apply_semrush_branded_if_empty(row: dict[str, Any], domain: str) -> dict[str, Any]:
+    vol = row.get("latest_volume")
+    if vol not in (None, 0):
+        return row
+    fb = fetch_semrush_branded_fallback(domain)
+    latest = fb.get("latest") or {}
+    if latest.get("volume") is None and not fb.get("monthly"):
+        return row
+    comps = fb.get("comparisons") or {}
+    aug = august_windows(fb.get("monthly") or [])
+    sm_db = str(fb.get("semrush_db") or "us")
+    row.update({
+        "latest_label": latest.get("label"),
+        "latest_volume": latest.get("volume"),
+        "volume_1y": (comps.get("1y") or {}).get("volume"),
+        "volume_2y": (comps.get("2y") or {}).get("volume"),
+        "volume_3y": (comps.get("3y") or {}).get("volume"),
+        "volume_5y": (comps.get("5y") or {}).get("volume"),
+        "growth_1y_pct": (comps.get("1y") or {}).get("growth_pct"),
+        "growth_2y_pct": (comps.get("2y") or {}).get("growth_pct"),
+        "growth_3y_pct": (comps.get("3y") or {}).get("growth_pct"),
+        "growth_5y_pct": (comps.get("5y") or {}).get("growth_pct"),
+        "vol_2026_08": aug.get("vol_2026_08"),
+        "vol_2025_08": aug.get("vol_2025_08"),
+        "vol_2024_08": aug.get("vol_2024_08"),
+        "growth_26_24_pct": aug.get("growth_26_24_pct"),
+        "comparisons": comps,
+        "months_available": fb.get("months_available"),
+        "oldest_label": fb.get("oldest_label"),
+        "source": "semrush_branded",
+        "market": "ALL" if sm_db == "all" else "US",
+        "semrush_db": sm_db,
+    })
+    return row
+
+
 def brand_report_for_entity(
     *,
     url: str,
@@ -511,7 +601,7 @@ def brand_report_for_entity(
     data = volumes.get((keyword or "").lower()) or {}
     latest = data.get("latest") or {}
     comps = data.get("comparisons") or {}
-    return {
+    row = {
         "name": name or company_hint or meta["domain_brand"] or keyword,
         "domain": domain or brand_from_domain(url),
         "url": url,
@@ -538,6 +628,7 @@ def brand_report_for_entity(
         "source": "dataforseo_google_ads",
         "market": "US",
     }
+    return _apply_semrush_branded_if_empty(row, row.get("domain") or "")
 
 
 def august_windows(monthly: list[dict] | None, *, month: int = 8) -> dict[str, Any]:
@@ -576,7 +667,7 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
         latest = data.get("latest") or {}
         comps = data.get("comparisons") or {}
         aug = august_windows(data.get("monthly") or [])
-        rows.append({
+        row = {
             "name": e.get("name") or e.get("company") or meta["domain_brand"] or kw,
             "domain": e.get("domain") or meta["domain_brand"],
             "url": e.get("url") or "",
@@ -610,6 +701,9 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
             "search_volume_avg": data.get("search_volume_avg"),
             "source": "dataforseo_google_ads",
             "market": "US",
-        })
+        }
+        rows.append(_apply_semrush_branded_if_empty(
+            row, e.get("domain") or meta.get("domain_brand") or "",
+        ))
     rows.sort(key=lambda r: (r.get("latest_volume") or 0), reverse=True)
     return rows
