@@ -877,6 +877,18 @@ def _yt_json_needs_llm_filter(slug: str) -> bool:
             return True
         if not any(int(r.get("about_count") or 0) > 0 for r in rows):
             return True
+        fetched = []
+        for r in rows:
+            fetched.extend(r.get("videos_fetched") or r.get("videos_unrelated") or [])
+        empty = 0
+        for v in fetched:
+            if not isinstance(v, dict):
+                continue
+            title = str(v.get("title") or "").strip()
+            if not title or title.lower() == "youtube":
+                empty += 1
+        if fetched and empty >= max(3, len(fetched) // 3):
+            return True
         return False
     except Exception:
         return True

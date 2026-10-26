@@ -288,10 +288,15 @@ def _row_to_video(row: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
     ch = post.get("channel") if isinstance(post.get("channel"), dict) else {}
     handle = str(row.get("user") or ch.get("username") or "").lstrip("@")
     publish = str(row.get("uploaded") or post.get("uploadedAtFormatted") or "")
+    vid = str(row.get("id") or post.get("id") or "")
+    title = str(row.get("title") or post.get("title") or "").strip()
+    href = str(row.get("link") or post.get("postPage") or "")
+    if not title:
+        title = href or (f"https://www.youtube.com/watch?v={vid}" if vid else "")
     return {
-        "id": row.get("id") or post.get("id") or "",
-        "title": row.get("title") or post.get("title") or "YouTube",
-        "url": row.get("link") or post.get("postPage") or "",
+        "id": vid,
+        "title": title,
+        "url": href or (f"https://www.youtube.com/watch?v={vid}" if vid else ""),
         "handle": handle,
         "channel_name": ch.get("name") or (f"@{handle}" if handle else ""),
         "channel_url": ch.get("url") or (f"https://www.youtube.com/@{handle}" if handle else ""),
@@ -485,12 +490,19 @@ def _runs_text(obj: Any) -> str:
     if not obj:
         return ""
     if isinstance(obj, str):
-        return obj
+        return obj.strip()
     if isinstance(obj, dict):
-        if "simpleText" in obj:
-            return str(obj.get("simpleText") or "")
+        for key in ("simpleText", "content", "accessibilityText", "text", "label"):
+            val = obj.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            if isinstance(val, dict):
+                nested = _runs_text(val)
+                if nested:
+                    return nested
         runs = obj.get("runs") or []
-        return "".join(str(r.get("text") or "") for r in runs if isinstance(r, dict))
+        if runs:
+            return "".join(str(r.get("text") or "") for r in runs if isinstance(r, dict)).strip()
     return ""
 
 
@@ -580,36 +592,101 @@ def _channel_from_renderer(vr: dict) -> tuple[str, str]:
     return name, url
 
 
+def _card_rank(card: dict) -> tuple[int, int]:
+    title = 1 if str(card.get("title") or "").strip() else 0
+    extra = (
+        (1 if card.get("snippet") else 0)
+        + (1 if card.get("channel_name") else 0)
+        + (1 if card.get("views") else 0)
+    )
+    return title, extra
+
+
+def _from_classic_renderer(vr: dict, *, is_short: bool = False) -> Optional[dict]:
+    if not isinstance(vr, dict):
+        return None
+    vid = str(vr.get("videoId") or "")
+    if not vid:
+        return None
+    title = _runs_text(vr.get("title")) or _runs_text(vr.get("headline"))
+    views_text = _runs_text(vr.get("viewCountText")) or _runs_text(vr.get("shortViewCountText"))
+    age = _runs_text(vr.get("publishedTimeText"))
+    snippet = _card_snippet(vr)
+    channel_name, channel_url = _channel_from_renderer(vr)
+    path = f"/shorts/{vid}" if is_short else f"/watch?v={vid}"
+    return {
+        "kind": "video",
+        "title": title,
+        "url": f"https://www.youtube.com{path}",
+        "video_id": vid,
+        "snippet": snippet,
+        "upload_age": age,
+        "views": _as_int(views_text),
+        "views_text": views_text,
+        "channel_name": channel_name,
+        "channel_url": channel_url,
+        "source": "youtube_native_scrapingbee",
+        "is_short": is_short,
+    }
+
+
+def _from_lockup(lockup: dict) -> Optional[dict]:
+    if not isinstance(lockup, dict):
+        return None
+    vid = str(lockup.get("contentId") or "")
+    if not vid or len(vid) < 6:
+        tap = ((lockup.get("rendererContext") or {}).get("commandContext") or {}).get("onTap") or {}
+        innertube = (tap.get("innertubeCommand") or {}) if isinstance(tap, dict) else {}
+        vid = str(
+            (innertube.get("watchEndpoint") or {}).get("videoId")
+            or (innertube.get("reelWatchEndpoint") or {}).get("videoId")
+            or ""
+        )
+    if not vid:
+        return None
+    meta = (lockup.get("metadata") or {}).get("lockupMetadataViewModel") or {}
+    title = _runs_text(meta.get("title")) or _runs_text(lockup.get("accessibilityText"))
+    rows = ((meta.get("metadata") or {}).get("contentMetadataViewModel") or {}).get("metadataRows") or []
+    bits = [_runs_text(row) for row in rows if isinstance(row, dict)]
+    views_text = next((b for b in bits if "view" in b.lower()), "")
+    age = next((b for b in bits if "ago" in b.lower() or "há" in b.lower()), "")
+    channel_name = next((b for b in bits if b and b != views_text and b != age), "")
+    image = str((lockup.get("contentImage") or {}).get("thumbnailViewModel") or "")
+    is_short = "shorts" in image.lower()
+    path = f"/shorts/{vid}" if is_short else f"/watch?v={vid}"
+    return {
+        "kind": "video",
+        "title": title,
+        "url": f"https://www.youtube.com{path}",
+        "video_id": vid,
+        "snippet": "",
+        "upload_age": age,
+        "views": _as_int(views_text),
+        "views_text": views_text,
+        "channel_name": channel_name,
+        "channel_url": "",
+        "source": "youtube_native_scrapingbee",
+        "is_short": is_short,
+    }
+
+
 def _parse_videos_from_yt_data(data: dict) -> list[dict]:
     videos: list[dict] = []
 
     def walk(o: Any) -> None:
         if isinstance(o, dict):
             if "videoRenderer" in o:
-                vr = o["videoRenderer"] or {}
-                vid = str(vr.get("videoId") or "")
-                title = _runs_text(vr.get("title"))
-                views_text = _runs_text(vr.get("viewCountText")) or _runs_text(
-                    vr.get("shortViewCountText")
-                )
-                age = _runs_text(vr.get("publishedTimeText"))
-                snippet = _card_snippet(vr)
-                channel_name, channel_url = _channel_from_renderer(vr)
-                watch = f"https://www.youtube.com/watch?v={vid}" if vid else ""
-                videos.append({
-                    "kind": "video",
-                    "title": title,
-                    "url": watch,
-                    "video_id": vid,
-                    "snippet": snippet,
-                    "upload_age": age,
-                    "views": _as_int(views_text),
-                    "views_text": views_text,
-                    "channel_name": channel_name,
-                    "channel_url": channel_url,
-                    "source": "youtube_native_scrapingbee",
-                    "is_short": False,
-                })
+                card = _from_classic_renderer(o.get("videoRenderer") or {})
+                if card:
+                    videos.append(card)
+            if "compactVideoRenderer" in o:
+                card = _from_classic_renderer(o.get("compactVideoRenderer") or {})
+                if card:
+                    videos.append(card)
+            if "lockupViewModel" in o:
+                card = _from_lockup(o.get("lockupViewModel") or {})
+                if card:
+                    videos.append(card)
             if "reelItemRenderer" in o or "shortsLockupViewModel" in o:
                 reel = o.get("reelItemRenderer") or o.get("shortsLockupViewModel") or {}
                 vid = str(
@@ -623,7 +700,11 @@ def _parse_videos_from_yt_data(data: dict) -> list[dict]:
                     eid = ((reel.get("entityId") or "") if isinstance(reel, dict) else "") or ""
                     m = re.search(r"([A-Za-z0-9_-]{6,})", eid)
                     vid = m.group(1) if m else ""
-                title = _runs_text(reel.get("headline") or reel.get("overlayMetadata", {}).get("primaryText"))
+                title = (
+                    _runs_text(reel.get("headline"))
+                    or _runs_text((reel.get("overlayMetadata") or {}).get("primaryText"))
+                    or _runs_text(reel.get("accessibilityText"))
+                )
                 views_text = _runs_text(
                     reel.get("viewCountText")
                     or ((reel.get("overlayMetadata") or {}).get("secondaryText"))
@@ -650,15 +731,34 @@ def _parse_videos_from_yt_data(data: dict) -> list[dict]:
                 walk(v)
 
     walk(data)
-    seen: set[str] = set()
-    out: list[dict] = []
+    by_id: dict[str, dict] = {}
+    order: list[str] = []
     for v in videos:
-        vid = v.get("video_id") or ""
-        if not vid or vid in seen:
+        vid = str(v.get("video_id") or "")
+        if not vid:
             continue
-        seen.add(vid)
-        out.append(v)
-    return out
+        prev = by_id.get(vid)
+        if prev is None:
+            by_id[vid] = v
+            order.append(vid)
+            continue
+        if _card_rank(v) > _card_rank(prev):
+            if not v.get("snippet"):
+                v["snippet"] = prev.get("snippet") or ""
+            if not v.get("channel_name"):
+                v["channel_name"] = prev.get("channel_name") or ""
+                v["channel_url"] = prev.get("channel_url") or v.get("channel_url") or ""
+            by_id[vid] = v
+        else:
+            if not prev.get("snippet") and v.get("snippet"):
+                prev["snippet"] = v.get("snippet")
+            if not prev.get("title") and v.get("title"):
+                prev["title"] = v.get("title")
+            if not prev.get("channel_name") and v.get("channel_name"):
+                prev["channel_name"] = v.get("channel_name")
+                prev["channel_url"] = v.get("channel_url") or prev.get("channel_url") or ""
+    out = [by_id[vid] for vid in order]
+    return [v for v in out if str(v.get("title") or "").strip()]
 
 
 def _guess_official_channel(videos: list[dict], query: str) -> Optional[dict]:
