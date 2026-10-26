@@ -492,7 +492,9 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
             "error": r.get("error"),
         })
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
-    usage = data.get("usage_total") or {}
+    usage = dict(data.get("usage_total") or {})
+    if data.get("elapsed_sec") and not usage.get("elapsed_sec"):
+        usage["elapsed_sec"] = data.get("elapsed_sec")
     report["youtube_influencers"] = {
         "source": data.get("source") or "scrapingbee_youtube_njs",
         "market": data.get("market") or "US",
@@ -501,6 +503,7 @@ def _attach_youtube_influencers(report: dict, slug: str) -> dict:
         "unit": "views (1st page)",
         "rows": rows_out,
         "usage_total": usage,
+        "elapsed_sec": data.get("elapsed_sec") or usage.get("elapsed_sec"),
         "insight": (
             f"YouTube «{client.get('query') or client.get('name') or '—'}» ScrapingBee no-JS "
             f"({(client.get('usage') or {}).get('sort') or 'popular'}"
@@ -565,7 +568,9 @@ def _attach_instagram_influencers(report: dict, slug: str) -> dict:
             "error": r.get("error"),
         })
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
-    usage = data.get("usage_total") or {}
+    usage = dict(data.get("usage_total") or {})
+    if data.get("elapsed_sec") and not usage.get("elapsed_sec"):
+        usage["elapsed_sec"] = data.get("elapsed_sec")
     report["instagram_influencers"] = {
         "source": "tinyfish_search+fetch",
         "market": data.get("market") or "US",
@@ -574,6 +579,7 @@ def _attach_instagram_influencers(report: dict, slug: str) -> dict:
         "unit": "likes (1st page)",
         "rows": rows_out,
         "usage_total": usage,
+        "elapsed_sec": data.get("elapsed_sec") or usage.get("elapsed_sec"),
         "insight": (
             f"Instagram @{client.get('handle') or '—'}: "
             f"{client.get('total_influencers') or 0} influencers on 1st page · "
@@ -657,7 +663,9 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
             "error": r.get("error"),
         })
     client = next((r for r in rows_out if r.get("is_client")), rows_out[0] if rows_out else {})
-    usage = data.get("usage_total") or {}
+    usage = dict(data.get("usage_total") or {})
+    if data.get("elapsed_sec") and not usage.get("elapsed_sec"):
+        usage["elapsed_sec"] = data.get("elapsed_sec")
     amb = bool((client.get("brand") or {}).get("ambiguous"))
     report["tiktok_influencers"] = {
         "source": data.get("source") or "apify_tiktok",
@@ -667,6 +675,7 @@ def _attach_tiktok_influencers(report: dict, slug: str) -> dict:
         "unit": "confirmed other-creator views",
         "rows": rows_out,
         "usage_total": usage,
+        "elapsed_sec": data.get("elapsed_sec") or usage.get("elapsed_sec"),
         "insight": (
             f"TikTok Apify «{client.get('query') or client.get('name') or '—'}»: "
             f"{client.get('confirmed_count') or 0} confirmed · "
@@ -1639,7 +1648,7 @@ def _run_compare_all_pipeline(
                 slug=c_slug,
                 competitors=[],
             )
-            run_pipeline(
+            child_report = run_pipeline(
                 child,
                 _child_emit,
                 ui_set_step,  # child timings must not overwrite All channel timers
@@ -1658,6 +1667,8 @@ def _run_compare_all_pipeline(
                 market=market,
                 compare_all=False,
             )
+            if isinstance(child_report, dict):
+                recorder.absorb_child_log(child_report.get("run_log") or {})
             fetched += 1
         else:
             xlsx = find_metricas_xlsx(c_slug)

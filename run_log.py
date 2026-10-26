@@ -283,7 +283,21 @@ def _section_usage(report: dict[str, Any], step_id: str) -> dict[str, Any]:
     if not isinstance(section, dict):
         return {}
     usage = section.get("usage_total") or section.get("usage") or {}
-    return usage if isinstance(usage, dict) else {}
+    if not isinstance(usage, dict):
+        usage = {}
+    usage = dict(usage)
+    if not usage.get("scrapingbee_credits"):
+        credits = 0
+        for row in section.get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            u = row.get("usage") if isinstance(row.get("usage"), dict) else {}
+            credits += int(u.get("scrapingbee_credits") or u.get("credits") or 0)
+        if credits > 0:
+            usage["scrapingbee_credits"] = credits
+    if usage.get("elapsed_sec") in (None, 0, 0.0) and section.get("elapsed_sec"):
+        usage["elapsed_sec"] = section.get("elapsed_sec")
+    return usage
 
 
 def _n_rows(report: dict[str, Any], step_id: str) -> int:
@@ -333,7 +347,7 @@ def _estimate_step_cost(
             picked_total = float(usage[k])
             picked_key = k
             break
-    if picked_total is not None:
+    if picked_total is not None and picked_total > 0:
         usd += picked_total
         known = True
         notes.append(f"{picked_key}={picked_total}")
@@ -383,6 +397,11 @@ def _estimate_step_cost(
         usd += _OPENROUTER_CALL_USD
         known = True
         notes.append(f"OpenRouter ~${_OPENROUTER_CALL_USD:g}")
+
+    if step_id == "instagram_influencers":
+        notes.append("TinyFish Search+Fetch (free / daily allowance)")
+        if not known:
+            return 0.0, "; ".join(notes), apis
 
     if step_id in ("seo", "brand"):
         notes.append("Semrush (subscription / not unit-priced here)")
@@ -442,6 +461,40 @@ class RunRecorder:
         self.lines: list[str] = []
         self._step_t0: dict[str, float] = {}
         self.steps: dict[str, dict[str, Any]] = {}
+
+    def absorb_child_log(self, child_log: Optional[dict[str, Any]]) -> None:
+        """Copy per-channel wall times from a nested site_only run into All mode."""
+        if not isinstance(child_log, dict):
+            return
+        for ch in child_log.get("channels") or []:
+            if not isinstance(ch, dict):
+                continue
+            sid = str(ch.get("id") or "").strip()
+            if not sid:
+                continue
+            row = self.steps.setdefault(
+                sid,
+                {
+                    "id": sid,
+                    "label": ch.get("label") or STEP_LABELS.get(sid, sid),
+                    "sec": 0.0,
+                    "status": "done",
+                    "detail": "",
+                },
+            )
+            try:
+                extra = float(ch.get("sec") or 0)
+            except (TypeError, ValueError):
+                extra = 0.0
+            if extra > 0:
+                row["sec"] = float(row.get("sec") or 0) + extra
+            if ch.get("label"):
+                row["label"] = ch["label"]
+            if ch.get("status"):
+                row["status"] = ch["status"]
+            detail = str(ch.get("detail") or "").strip()
+            if detail and not str(row.get("detail") or "").lower().startswith("merged"):
+                row["detail"] = detail
 
     def add_line(self, line: str) -> None:
         text = (line or "").rstrip("\n\r")
@@ -517,6 +570,17 @@ class RunRecorder:
                     "status": "n/d",
                     "detail": "",
                 }
+            usage = _section_usage(report, sid)
+            try:
+                sec = float(row.get("sec") or 0)
+            except (TypeError, ValueError):
+                sec = 0.0
+            if sec <= 0:
+                for key in ("elapsed_sec", "elapsed"):
+                    raw = usage.get(key)
+                    if isinstance(raw, (int, float)) and float(raw) > 0:
+                        sec = float(raw)
+                        break
             status = str(row.get("status") or "")
             detail = str(row.get("detail") or "")
             if status == "done" and detail.lower().startswith("skip"):
@@ -529,8 +593,8 @@ class RunRecorder:
             channels.append({
                 "id": sid,
                 "label": row.get("label") or STEP_LABELS.get(sid, sid),
-                "sec": round(float(row.get("sec") or 0), 2),
-                "sec_fmt": _fmt_sec(float(row.get("sec") or 0)),
+                "sec": round(sec, 2),
+                "sec_fmt": _fmt_sec(sec),
                 "status": status,
                 "detail": detail,
                 "apis": apis,

@@ -963,6 +963,8 @@ def scrapingbee_youtube_search(
             except Exception:
                 pass
             break
+    if credits <= 0:
+        credits = 1
 
     if not r.ok:
         return {

@@ -254,7 +254,10 @@ def assemble_compare_all_report(
             # Keep insight/title from primary when present
             primary_sec = per_company_reports[0].get(key) or {}
             if isinstance(primary_sec, dict):
-                for meta_key in ("unit", "source", "analysis_title", "insight", "latest_label", "client_keyword"):
+                for meta_key in (
+                    "unit", "source", "analysis_title", "insight",
+                    "latest_label", "client_keyword", "usage_total", "elapsed_sec",
+                ):
                     if meta_key in primary_sec and meta_key not in section:
                         section[meta_key] = primary_sec[meta_key]
                 if primary_sec.get("insight"):
