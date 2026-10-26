@@ -272,8 +272,9 @@
       });
     }).then(function (data) {
       var job = (data.jobs && data.jobs[0]) || data;
-      var url = job.html_url || ("/runs/" + (job.job_id || job.id) + "/report.html");
-      location.href = url;
+      var id = job.job_id || job.id;
+      if (!id) throw new Error("No job id");
+      location.href = "/app?watch=" + encodeURIComponent(id) + "#runs";
     }).catch(function (err) {
       busy = false;
       renderBar();

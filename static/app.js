@@ -442,6 +442,43 @@
     }
   }
 
+  async function followJob(job, title, meta, find) {
+    showJobs();
+    setBusy(true);
+    $("jobs-title").textContent = title || "Running analysis…";
+    $("jobs-step").textContent = "Connecting…";
+    $("jobs-meta").textContent = meta || job.company || job.url || "";
+    progressTotal = find ? 2 : 10;
+    try {
+      const result = await watchJob(job);
+      if (result && result.url) addDone(job, result.url, !!find);
+      $("jobs-bar").style.width = "100%";
+      $("jobs-title").textContent = "Done";
+      setBusy(false);
+      loadRuns();
+    } catch (err) {
+      $("jobs-err").textContent = err.message || String(err);
+      setBusy(false);
+    }
+  }
+
+  async function watchExisting(jobId) {
+    if (!jobId || busy) return;
+    let job = { job_id: jobId, stream: `/api/jobs/${jobId}/stream` };
+    let find = false;
+    try {
+      const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+      const j = await r.json();
+      if (r.ok && j.job_id) {
+        job = { job_id: j.job_id, company: j.company, url: j.url, stream: `/api/jobs/${j.job_id}/stream` };
+        find = !!j.competitors_only;
+      }
+    } catch (e) { /* stream still works without the status peek */ }
+    const el = $("runs");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    await followJob(job, "Running analysis…", job.company || job.url || "", find);
+  }
+
   async function rerun(runId) {
     if (!runId || busy) return;
     showJobs();
@@ -454,14 +491,7 @@
       if (!res.ok) throw new Error(data.error || "Failed to rerun");
       const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
       const job = list[0];
-      $("jobs-meta").textContent = `Rerun · ${job.company || job.url}`;
-      progressTotal = data.competitors_only ? 2 : 10;
-      const result = await watchJob(job);
-      if (result && result.url) addDone(job, result.url, !!data.competitors_only);
-      $("jobs-bar").style.width = "100%";
-      $("jobs-title").textContent = "Done";
-      setBusy(false);
-      loadRuns();
+      await followJob(job, "Running again…", `Rerun · ${job.company || job.url}`, !!data.competitors_only);
     } catch (err) {
       $("jobs-err").textContent = err.message || String(err);
       setBusy(false);
@@ -606,9 +636,13 @@
       if (!tab) state.mode = "find";
     }
     const rerunId = q.get("rerun") || q.get("redo");
+    const watchId = (q.get("watch") || q.get("job") || "").trim();
     if (rerunId) {
       history.replaceState({}, "", "/app");
       rerun(rerunId);
+    } else if (watchId) {
+      history.replaceState({}, "", "/app#runs");
+      watchExisting(watchId);
     }
   })();
 

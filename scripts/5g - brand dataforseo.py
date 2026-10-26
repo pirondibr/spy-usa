@@ -158,13 +158,22 @@ def main() -> None:
 
     client_row = next((r for r in rows if r.get("is_client")), rows[0] if rows else {})
     usage = dict(getattr(brand_reports_batch, "last_usage", None) or LAST_USAGE or {})
+    methods = {str(r.get("keyword_method") or "") for r in rows if r.get("keyword_method")}
+    if "semrush_top" in methods and len(methods) == 1:
+        kw_method = "semrush_top"
+    elif "semrush_top" in methods:
+        kw_method = "semrush_top+llm"
+    elif "llm_title_desc" in methods:
+        kw_method = "llm_title_desc"
+    else:
+        kw_method = "heuristic"
     payload = {
         "slug": slug,
         "source": client_row.get("source") or "dataforseo_labs",
         "market": client_row.get("market") or MARKET_SHORT,
         "location_code": LOCATION_CODE,
         "rows": rows,
-        "keyword_method": "llm_title_desc",
+        "keyword_method": kw_method,
         "client_keyword": next((r.get("brand_keyword") for r in rows if r.get("is_client")), ""),
         "latest_label": next((r.get("latest_label") for r in rows if r.get("is_client")), None),
         "usage_total": {

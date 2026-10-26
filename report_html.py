@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.5.21"
+REPORT_UI_VERSION = "0.5.22"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -2326,7 +2326,16 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
         table_rows.append([
             str(i),
             name,
-            _esc(r.get("brand_keyword") or "—"),
+            _esc(r.get("brand_keyword") or "—")
+            + (
+                ' <span class="off">semrush</span>'
+                if str(r.get("keyword_method") or "") == "semrush_top"
+                else (
+                    ' <span class="off">title</span>'
+                    if str(r.get("keyword_method") or "") == "llm_title_desc"
+                    else ""
+                )
+            ),
             _esc(r.get("latest_label") or "—"),
             _esc(r.get("traffic_fmt") or _fmt_vol(r.get("latest_volume") or r.get("traffic"))),
             _esc(_vol_cell(r.get("volume_1y"))),
@@ -2356,7 +2365,11 @@ def _section_brand_dfs(section: Optional[dict[str, Any]]) -> str:
         else (
             "DataForSEO Google Ads (fallback)"
             if src == "dataforseo_google_ads"
-            else "DataForSEO Labs"
+            else (
+                "Semrush keyword volume"
+                if src == "semrush_positions"
+                else "DataForSEO Labs"
+            )
         )
     )
     hero_sub = (

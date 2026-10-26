@@ -30,6 +30,7 @@ from competitor_edits import (
     fetch_missing_similarweb,
     fetch_semrush_brand_extra,
     normalize_similarity,
+    refresh_run_brand_search,
     parse_site_list,
     set_brand_view,
     set_competitor_similarity,
@@ -64,7 +65,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.5.21"
+APP_VERSION = "0.5.22"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -1148,6 +1149,14 @@ def run_semrush_brand_extra(run_id: str):
             str(body.get("domain") or ""),
             str(body.get("kind") or body.get("mode") or ""),
         ))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/runs/<run_id>/brand-refresh")
+def run_brand_refresh(run_id: str):
+    try:
+        return jsonify(refresh_run_brand_search(run_id))
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 

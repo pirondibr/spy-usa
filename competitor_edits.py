@@ -9,7 +9,7 @@ import sys
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from pipeline import FINAL_DIR, RUNS_DIR, _comp_sort_key
+from pipeline import FINAL_DIR, METRICAS_DIR, RUNS_DIR, _attach_brand_dfs, _comp_sort_key
 from report_html import load_saved_report
 
 _SIM = {
@@ -566,6 +566,114 @@ def fetch_semrush_brand_extra(run_id: str, domain: str, kind: str) -> dict[str, 
         "kind": mode,
         "domain": want,
         "keyword": row.get("sm_kw") or "",
+        "html_url": f"/runs/{run_id}/report.html",
+    }
+
+
+def refresh_run_brand_search(run_id: str) -> dict[str, Any]:
+    """Redo only brand-search keywords + volumes for an existing analysis run."""
+    report = _load(run_id)
+    rows = _rows_of(report)
+    if not rows:
+        raise ValueError("This report has no companies")
+    _vendor_path()
+    from brand_dataforseo import LAST_USAGE, brand_reports_batch  # noqa: E402
+    from seo_pipeline import scrape_site  # noqa: E402
+
+    entities: list[dict[str, Any]] = []
+    for row in rows:
+        url = _abs_url(str(row.get("url") or row.get("domain") or ""))
+        title = str(row.get("title") or row.get("site_title") or "").strip()
+        description = str(row.get("description") or row.get("site_description") or "").strip()
+        if url and (not title or not description):
+            try:
+                site = scrape_site(url)
+                title = title or str(site.get("title") or "").strip()
+                description = description or str(site.get("meta_description") or "").strip()
+            except Exception as e:
+                print(f"[BRAND] scrape {url}: {e}", flush=True)
+        entities.append({
+            "name": row.get("name") or row.get("domain") or "",
+            "company": row.get("name") or "",
+            "domain": _domain_of(row.get("domain") or row.get("url") or ""),
+            "url": url,
+            "title": title,
+            "description": description,
+            "is_client": bool(row.get("is_client")),
+            "similaridade": row.get("similaridade") or "",
+        })
+
+    brand_rows = brand_reports_batch(entities)
+    usage = dict(getattr(brand_reports_batch, "last_usage", None) or LAST_USAGE or {})
+    by_dom = {(_domain_of(r.get("domain") or "") or "").lower(): r for r in brand_rows}
+    for row in rows:
+        br = by_dom.get(_domain_of(row.get("domain") or row.get("url") or "")) or {}
+        if not br:
+            continue
+        row["brand_keyword"] = br.get("brand_keyword") or row.get("brand_keyword") or ""
+        row["keyword_method"] = br.get("keyword_method") or ""
+        row["keyword_reason"] = br.get("keyword_reason") or ""
+        row["brand_aug_2026"] = br.get("vol_2026_08")
+        row["brand_aug_2025"] = br.get("vol_2025_08")
+        row["brand_aug_2024"] = br.get("vol_2024_08")
+        row["brand_growth_26_24"] = br.get("growth_26_24_pct")
+    _refresh_rows(report, rows)
+
+    slug = str(report.get("slug") or "").strip()
+    if not slug:
+        client = next((r for r in rows if r.get("is_client")), rows[0])
+        slug = re.sub(r"[^a-z0-9]+", "", str(client.get("name") or client.get("domain") or "client").lower()) or "client"
+    client_row = next((r for r in brand_rows if r.get("is_client")), brand_rows[0] if brand_rows else {})
+    methods = {str(r.get("keyword_method") or "") for r in brand_rows if r.get("keyword_method")}
+    if "semrush_top" in methods and len(methods) == 1:
+        kw_method = "semrush_top"
+    elif "semrush_top" in methods:
+        kw_method = "semrush_top+llm"
+    elif "llm_title_desc" in methods:
+        kw_method = "llm_title_desc"
+    else:
+        kw_method = "heuristic"
+    sidecar = {
+        "slug": slug,
+        "source": client_row.get("source") or "dataforseo_labs",
+        "market": client_row.get("market") or "US",
+        "rows": brand_rows,
+        "keyword_method": kw_method,
+        "client_keyword": client_row.get("brand_keyword") or "",
+        "latest_label": client_row.get("latest_label"),
+        "usage_total": {
+            "cost_usd": usage.get("cost_usd"),
+            "estimated_usd": usage.get("cost_usd"),
+            "source": usage.get("source") or client_row.get("source") or "dataforseo_labs",
+            "keywords": usage.get("keywords"),
+            "cached": usage.get("cached"),
+            "labs": usage.get("labs"),
+            "fallback": usage.get("fallback"),
+            "note": usage.get("note") or "",
+        },
+    }
+    side_path = METRICAS_DIR / slug / f"brand-dataforseo-{slug}.json"
+    try:
+        side_path.parent.mkdir(parents=True, exist_ok=True)
+        side_path.write_text(json.dumps(sidecar, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[BRAND] sidecar write fail: {e}", flush=True)
+
+    _attach_brand_dfs(report, slug)
+    persist_report(run_id, report)
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "keyword_method": kw_method,
+        "keywords": [
+            {
+                "domain": r.get("domain"),
+                "keyword": r.get("brand_keyword"),
+                "method": r.get("keyword_method"),
+                "volume": r.get("latest_volume"),
+            }
+            for r in brand_rows
+        ],
         "html_url": f"/runs/{run_id}/report.html",
     }
 

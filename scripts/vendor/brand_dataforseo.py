@@ -105,6 +105,122 @@ def brand_from_title(title: str, domain_brand: str = "") -> str:
     return candidate
 
 
+SEMRUSH_BRAND_TOP_N = 5
+
+
+def _domain_host(url_or_domain: str) -> str:
+    raw = (url_or_domain or "").strip()
+    if "://" not in raw and raw:
+        raw = "https://" + raw
+    host = (urlparse(raw).hostname or urlparse(raw).path or raw).lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host.split("/")[0].strip(".")
+
+
+def _phrase_words(phrase: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", _fold(phrase))
+
+
+def semrush_phrase_is_branded(phrase: str, domain: str, company: str = "") -> bool:
+    """True when a Semrush keyword is a brand query, not a category word.
+
+    'dropship io' / 'foreplay app' match. Bare 'dropship' does not when that
+    token is a generic dictionary word. 'dropshipping' does not match dropship.io.
+    """
+    host = _domain_host(domain)
+    brand = (host.split(".")[0] if host else brand_from_domain(domain)) or ""
+    tld = host.split(".")[-1] if host and "." in host else ""
+    brand_fold = re.sub(r"[^a-z0-9]+", "", _fold(brand))
+    words = _phrase_words(phrase)
+    folded = "".join(words)
+    if len(brand_fold) < 3 or not folded:
+        return False
+    word_hit = brand_fold in words
+    if tld and brand_fold in words and tld in words:
+        word_hit = True
+    compact_hit = folded == brand_fold or (tld and folded == brand_fold + tld)
+    if not word_hit and not compact_hit:
+        return False
+    try:
+        from brand_false_positive import GENERIC_BRAND_WORDS
+    except Exception:
+        GENERIC_BRAND_WORDS = set()
+    only_brand = words == [brand_fold] or folded == brand_fold
+    if only_brand and brand_fold in GENERIC_BRAND_WORDS:
+        return False
+    return True
+
+
+def pick_semrush_brand_keyword(
+    domain: str,
+    *,
+    company: str = "",
+    db: str = "",
+    limit: int = SEMRUSH_BRAND_TOP_N,
+) -> Optional[dict[str, Any]]:
+    """Highest-volume branded keyword in Semrush's top-N organic list, or None."""
+    host = _domain_host(domain)
+    if not host:
+        return None
+    if not db:
+        try:
+            from market import SEMRUSH_DB
+
+            db = SEMRUSH_DB or "us"
+        except Exception:
+            db = "us"
+    try:
+        from semrush_keywords import fetch_top_keywords
+
+        items = fetch_top_keywords(host, db=db, limit=int(limit) or SEMRUSH_BRAND_TOP_N)
+    except Exception as e:
+        print(f"[BRAND/KW] semrush top fail {host}: {e}", flush=True)
+        return None
+    branded: list[dict[str, Any]] = []
+    for item in items or []:
+        phrase = str(item.get("phrase") or "").strip()
+        if not phrase or not semrush_phrase_is_branded(phrase, host, company):
+            continue
+        try:
+            vol = int(item.get("volume") or 0)
+        except (TypeError, ValueError):
+            vol = 0
+        branded.append({**item, "phrase": phrase, "volume": vol})
+    preview = [str(i.get("phrase") or "") for i in (items or [])]
+    if not branded:
+        print(f"[BRAND/KW] semrush top{limit} not branded {host}: {preview}", flush=True)
+        return None
+
+    def _rank(phrase: str) -> int:
+        words = _phrase_words(phrase)
+        brand = host.split(".")[0]
+        tld = host.split(".")[-1] if "." in host else ""
+        compact = " ".join(words)
+        if tld and compact == f"{brand} {tld}":
+            return 4
+        if tld and brand in words and tld in words:
+            return 3
+        if len(words) >= 2:
+            return 2
+        return 1
+
+    branded.sort(key=lambda x: (int(x.get("volume") or 0), _rank(str(x.get("phrase") or ""))), reverse=True)
+    best = branded[0]
+    phrase = str(best.get("phrase") or "").strip().lower()
+    brand = host.split(".")[0]
+    tld = host.split(".")[-1] if "." in host else ""
+    if tld and phrase == f"{brand}.{tld}":
+        phrase = f"{brand} {tld}"
+        best["phrase"] = phrase
+    print(
+        f"[BRAND/KW] semrush {host} -> {phrase!r} vol={best.get('volume')} "
+        f"top{limit}={preview}",
+        flush=True,
+    )
+    return {**best, "top_phrases": preview}
+
+
 def resolve_brand_keyword(
     url: str,
     *,
@@ -112,7 +228,7 @@ def resolve_brand_keyword(
     description: str = "",
     company_hint: str = "",
 ) -> dict[str, str]:
-    """Keyword de marca: domínio + title + description, decisão via LLM."""
+    """Brand keyword: Semrush top-5 branded term, else domain + title via LLM."""
     domain_brand = brand_from_domain(url)
     title_brand = brand_from_title(title, domain_brand)
     hint = (company_hint or "").strip()
@@ -132,6 +248,35 @@ def resolve_brand_keyword(
     keyword = fallback
     reason = "heuristic"
     method = "heuristic"
+    sm = pick_semrush_brand_keyword(url or domain_brand, company=hint)
+    if sm and str(sm.get("phrase") or "").strip():
+        keyword = re.sub(r"\s+", " ", str(sm.get("phrase") or "").strip()).lower()
+        reason = (
+            f"semrush top{SEMRUSH_BRAND_TOP_N} vol={sm.get('volume')}"
+        )[:160]
+        method = "semrush_top"
+        print(
+            f"[BRAND/DFS] keyword={keyword!r} method={method} "
+            f"title={(title or '')[:40]!r} reason={reason}",
+            flush=True,
+        )
+        meta = {
+            "keyword": keyword,
+            "domain_brand": domain_brand,
+            "title_brand": title_brand,
+            "company_hint": hint,
+            "title": title or "",
+            "description": (description or "")[:400],
+            "url": url,
+            "keyword_method": method,
+            "keyword_reason": reason,
+            "semrush_volume": sm.get("volume"),
+            "semrush_top": sm.get("top_phrases") or [],
+        }
+        slug = (os.environ.get("SPY_SLUG") or "").strip()
+        if slug and keyword:
+            save_brand_search_keyword(slug, meta)
+        return meta
     try:
         from llm_trace import chat, extract_json
 
@@ -280,9 +425,20 @@ def ensure_brand_search_keyword(
     description: str = "",
     company: str = "",
 ) -> dict[str, str]:
-    """Reuse the brand-search LLM keyword (sidecar / env / DFS), or decide it now."""
+    """Reuse a Semrush brand keyword, else Semrush top-5, else title+domain LLM."""
     existing = load_brand_search_keyword(slug)
-    if existing and keyword_belongs_to_company(existing, slug, url, company):
+    existing_method = ""
+    try:
+        path = brand_keyword_path(slug)
+        if path.exists():
+            existing_method = str((json.loads(path.read_text(encoding="utf-8")) or {}).get("keyword_method") or "")
+    except Exception:
+        existing_method = ""
+    if (
+        existing
+        and existing_method == "semrush_top"
+        and keyword_belongs_to_company(existing, slug, url, company)
+    ):
         return {"keyword": existing, "keyword_method": "cached"}
     if existing:
         print(
@@ -864,7 +1020,20 @@ def brand_report_for_entity(
         "source": data.get("source") or ("n/c" if not data else "dataforseo_labs"),
         "market": "US",
         "usage": dict(LAST_USAGE),
+        "keyword_method": meta.get("keyword_method") or "",
+        "keyword_reason": meta.get("keyword_reason") or "",
+        "semrush_volume": meta.get("semrush_volume"),
     }
+    if not data.get("monthly") and meta.get("keyword_method") == "semrush_top":
+        sm_vol = meta.get("semrush_volume")
+        if sm_vol not in (None, ""):
+            try:
+                row["latest_volume"] = int(sm_vol)
+                row["latest_label"] = row.get("latest_label") or datetime.today().strftime("%Y-%m")
+                row["source"] = "semrush_positions"
+            except (TypeError, ValueError):
+                pass
+        return row
     return _apply_semrush_branded_if_empty(row, row.get("domain") or "")
 
 
@@ -940,7 +1109,19 @@ def brand_reports_batch(entities: list[dict]) -> list[dict]:
             "search_volume_avg": data.get("search_volume_avg"),
             "source": data.get("source") or ("n/c" if not data else "dataforseo_labs"),
             "market": "US",
+            "semrush_volume": meta.get("semrush_volume"),
         }
+        if not data.get("monthly") and meta.get("keyword_method") == "semrush_top":
+            sm_vol = meta.get("semrush_volume")
+            if sm_vol not in (None, ""):
+                try:
+                    row["latest_volume"] = int(sm_vol)
+                    row["latest_label"] = row.get("latest_label") or datetime.today().strftime("%Y-%m")
+                    row["source"] = "semrush_positions"
+                except (TypeError, ValueError):
+                    pass
+            rows.append(row)
+            continue
         rows.append(_apply_semrush_branded_if_empty(
             row, e.get("domain") or meta.get("domain_brand") or "",
         ))

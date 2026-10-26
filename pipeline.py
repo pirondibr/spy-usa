@@ -229,7 +229,8 @@ def _brand_dfs_needs_llm(slug: str) -> bool:
     data = _load_brand_dfs(slug)
     if data is None:
         return False
-    return str(data.get("keyword_method") or "") != "llm_title_desc"
+    method = str(data.get("keyword_method") or "")
+    return method not in ("llm_title_desc", "semrush_top", "semrush_top+llm")
 
 
 def _load_brand_dfs(slug: str) -> Optional[dict]:
@@ -310,6 +311,8 @@ def _attach_brand_dfs(report: dict, slug: str) -> dict:
             "is_client": bool(r.get("is_client")),
             "similaridade": r.get("similaridade") or ("Cliente" if r.get("is_client") else "—"),
             "brand_keyword": r.get("brand_keyword"),
+            "keyword_method": r.get("keyword_method") or "",
+            "keyword_reason": r.get("keyword_reason") or "",
             "traffic": vol or 0,
             "traffic_fmt": f"{vol:,}" if isinstance(vol, int) else (str(vol) if vol is not None else "—"),
             "growth_fmt": _fmt_g(g1),
