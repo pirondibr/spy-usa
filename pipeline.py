@@ -2297,6 +2297,7 @@ def run_pipeline(
     # Ensure parent process market helpers (report_builder) see the same market
     os.environ["SPY_MARKET"] = market
     os.environ["SPY_SLUG"] = slug
+    os.environ.pop("SPY_BRAND_KEYWORD", None)
     _enable_llm_log(run_id)
 
     recorder = RunRecorder()

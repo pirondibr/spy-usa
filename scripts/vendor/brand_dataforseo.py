@@ -194,11 +194,38 @@ def brand_keyword_path(slug: str) -> Path:
     return _metricas_dir() / slug / f"brand-keyword-{slug}.json"
 
 
+def keyword_belongs_to_company(kw: str, slug: str, url: str = "", company: str = "") -> bool:
+    compact = re.sub(r"[^a-z0-9]+", "", _fold(kw))
+    if len(compact) < 3:
+        return False
+    needles = []
+    for raw in (slug, brand_from_domain(url) if url else "", company):
+        n = re.sub(r"[^a-z0-9]+", "", _fold(raw or ""))
+        if len(n) >= 3:
+            needles.append(n)
+    if not needles:
+        return True
+    return any(n in compact or compact in n for n in needles)
+
+
 def load_brand_search_keyword(slug: str = "") -> str:
-    env = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
-    if env:
-        return env
     slug = (slug or os.environ.get("SPY_SLUG") or "").strip()
+    env = (os.environ.get("SPY_BRAND_KEYWORD") or "").strip()
+    env_slug = (os.environ.get("SPY_SLUG") or "").strip()
+    # Process env leaks across queued jobs on the same worker — only trust
+    # it when it belongs to this slug. Prefer the slug sidecar either way.
+    if env and slug and env_slug == slug:
+        sidecar = ""
+        try:
+            path = brand_keyword_path(slug)
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                sidecar = str((data or {}).get("keyword") or "").strip()
+        except Exception:
+            sidecar = ""
+        if sidecar:
+            return sidecar
+        return env
     if not slug:
         return ""
     paths = (
@@ -246,8 +273,13 @@ def ensure_brand_search_keyword(
 ) -> dict[str, str]:
     """Reuse the brand-search LLM keyword (sidecar / env / DFS), or decide it now."""
     existing = load_brand_search_keyword(slug)
-    if existing:
+    if existing and keyword_belongs_to_company(existing, slug, url, company):
         return {"keyword": existing, "keyword_method": "cached"}
+    if existing:
+        print(
+            f"[BRAND/KW] ignore stale {existing!r} for slug={slug}",
+            flush=True,
+        )
     if not title and url:
         try:
             from seo_pipeline import scrape_site
