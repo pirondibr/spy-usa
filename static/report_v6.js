@@ -362,6 +362,34 @@
       '<div class="bars">' + brand.map(function (v) { return "<span><i style=\"height:" + ((v / bm) * 100).toFixed(1) + '%"></i></span>'; }).join("") + "</div><div class=\"bl\">" + brand.map(function (_, i) { return "<span>" + esc(blab[i] || "") + "</span>"; }).join("") + "</div></div></div></div>";
   }
 
+  var INF_TAB = { ytv: "yt", igl: "ig", ttv: "tt", xl: "x" };
+  function chHref(ch, c) {
+    return String(((ch && ch.href) || {})[c.k] || "").trim();
+  }
+  function chTab(ch) {
+    return (ch && ch.tab) || INF_TAB[ch.k] || "";
+  }
+  function wrapCanal(inner, ch, c) {
+    if (ch.g === "inf") {
+      var tab = chTab(ch);
+      if (!tab) return inner;
+      return '<a class="clink" href="#v6-pn-' + tab + '" data-gotab="' + tab + ":" + c.k + '">' + inner + "</a>";
+    }
+    var href = chHref(ch, c);
+    if (!href) return inner;
+    return '<a class="clink" href="' + esc(href) + '" target="_blank" rel="noopener">' + inner + "</a>";
+  }
+  function openDetailTab(tab, co) {
+    if (!tab) return;
+    open = tab;
+    if (co) tabCo[tab] = co;
+    renderTags();
+    var fn = { yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD, ads: renderAds }[tab];
+    if (fn) fn();
+    var pn = $("v6-pn-" + tab);
+    if (pn) pn.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function renderCanais() {
     var rows = CH.filter(function (ch) {
       if (ch.g === "inf") return true;
@@ -393,7 +421,7 @@
             var s = chSlot(ch, c);
             var v = s[0], n = s[1], w = (ch.w || {})[c.k];
             var tip = esc(c.name) + " · " + esc(ch.l) + ": " + (v == null ? t("tip.not_collected") : (n == null ? "—" : num(n) + " " + unitOf(ch) + " · " + LBL[v])) + (w ? " — " + t("tip.verify", { note: w }) : "");
-            return '<td class="c' + (c.me ? " me" : "") + (flt !== "all" && String(v) === flt ? " hit" : "") + '" title="' + tip + '"><span class="bc">' + bub(v) + '<span class="bv num' + (v === 0 ? " z" : "") + '">' + (v == null ? "" : fmt(n)) + (w ? ' <span class="wf">!</span>' : "") + "</span></span></td>";
+            return '<td class="c' + (c.me ? " me" : "") + (flt !== "all" && String(v) === flt ? " hit" : "") + '" title="' + tip + '">' + wrapCanal('<span class="bc">' + bub(v) + '<span class="bv num' + (v === 0 ? " z" : "") + '">' + (v == null ? "" : fmt(n)) + (w ? ' <span class="wf">!</span>' : "") + "</span></span>", ch, c) + "</td>";
           }).join("") + "</tr>";
       });
     });
@@ -723,6 +751,13 @@
         var parts = tc.dataset.tco.split(":");
         tabCo[parts[0]] = parts[1];
         ({ yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD })[parts[0]]();
+        return;
+      }
+      var gt = e.target.closest("[data-gotab]");
+      if (gt && root.contains(gt)) {
+        e.preventDefault();
+        var go = String(gt.dataset.gotab || "").split(":");
+        openDetailTab(go[0], go[1]);
         return;
       }
       var fl = e.target.closest("[data-flt]");

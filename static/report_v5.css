@@ -34,6 +34,9 @@ html[data-ui="v5"]{--ink:#0E1116;--ink2:#2A313B;--mut:#6B7480;--soft:#9AA3AE;--l
 #analysis-v5 .analysis-add .add-status{font-size:13px;color:var(--soft)}
 #analysis-v5 .analysis-add .add-log{list-style:none;margin:0;padding:0;width:100%;max-height:160px;overflow:auto;font-size:12.5px}
 #analysis-v5 .analysis-add .add-log[hidden]{display:none}
+#analysis-v5 a.clink{display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:inherit;border-radius:8px;margin:-4px;padding:4px}
+#analysis-v5 a.clink:hover{background:#F1F3F5}
+#analysis-v5 a.clink:hover .n{color:var(--acc)}
 #analysis-v5 .nm a{text-decoration:underline;text-underline-offset:3px}
 #analysis-v5 .nm a:hover{color:var(--acc)}
 #analysis-v5 .mx.brand-mx{overflow:visible}

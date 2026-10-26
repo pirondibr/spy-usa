@@ -293,6 +293,18 @@
       '<div class="bars">' + brand.map(function (v) { return "<span><i style=\"height:" + ((v / bm) * 100).toFixed(1) + '%"></i></span>'; }).join("") + "</div><div class=\"bl\">" + brand.map(function (_, i) { return "<span>" + esc(blab[i] || "") + "</span>"; }).join("") + "</div></div></div></div>";
   }
 
+  var INF_TAB = { ytv: "yt", igl: "ig", ttv: "tt", xl: "x" };
+  function wrapCanal(inner, ch, c) {
+    if (ch.g === "inf") {
+      var tab = ch.tab || INF_TAB[ch.k] || "";
+      if (!tab) return inner;
+      return '<a class="clink" href="#pn-' + tab + '" data-gotab="' + tab + ":" + c.k + '">' + inner + "</a>";
+    }
+    var href = String(((ch.href || {})[c.k] || "")).trim();
+    if (!href) return inner;
+    return '<a class="clink" href="' + esc(href) + '" target="_blank" rel="noopener">' + inner + "</a>";
+  }
+
   function renderCanais() {
     var live = CH.filter(function (ch) { return CO.some(function (c) { var s = (ch.s || {})[c.k]; return s && s[0] != null && s[0] > 0; }); });
     var off = CH.filter(function (ch) { return live.indexOf(ch) < 0; });
@@ -311,7 +323,7 @@
           return x.chs.map(function (ch, i) {
             var s = (ch.s || {})[c.k] || [null];
             var v = s[0], n = s[1], w = (ch.w || {})[c.k];
-            return '<td class="' + (i === 0 ? "gs" : "") + (flt !== "all" && String(v) === flt ? " hit" : "") + '" title="' + esc(c.name) + " · " + esc(ch.l) + ": " + (v == null ? t("tip.not_collected") : (n == null ? "—" : num(n) + " " + unitOf(ch))) + (w ? " — " + t("tip.verify", { note: w }) : "") + '">' + meter(v) + '<span class="n num' + (v === 0 ? " z" : "") + '">' + (v == null ? "" : fmt(n)) + (w ? ' <span style="color:#8A6100;font-weight:700">!</span>' : "") + "</span></td>";
+            return '<td class="' + (i === 0 ? "gs" : "") + (flt !== "all" && String(v) === flt ? " hit" : "") + '" title="' + esc(c.name) + " · " + esc(ch.l) + ": " + (v == null ? t("tip.not_collected") : (n == null ? "—" : num(n) + " " + unitOf(ch))) + (w ? " — " + t("tip.verify", { note: w }) : "") + '">' + wrapCanal(meter(v) + '<span class="n num' + (v === 0 ? " z" : "") + '">' + (v == null ? "" : fmt(n)) + (w ? ' <span style="color:#8A6100;font-weight:700">!</span>' : "") + "</span>", ch, c) + "</td>";
           }).join("");
         }).join("") + "</tr>";
     });
@@ -640,6 +652,19 @@
         var parts = tc.dataset.tco.split(":");
         tabCo[parts[0]] = parts[1];
         ({ yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD })[parts[0]]();
+        return;
+      }
+      var gt = e.target.closest("[data-gotab]");
+      if (gt && root.contains(gt)) {
+        e.preventDefault();
+        var go = String(gt.dataset.gotab || "").split(":");
+        open = go[0];
+        if (go[1]) tabCo[go[0]] = go[1];
+        renderTags();
+        var fn = { yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD }[go[0]];
+        if (fn) fn();
+        var pn = $("pn-" + go[0]);
+        if (pn) pn.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
       var fl = e.target.closest("[data-flt]");

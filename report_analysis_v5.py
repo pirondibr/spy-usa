@@ -241,6 +241,38 @@ def build_v5_payload(
             ch["spend"] = spend if str(market).upper() != "BR" else (250 if mk == "meta" else 600)
         if warns:
             ch["w"] = warns
+        if g == "inf":
+            ch["tab"] = {"ytv": "yt", "igl": "ig", "ttv": "tt", "xl": "x"}.get(mk) or ""
+        else:
+            hrefs: dict[str, str] = {}
+            for company, co in zip(raw_cos, companies):
+                row = _row_for_company(sec, company) or {}
+                url = ""
+                if mk == "seo":
+                    url = _summary_channel_url(
+                        "seo",
+                        sec,
+                        {**row, "url": "", "site_url": ""},
+                        market=market,
+                    )
+                elif mk == "rd":
+                    url = str(row.get("search_url") or row.get("url") or "")
+                    if not url:
+                        url = _summary_channel_url("reddit", sec, row, market=market)
+                else:
+                    url = _summary_channel_url(report_key, sec, row, market=market)
+                    if not url:
+                        url = str({
+                            "yt": co.get("yt_url"),
+                            "ig": co.get("ig_url"),
+                            "tk": co.get("tt_url"),
+                            "x": co.get("x_url"),
+                            "li": co.get("li_url"),
+                        }.get(mk) or "")
+                if url:
+                    hrefs[co["k"]] = url
+            if hrefs:
+                ch["href"] = hrefs
         channels.append(ch)
     if ig_all_nc:
         extra_flags.append("ig_followers_missing")

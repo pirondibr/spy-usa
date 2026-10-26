@@ -175,6 +175,9 @@ html[data-ui="v6"]{--ink:#0E1116;--ink2:#2A313B;--mut:#6B7480;--soft:#9AA3AE;--l
   #analysis-v6 .seg::-webkit-scrollbar{display:none}
   #analysis-v6 .seg button{flex:none;white-space:nowrap}
 }
+#analysis-v6 a.clink{display:inline-flex;text-decoration:none;color:inherit;border-radius:8px;margin:-4px;padding:4px}
+#analysis-v6 a.clink:hover{background:#F1F3F5}
+#analysis-v6 a.clink:hover .bv{color:var(--acc)}
 #analysis-v6 .nm a{text-decoration:underline;text-underline-offset:3px}
 #analysis-v6 .nm a:hover{color:var(--acc)}
 #analysis-v6 .mx.brand-mx{overflow:visible}
