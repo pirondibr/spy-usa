@@ -13,8 +13,8 @@
     winnertracker-app.html           (the tools page; "Log in" and "Get started" link to it)
 
   Sections, top to bottom:
-    1. Hero: 3-line headline, website input, and a demo card with 3 auto-rotating tabs (Find / Discover / Track,
-       5.2 s each, stops when a tab is clicked). Tab contents are built by findHtml(), seeHtml(), trackHtml().
+    1. Hero: 3-line headline and website input, then a full-width demo card with 3 auto-rotating tabs
+       (Find / Discover / Track, 10.4 s each, stops when a tab is clicked). Tab contents are built by findHtml(), seeHtml(), trackHtml().
     2. Video section: click-to-play with sound; resets to the cover when it ends.
     3. How it works: one block per step (#find, #see, #track) reusing the same three cards.
     4. Case (Trendtrack), Who it's for, FAQ, final CTA.
@@ -72,8 +72,10 @@ button,input{font:inherit;color:inherit}
 .land-switch button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(14,17,22,.12)}
 
 /* hero */
-.hero{padding:56px 0 80px;background:radial-gradient(900px 500px at 90% -10%,rgba(127,212,193,.22),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(74,111,165,.10),transparent 60%)}
-.hero .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:52px;align-items:center}
+.hero{padding:40px 0 72px;background:radial-gradient(900px 500px at 90% -10%,rgba(127,212,193,.22),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(74,111,165,.10),transparent 60%)}
+.hero .wrap{display:flex;flex-direction:column;gap:36px;align-items:stretch}
+.hero .copy{max-width:760px}
+.hero .demo{width:100%;max-width:1040px}
 .three{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
 .three li{display:flex;align-items:baseline;gap:16px;font-size:38px;font-weight:800;letter-spacing:-.04em;line-height:1.12}
 .three li span.n{font-size:15px;font-weight:800;letter-spacing:0;width:28px;height:28px;border-radius:9px;color:#fff;display:inline-grid;place-items:center;transform:translateY(-5px);flex:none}
@@ -99,7 +101,7 @@ button,input{font:inherit;color:inherit}
 .dtabs button[aria-selected="true"]{color:var(--ink);background:#fff}
 .dtabs button[aria-selected="true"] i{opacity:1}
 .dtabs button .bar{position:absolute;left:0;bottom:-1px;height:3px;width:0;border-radius:3px}
-.dpane{padding:18px 20px 16px;min-height:376px}
+.dpane{padding:18px 20px 16px;min-height:0}
 .dpane[hidden]{display:none}
 .dh{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .dh b{font-size:15px}
@@ -169,9 +171,10 @@ button,input{font:inherit;color:inherit}
 .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
 .sec-h h2{font-size:44px;line-height:1.08;letter-spacing:-.035em;margin:12px 0 0}
 .sec-h p{font-size:18px;color:var(--mut);margin:16px 0 0}
-.pill{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:64px;align-items:center;padding:64px 0;border-top:1px solid var(--line)}
+.pill{display:flex;flex-direction:column;gap:28px;padding:64px 0;border-top:1px solid var(--line)}
 .pill:first-of-type{border-top:0;padding-top:8px}
-.pill.rev .tx{order:2}
+.pill .tx{max-width:760px}
+.pill .vis{width:100%;max-width:1040px}
 .step{display:inline-flex;align-items:center;gap:10px;font-size:14px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 .step i{width:30px;height:30px;border-radius:10px;font-style:normal;color:#fff;display:grid;place-items:center;font-size:15px}
 .tx h3{font-size:40px;line-height:1.08;letter-spacing:-.035em;margin:14px 0 0}
@@ -231,8 +234,8 @@ footer a:hover{color:var(--ink)}
 @media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}}
 
 @media (max-width:1000px){
-  .hero .wrap,.pill,.case .in{grid-template-columns:minmax(0,1fr);gap:36px}
-  .pill.rev .tx{order:0}
+  .hero .wrap{gap:28px}
+  .case .in{grid-template-columns:minmax(0,1fr);gap:36px}
   .who{grid-template-columns:minmax(0,1fr)}
   .nav nav{display:none}
 }
@@ -262,11 +265,11 @@ footer a:hover{color:var(--ink)}
 }
 
 /* Find · growth column (version A) */
-.ra{display:grid;grid-template-columns:20px minmax(0,1fr) 66px 60px 96px;align-items:center;gap:10px;padding:8px 4px;border-top:1px solid var(--line);font-size:14px}
+.ra{display:grid;grid-template-columns:20px minmax(0,1.4fr) minmax(52px,66px) 60px minmax(84px,96px);align-items:center;gap:8px 10px;padding:8px 4px;border-top:1px solid var(--line);font-size:14px}
 .ra.hd{border-top:0;background:var(--band);border-radius:8px;padding:6px 4px;font-size:11px;font-weight:700;color:var(--mut)}
 .ra.hd small{font-weight:500;color:var(--soft)}
-.ra .nm{display:flex;align-items:center;gap:8px;font-weight:600;min-width:0}
-.ra .nm small{color:var(--soft);font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra .nm{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;font-weight:600;min-width:0}
+.ra .nm small{color:var(--soft);font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .ra .av{width:24px;height:24px;border-radius:7px;color:#fff;font-weight:800;font-size:11px;display:grid;place-items:center;flex:none}
 .ra .v{font-weight:700;font-size:13.5px}
 .ra .v.na{color:var(--soft);font-weight:500;font-size:11.5px;line-height:1.2}
@@ -275,6 +278,15 @@ footer a:hover{color:var(--ink)}
 .gp.up{background:var(--hi-bg);color:var(--hi-tx)}.gp.dn{background:var(--lo-bg);color:var(--lo-tx)}
 .gp.hot{background:var(--hi);color:#fff;box-shadow:0 4px 12px rgba(22,163,74,.3)}
 .fire{font-size:10px;font-weight:800;letter-spacing:.04em;color:#B45309;background:#FEF3C7;border-radius:5px;padding:1px 6px;white-space:nowrap;flex:none}
+@media (max-width:1100px){
+  .ra{grid-template-columns:20px minmax(0,1fr) 58px 88px;gap:8px}
+  .ra .sp,.ra.hd .sph,.ra .nm small,.sortnote{display:none}
+  .fire{font-size:9px}
+  .sb2{grid-template-columns:16px minmax(0,1.1fr) minmax(56px,72px) repeat(3,minmax(44px,1fr));gap:6px}
+  .sb2 .vb,.sb2.h .vh2,.lv small{display:none}
+  .mr2{grid-template-columns:80px repeat(3,minmax(0,1fr))}
+  .mr2.mh span{font-size:10px}
+}
 @media (max-width:560px){.ra{grid-template-columns:16px minmax(0,1fr) 50px 82px;gap:6px;font-size:13px}.ra .sp,.ra.hd .sph,.ra .nm small,.ra .av,.sortnote{display:none}.gp{font-size:12px}.fire{font-size:9px;padding:1px 4px}}
 
 /* See · strongest + growing per company */
@@ -295,7 +307,7 @@ footer a:hover{color:var(--ink)}
 @media (max-width:560px){.sg{padding-left:22px}.tg{white-space:normal;font-size:11.5px;flex-wrap:wrap;border-radius:12px}.tg .tl{flex:none}}
 
 /* SEE v2 · named columns + TOP / RISING tags */
-.sb2{display:grid;grid-template-columns:16px minmax(0,1fr) 86px repeat(3,70px);align-items:center;gap:8px;padding:8px 4px;border-top:1px solid var(--line);font-size:14px}
+.sb2{display:grid;grid-template-columns:16px minmax(88px,1.2fr) minmax(64px,86px) repeat(3,minmax(58px,1fr));align-items:center;gap:8px;padding:8px 4px;border-top:1px solid var(--line);font-size:14px}
 .sb2.h{border-top:0;background:var(--band);border-radius:8px;padding:7px 4px;font-size:11.5px;font-weight:700;color:#3A424D}
 .sb2.h .cat{display:inline-flex;align-items:center;justify-content:center;gap:5px}
 .sb2.h .cat i{width:3px;height:11px;border-radius:2px;display:block}
@@ -314,12 +326,12 @@ footer a:hover{color:var(--ink)}
 .mm .t2{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:6px}
 .mm .t2 .key{display:inline-flex;align-items:center;gap:6px;font-weight:600}
 .mm .t2 .key .mtag + *{margin-right:4px}
-.mr2{display:grid;grid-template-columns:118px repeat(3,minmax(0,1fr));align-items:center;gap:6px;padding:4px 0;font-size:12.5px}
+.mr2{display:grid;grid-template-columns:minmax(88px,118px) repeat(3,minmax(0,1fr));align-items:start;gap:6px;padding:6px 0;font-size:12.5px}
 .mr2.mh{font-size:11px;font-weight:700;color:var(--mut)}
 .mr2.mh span{display:inline-flex;align-items:center;gap:5px}
 .mr2 .l{font-weight:600}
 .mr2.free{background:rgba(250,204,21,.12);border-radius:6px}
-.cell{display:inline-flex;align-items:center;gap:4px;justify-self:start;flex-wrap:nowrap}
+.cell{display:flex;flex-direction:column;align-items:flex-start;gap:3px;justify-self:start;min-width:0}
 .ico{display:block;flex:none}
 .mtag{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:800;letter-spacing:.04em;border-radius:5px;padding:1px 5px 1px 3px;line-height:15px;white-space:nowrap}
 .mtag.st{background:#FEF3C7;color:#92400E}
@@ -354,7 +366,7 @@ footer a:hover{color:var(--ink)}
 
 <main>
   <section class="hero"><div class="wrap">
-    <div>
+    <div class="copy">
       <ol class="three" aria-label="What WinnerTracker does">
         <li class="l1"><span class="n" style="background:var(--s1)">1</span><span><em>Find</em> the competitors growing the most.</span></li>
         <li class="l2"><span class="n" style="background:var(--s2)">2</span><span><em>Discover</em> what makes them grow and make money.</span></li>
@@ -368,7 +380,6 @@ footer a:hover{color:var(--ink)}
       <div class="err" role="status" aria-live="polite"></div>
       <div class="small"><span><i><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></i>Competitor list in ~1½ min</span><span><i><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></i>Only public data</span><span><i><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></i>US & Brazil</span></div>
     </div>
-
     <div class="demo" aria-label="Product preview">
       <div class="dtabs" role="tablist">
         <button type="button" role="tab" id="t1" aria-controls="p1" aria-selected="true" data-tab="1"><i style="background:var(--s1)">1</i>Find<span class="bar" style="background:var(--s1)"></span></button>
@@ -381,21 +392,8 @@ footer a:hover{color:var(--ink)}
     </div>
   </div></section>
 
-  <!-- video -->
-  <section class="vsec"><div class="wrap"><div class="vin rv">
-    <span class="eyebrow">See it in action</span>
-    <h2>Find, discover and track in 38 seconds.</h2>
-    <div class="vframe">
-      <video id="pv" preload="metadata" playsinline poster="/static/promo/winnertracker-3steps-poster.jpg" aria-label="WinnerTracker in 38 seconds">
-        <source src="/static/promo/winnertracker-3steps-promo.mp4" type="video/mp4">
-        <source src="/static/promo/winnertracker-3steps-promo.webm" type="video/webm">
-      </video>
-      <button type="button" class="play" id="play" aria-label="Play the 38-second video with sound"><span class="pb"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></span><span class="pt">Watch how it works <small>0:38 · with sound</small></span></button>
-    </div>
-  </div></div></section>
-
   <!-- 3 pillars -->
-  <section class="sec" style="padding-top:72px"><div class="wrap">
+  <section class="sec" style="padding-top:48px"><div class="wrap">
     <div class="sec-h rv"><span class="eyebrow">How it works</span><h2>Three steps from "who is growing fastest?" to "what did they just change?"</h2></div>
 
     <div class="pill rv" id="find">
@@ -425,6 +423,19 @@ footer a:hover{color:var(--ink)}
       <div class="vis v3"><div class="card" id="track2"></div></div>
     </div>
   </div></section>
+
+  <!-- video -->
+  <section class="vsec"><div class="wrap"><div class="vin rv">
+    <span class="eyebrow">See it in action</span>
+    <h2>Find, discover and track in 38 seconds.</h2>
+    <div class="vframe">
+      <video id="pv" preload="metadata" playsinline poster="/static/promo/winnertracker-3steps-poster.jpg" aria-label="WinnerTracker in 38 seconds">
+        <source src="/static/promo/winnertracker-3steps-promo.mp4" type="video/mp4">
+        <source src="/static/promo/winnertracker-3steps-promo.webm" type="video/webm">
+      </video>
+      <button type="button" class="play" id="play" aria-label="Play the 38-second video with sound"><span class="pb"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></span><span class="pt">Watch how it works <small>0:38 · with sound</small></span></button>
+    </div>
+  </div></div></section>
 
   <!-- case -->
   <section class="wrap" aria-label="Case study"><div class="case rv"><div class="in">
@@ -562,7 +573,7 @@ $('#track1').innerHTML = trackHtml(); $('#track2').innerHTML = trackHtml();
 
 /* hero tabs: auto-advance until the visitor clicks */
 let cur = 1, auto = !matchMedia('(prefers-reduced-motion: reduce)').matches, t0 = performance.now();
-const DUR = 5200;
+const DUR = 10400;
 function show(n) { cur = n; t0 = performance.now();
   document.querySelectorAll('[data-tab]').forEach(b => { const on = +b.dataset.tab === n; b.setAttribute('aria-selected', on); b.querySelector('.bar').style.width = on && !auto ? '100%' : '0'; });
   [1, 2, 3].forEach(i => document.getElementById('p' + i).hidden = i !== n); }
