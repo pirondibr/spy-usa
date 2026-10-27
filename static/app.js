@@ -6,7 +6,7 @@
   const CHECK = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
   const MAX_FULL = 12;
   const COLORS = ["#0F6B5C", "#4A6FA5", "#C2702E", "#7B5BB0", "#B42318", "#0E7490"];
-  const state = { mode: "find", "find-market": "us", "full-market": "us", "full-report": "one", runs: "all" };
+  const state = { mode: "find", "find-market": "us", "full-market": "us", runs: "all" };
   try {
     const m = localStorage.getItem("wt-mode");
     if (m === "find" || m === "full") state.mode = m;
@@ -54,7 +54,6 @@
 
   const HINT = {
     "find-market": { us: "Google US, Semrush US database and an English prompt.", br: "Google Brasil, Semrush BR database and a Portuguese prompt." },
-    "full-report": { one: "All sites side by side in one report, like the scoreboard. Reuses saved data when it can.", each: "A separate report for every site." },
   };
 
   function renderSeg() {
@@ -66,8 +65,6 @@
       const table = HINT[h.dataset.hint];
       h.textContent = table ? (table[state[h.dataset.hint]] || "") : "";
     });
-    const only = $("opt-only");
-    if (only) only.closest(".tg").hidden = state["full-report"] === "one";
   }
 
   function renderMode() {
@@ -140,9 +137,9 @@
     $("full-count").innerHTML = `<span class="${list.length > MAX_FULL ? "bad" : ""}">${list.length} / ${MAX_FULL}</span>`;
     const n = Math.max(1, Math.min(list.length || 1, MAX_FULL));
     const ytc = on.has("ytc");
-    const one = state["full-report"] === "one";
-    const min = one ? n * 3 : Math.round(1.5 + n * 0.45 + (ytc ? n * 0.4 : 0));
-    $("full-est").innerHTML = `${list.length ? `<b>${n} site${n > 1 ? "s" : ""}</b> · ` : ""}about <b>${min} min</b>${one && n > 1 ? " · one site at a time" : ""}${!one && ytc ? " (YouTube creators adds time)" : ""}`;
+    const many = n > 1;
+    const min = many ? n * 3 : Math.round(1.5 + 0.45 + (ytc ? 0.4 : 0));
+    $("full-est").innerHTML = `${list.length ? `<b>${n} site${n > 1 ? "s" : ""}</b> · ` : ""}about <b>${min} min</b>${many ? " · one report · one site at a time" : ""}${!many && ytc ? " (YouTube creators adds time)" : ""}`;
   }
 
   function colorFor(s) {
@@ -287,7 +284,7 @@
       const what = type === "full"
         ? `Full analysis${vs.length ? `<small>vs ${vs.map(esc).join(", ")}</small>` : "<small>Single site</small>"}`
         : "Competitor search<small>Pick who goes into the report</small>";
-      const time = fmtDur(r.created_at, r.updated_at || r.created_at);
+      const time = r.duration || fmtDur(r.created_at, r.updated_at || r.created_at);
       const cost = r.cost ? String(r.cost) : "";
       const metaTime = [time, cost].filter(Boolean).join(" · ") || "—";
       const err = st.cls === "err" && r.error ? `<small>${esc(String(r.error).slice(0, 140))}</small>` : "";
@@ -631,14 +628,13 @@
   }
 
   function fullPayload(list) {
-    const one = state["full-report"] === "one";
-    const onlyThese = one || $("opt-only").checked;
+    const many = list.length > 1;
     return {
       url: list.join("\n"),
       force: $("opt-force-full").checked,
       market: state["full-market"],
-      compare_all: one,
-      site_only: onlyThese,
+      compare_all: many,
+      site_only: true,
       competitors_only: false,
       include_google_ads: on.has("google"),
       include_linkedin: on.has("linkedin"),

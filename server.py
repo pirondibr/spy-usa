@@ -235,9 +235,19 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             if meta:
                 by_id[d.name] = meta
 
-    # Overlay in-memory jobs (running / just finished)
+    # Overlay in-memory jobs. Finished jobs keep disk timestamps so the
+    # reports list duration is wall-clock, not "created → now".
     for job in jobs.values():
-        by_id[job.job_id] = {
+        disk = by_id.get(job.job_id)
+        running = job.status in ("running", "pending")
+        if not running and disk:
+            disk["status"] = job.status
+            if job.html_url:
+                disk["html_url"] = job.html_url
+            if job.error:
+                disk["error"] = job.error
+            continue
+        row = {
             "id": job.job_id,
             "company": job.parsed.company,
             "url": job.parsed.url,
@@ -251,13 +261,13 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "has_competitors": (not bool(getattr(job, "competitors_only", False)))
             and ((not bool(job.site_only)) or bool(job.compare_all)),
             "peer_urls": list(job.parsed.competitors or []),
-            "updated_at": _now_iso(),
+            "updated_at": _now_iso() if running else (disk.get("updated_at") if disk else job.created_at),
             "include_google_ads": job.include_google_ads,
             "include_linkedin": job.include_linkedin,
             "include_youtube_influencers": bool(job.include_youtube_influencers),
             "include_instagram_influencers": bool(job.include_instagram_influencers),
             "include_tiktok_influencers": bool(getattr(job, "include_tiktok_influencers", False)),
-        "include_twitter_influencers": bool(getattr(job, "include_twitter_influencers", False)),
+            "include_twitter_influencers": bool(getattr(job, "include_twitter_influencers", False)),
             "include_reddit": bool(getattr(job, "include_reddit", False)),
             "include_twitter": bool(getattr(job, "include_twitter", False)),
             "include_linkedin_profile": bool(getattr(job, "include_linkedin_profile", False)),
@@ -269,6 +279,9 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "error": job.error or "",
             "current_step": job.current_step or "",
         }
+        if disk and disk.get("duration"):
+            row["duration"] = disk["duration"]
+        by_id[job.job_id] = row
 
     def _sort_key(m: dict[str, Any]) -> str:
         return str(m.get("created_at") or m.get("updated_at") or "")
@@ -399,7 +412,8 @@ def _worker(job: Job) -> None:
         job.report = report
         job.html_url = f"/runs/{job.job_id}/report.html"
         job.status = "done"
-        _write_run_meta(job)
+        dur = ((report.get("run_log") or {}).get("totals") or {}).get("sec_fmt") or ""
+        _write_run_meta(job, duration=str(dur) if dur else "")
         emit(job, "finished", html_url=job.html_url, status="done")
     except Exception as e:
         job.status = "error"

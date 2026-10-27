@@ -245,13 +245,10 @@ textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px
           <div class="parsed" id="full-parsed"></div></div></div>
       <div class="row"><div class="lb"><b>Market</b><span>Search, ads and traffic are read for this country.</span></div>
         <div><div class="seg" data-seg="full-market"><button type="button" data-v="us" aria-pressed="true">United States</button><button type="button" data-v="br" aria-pressed="false">Brazil</button></div></div></div>
-      <div class="row"><div class="lb"><b>Report</b><span>How the results are delivered.</span></div>
-        <div><div class="seg" data-seg="full-report"><button type="button" data-v="one" aria-pressed="true">One report, all sites</button><button type="button" data-v="each" aria-pressed="false">One report per site</button></div>
-          <div class="hint" data-hint="full-report"></div>
-          <div class="tgs" style="margin-top:8px">
-            <label class="tg"><input type="checkbox" id="opt-only"><span class="sw"></span><span><b>Only the sites I entered</b><small>Don't look for extra competitors</small></span></label>
-            <label class="tg"><input type="checkbox" id="opt-force-full"><span class="sw"></span><span><b>Start fresh</b><small>Ignore saved data and collect everything again</small></span></label>
-          </div></div></div>
+      <div class="row"><div class="lb"><b>Extras</b><span>Ignore cache if you need a clean run.</span></div>
+        <div class="tgs">
+          <label class="tg"><input type="checkbox" id="opt-force-full"><span class="sw"></span><span><b>Start fresh</b><small>Ignore saved data and collect everything again</small></span></label>
+        </div></div>
       <div class="row"><div class="lb"><b>Channels</b><span>The core is always included. Turn extras on or off.</span></div>
         <div><div class="chh"><span id="ch-count"></span><button type="button" class="lnk" id="ch-all">Select all</button></div><div class="chg" id="chg"></div></div></div>
     </div>
@@ -278,6 +275,6 @@ textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px
   <p class="note" id="app-note">Reports stay on this device’s server until you delete them. Login comes later.</p>
 </main>
 
-<script src="/static/app.js?v=0.4.74"></script>
+<script src="/static/app.js?v=0.4.76"></script>
 </body>
 </html>
