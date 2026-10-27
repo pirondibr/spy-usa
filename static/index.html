@@ -405,9 +405,10 @@
       return m + ":" + String(s).padStart(2, "0");
     }
     const runProg = {
-      done: 0, total: 0, eta: 0, t0: Date.now(), live: "", timer: null,
+      done: 0, total: 0, eta: 0, t0: Date.now(), live: "", timer: null, companies: 0, companyDone: 0,
       reset() {
         this.done = 0; this.total = 0; this.eta = 0; this.t0 = Date.now(); this.live = "";
+        this.companies = 0; this.companyDone = 0;
         this.stop();
         this.paint();
         this.timer = setInterval(() => this.paint(), 1000);
@@ -416,6 +417,10 @@
       onMeta(msg) {
         if (msg.total_steps) this.total = Number(msg.total_steps) || this.total;
         if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+        if (typeof msg.company_total === "number" && msg.company_total) {
+          this.companies = Number(msg.company_total);
+          this.companyDone = Number(msg.company_done || 0);
+        }
         this.t0 = Date.now();
         this.paint();
       },
@@ -423,6 +428,10 @@
         if (msg.total) this.total = Number(msg.total) || this.total;
         if (typeof msg.done_count === "number") this.done = msg.done_count;
         if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+        if (typeof msg.company_total === "number" && msg.company_total) {
+          this.companies = Number(msg.company_total);
+          if (typeof msg.company_done === "number") this.companyDone = msg.company_done;
+        }
         const label = msg.label || msg.step_id || "";
         const detail = msg.detail || "";
         this.live = detail ? `${label}: ${detail}` : label;
@@ -443,9 +452,12 @@
         }
         const step = $("stepLabel");
         if (step) {
-          const head = this.total ? `${this.done}/${this.total} steps` : "";
+          const unit = this.companies ? "companies" : "steps";
+          const done = this.companies ? this.companyDone : this.done;
+          const total = this.companies || this.total;
+          const head = total ? `${done}/${total} ${unit}` : "";
           step.textContent = this.live
-            ? `${head || "0/0 steps"} — ${this.live}`
+            ? `${head || "0/0 " + unit} — ${this.live}`
             : (head || t("home.queuing"));
         }
       },

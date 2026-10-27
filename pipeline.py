@@ -140,10 +140,16 @@ class StepClock:
         self.ids = {s["id"] for s in self.steps}
         self.done: set[str] = set()
         self.t0 = time.time()
+        self.company_total = 0
+        self.company_done = 0
         if eta_total is not None:
             self.eta_total = max(1, int(eta_total))
         else:
             self.eta_total = ANALYSIS_WALL_SEC
+
+    def set_companies(self, total: int, done: int = 0) -> None:
+        self.company_total = max(0, int(total))
+        self.company_done = max(0, min(int(done), self.company_total))
 
     def mark(self, step_id: str, state: str) -> None:
         if state == "done" and step_id in self.ids:
@@ -158,20 +164,30 @@ class StepClock:
         pct = round(100.0 * elapsed / max(1, eta), 1)
         n_done = len(self.done)
         n_total = len(self.steps)
-        return {
+        if self.company_total:
+            n_done = self.company_done
+            n_total = self.company_total
+            label = f"{n_done}/{n_total} companies"
+        else:
+            label = f"{n_done}/{n_total} steps"
+        out = {
             "done_count": n_done,
             "total": n_total,
             "index": n_done,
-            "progress_label": f"{n_done}/{n_total} steps",
+            "progress_label": label,
             "elapsed_sec": int(round(elapsed)),
             "eta_seconds": eta,
             "eta_label": _fmt_eta(eta) if eta else "",
             "time_label": f"{_fmt_clock(elapsed)} / {_fmt_clock(eta)}",
             "pct": pct,
         }
+        if self.company_total:
+            out["company_done"] = self.company_done
+            out["company_total"] = self.company_total
+        return out
 
     def meta_payload(self) -> dict[str, Any]:
-        return {
+        out = {
             "total_steps": len(self.steps),
             "eta_seconds": self.eta_total,
             "eta_label": _fmt_eta(self.eta_total) if self.eta_total else "",
@@ -184,6 +200,11 @@ class StepClock:
                 for s in self.steps
             ],
         }
+        if self.company_total:
+            out["company_total"] = self.company_total
+            out["company_done"] = self.company_done
+            out["total_steps"] = self.company_total
+        return out
 
 
 def _bind_step_clock(
@@ -1639,11 +1660,17 @@ def _run_compare_all_pipeline(
         include_twitter=include_twitter,
         include_linkedin_profile=include_linkedin_profile,
     )
+    n_cos = len(companies)
     n_fetch = sum(
         1 for c in companies if force or not find_metricas_xlsx(c["slug"])
     )
-    eta = ANALYSIS_WALL_SEC * n_fetch if n_fetch else 45
+    n_cached = n_cos - n_fetch
+    # One company at a time. ~3 min for a full fetch, ~45s when the cache is warm.
+    eta = ANALYSIS_WALL_SEC * n_fetch + 45 * n_cached
+    if eta < 45:
+        eta = 45
     clock, _token = _bind_step_clock(planned, eta_total=eta)
+    clock.set_companies(n_cos, 0)
 
     emit(
         "pipeline_meta",
@@ -1668,10 +1695,17 @@ def _run_compare_all_pipeline(
     )
 
     def _child_emit(event: str, **payload: Any) -> None:
-        # Nested individual runs must not finish/close the parent All job.
-        # Channel progress is forwarded so each extra still counts as a step.
+        # Nested individual runs must not finish/close the parent All job,
+        # or reset the All timer / 1/5 company counter back to a 3-minute single run.
         if event in ("done", "pipeline_meta"):
             return
+        if event == "progress":
+            for key in (
+                "eta_seconds", "eta_label", "done_count", "total", "total_steps",
+                "index", "progress_label", "pct", "time_label",
+                "company_done", "company_total",
+            ):
+                payload.pop(key, None)
         emit(event, **payload)
 
     fetched = 0
@@ -1682,9 +1716,10 @@ def _run_compare_all_pipeline(
         c_name = company["name"]
         has_cache = bool(find_metricas_xlsx(c_slug))
         need_fetch = bool(force) or not has_cache
+        clock.set_companies(n_cos, i)
         _emit_progress(
             emit, set_step, "briefing_concorrentes", "running",
-            f"All: {c_name} ({i + 1}/{len(companies)})",
+            f"All: {c_name} ({i + 1}/{n_cos})",
         )
         if need_fetch:
             emit(
@@ -1722,6 +1757,7 @@ def _run_compare_all_pipeline(
             if isinstance(child_report, dict):
                 recorder.absorb_child_log(child_report.get("run_log") or {})
             fetched += 1
+            _STEP_CLOCK.set(clock)  # child run_pipeline replaces the All clock
         else:
             xlsx = find_metricas_xlsx(c_slug)
             if _xlsx_needs_meta_ig_method(xlsx):
@@ -1840,6 +1876,11 @@ def _run_compare_all_pipeline(
                     emit("log", line=f"[ALL] WARN YouTube official refresh {c_slug}: {e}")
             cached += 1
             emit("log", line=f"[ALL] ({i + 1}/{len(companies)}) Cache hit {c_name} ({c_slug})")
+        clock.set_companies(n_cos, i + 1)
+        _emit_progress(
+            emit, set_step, "briefing_concorrentes", "running",
+            f"All: done {c_name} ({i + 1}/{n_cos})",
+        )
 
     _emit_progress(
         emit, set_step, "briefing_concorrentes", "done",

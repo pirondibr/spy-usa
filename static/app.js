@@ -100,8 +100,9 @@
     $("full-count").innerHTML = `<span class="${list.length > MAX_FULL ? "bad" : ""}">${list.length} / ${MAX_FULL}</span>`;
     const n = Math.max(1, Math.min(list.length || 1, MAX_FULL));
     const ytc = on.has("ytc");
-    const min = Math.round(1.5 + n * 0.45 + (ytc ? n * 0.4 : 0));
-    $("full-est").innerHTML = `${list.length ? `<b>${n} site${n > 1 ? "s" : ""}</b> · ` : ""}about <b>${min} min</b>${ytc ? " (YouTube creators adds time)" : ""}`;
+    const one = state["full-report"] === "one";
+    const min = one ? n * 3 : Math.round(1.5 + n * 0.45 + (ytc ? n * 0.4 : 0));
+    $("full-est").innerHTML = `${list.length ? `<b>${n} site${n > 1 ? "s" : ""}</b> · ` : ""}about <b>${min} min</b>${one && n > 1 ? " · one site at a time" : ""}${!one && ytc ? " (YouTube creators adds time)" : ""}`;
   }
 
   function colorFor(s) {
@@ -162,9 +163,10 @@
     return m + ":" + String(s).padStart(2, "0");
   }
   const runProg = {
-    done: 0, total: 0, eta: 0, t0: Date.now(), live: "", timer: null,
+    done: 0, total: 0, eta: 0, t0: Date.now(), live: "", timer: null, companies: 0, companyDone: 0,
     reset() {
       this.done = 0; this.total = 0; this.eta = 0; this.t0 = Date.now(); this.live = "";
+      this.companies = 0; this.companyDone = 0;
       this.stop();
       this.paint();
       this.timer = setInterval(() => this.paint(), 1000);
@@ -173,6 +175,10 @@
     onMeta(msg) {
       if (msg.total_steps) this.total = Number(msg.total_steps) || this.total;
       if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+      if (typeof msg.company_total === "number" && msg.company_total) {
+        this.companies = Number(msg.company_total);
+        this.companyDone = Number(msg.company_done || 0);
+      }
       this.t0 = Date.now();
       this.paint();
     },
@@ -180,6 +186,10 @@
       if (msg.total) this.total = Number(msg.total) || this.total;
       if (typeof msg.done_count === "number") this.done = msg.done_count;
       if (typeof msg.eta_seconds === "number") this.eta = Number(msg.eta_seconds) || this.eta;
+      if (typeof msg.company_total === "number" && msg.company_total) {
+        this.companies = Number(msg.company_total);
+        if (typeof msg.company_done === "number") this.companyDone = msg.company_done;
+      }
       const label = msg.label || msg.step_id || "";
       const detail = msg.detail || "";
       this.live = detail ? `${label}: ${detail}` : label;
@@ -200,9 +210,12 @@
       }
       const step = $("jobs-step");
       if (step) {
-        const head = this.total ? `${this.done}/${this.total} steps` : "";
+        const unit = this.companies ? "companies" : "steps";
+        const done = this.companies ? this.companyDone : this.done;
+        const total = this.companies || this.total;
+        const head = total ? `${done}/${total} ${unit}` : "";
         step.textContent = this.live
-          ? `${head || "0/0 steps"} — ${this.live}`
+          ? `${head || "0/0 " + unit} — ${this.live}`
           : (head || "Queuing…");
       }
     },
@@ -390,7 +403,14 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start");
       const list = (data.jobs && data.jobs.length) ? data.jobs : [data];
-      progressTotal = data.competitors_only ? 2 : 10;
+      const sites = 1 + ((list[0] && list[0].peer_urls) || []).length;
+      progressTotal = data.competitors_only ? 2 : (data.compare_all ? Math.max(1, sites) : 10);
+      if (data.compare_all && !data.competitors_only) {
+        runProg.companies = Math.max(1, sites);
+        runProg.companyDone = 0;
+        runProg.eta = 180 * Math.max(1, sites);
+        runProg.total = runProg.companies;
+      }
       $("jobs-meta").textContent = list.map((j) => j.company || j.url).join(", ") + " · " + (data.market || "").toString().toUpperCase();
       const find = !!data.competitors_only;
       const results = [];
