@@ -330,8 +330,19 @@
     }
   }
 
+  let goTimer = null;
+
+  function clearGo() {
+    if (goTimer) {
+      clearTimeout(goTimer);
+      goTimer = null;
+    }
+  }
+
   function showJobs() {
+    clearGo();
     $("jobs").classList.add("show");
+    $("jobs").classList.remove("ready");
     $("jobs-err").textContent = "";
     $("jobs-done").innerHTML = "";
     $("jobs-log").textContent = "";
@@ -347,6 +358,36 @@
     const href = url || `/runs/${job.job_id || job.id}/report.html`;
     const label = find ? "Pick competitors" : (job.company || job.url || "Open report");
     $("jobs-done").insertAdjacentHTML("beforeend", `<a href="${esc(href)}">${esc(label)}</a>`);
+  }
+
+  function goToReport(url, find, others) {
+    if (!url) return;
+    clearGo();
+    const primary = find ? "See competitors →" : "Open report →";
+    const extra = (others || []).map((r, i) =>
+      `<a href="${esc(r.url)}">${esc(r.company || ("Report " + (i + 1)))}</a>`
+    ).join("");
+    $("jobs").classList.add("ready");
+    $("jobs-done").innerHTML =
+      `<a class="go-report" href="${esc(url)}">${esc(primary)}</a>` +
+      extra +
+      `<button type="button" class="stay" id="jobs-stay">Stay here</button>`;
+    $("jobs-step").textContent = find
+      ? "Opening the competitor list…"
+      : "Opening the report…";
+    const stay = $("jobs-stay");
+    if (stay) {
+      stay.addEventListener("click", () => {
+        clearGo();
+        $("jobs-step").textContent = find
+          ? "Report ready — open it when you want."
+          : "Report ready — open it when you want.";
+      });
+    }
+    goTimer = setTimeout(() => {
+      goTimer = null;
+      location.assign(url);
+    }, 1200);
   }
 
   function watchJob(job) {
@@ -472,9 +513,17 @@
       $("jobs-step").textContent = list.length > 1
         ? `Done — ${results.length}/${list.length} reports`
         : "Done";
-      msgEl.textContent = find
-        ? "Search finished. Open the report to pick competitors."
-        : "Analysis finished. Open it from Your reports.";
+      if (results.length) {
+        const last = results[results.length - 1];
+        goToReport(last.url, find, results.slice(0, -1));
+        msgEl.textContent = find
+          ? "Search finished. Opening the competitor list."
+          : "Analysis finished. Opening the report.";
+      } else {
+        msgEl.textContent = find
+          ? "Search finished. Open the report to pick competitors."
+          : "Analysis finished. Open it from Your reports.";
+      }
       setBusy(false);
       loadRuns();
     } catch (err) {
@@ -511,9 +560,9 @@
     progressTotal = find ? 2 : 10;
     try {
       const result = await watchJob(job);
-      if (result && result.url) addDone(job, result.url, !!find);
       $("jobs-bar").style.width = "100%";
-      $("jobs-title").textContent = "Done";
+      $("jobs-title").textContent = result && result.ok ? "Done" : "Finished";
+      if (result && result.url) goToReport(result.url, !!find);
       setBusy(false);
       loadRuns();
     } catch (err) {

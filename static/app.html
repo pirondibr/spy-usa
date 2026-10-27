@@ -156,10 +156,15 @@ textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px
 .jobs .log:empty{display:none}
 .jobs .err{margin:10px 0 0;font-size:13.5px;color:#B42318}
 .jobs .err:empty{display:none}
-.jobs-done{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.jobs.ready{border-color:#B7E2D6;background:#F4FBF8}
+.jobs-done{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
 .jobs-done:empty{display:none}
 .jobs-done a{display:inline-flex;align-items:center;padding:8px 12px;border-radius:10px;background:var(--ink);color:#fff;font-weight:600;font-size:13.5px;text-decoration:none}
 .jobs-done a:hover{background:#2A313B}
+.jobs-done a.go-report{padding:12px 18px;font-size:15px;border-radius:12px;background:var(--acc);box-shadow:0 6px 18px rgba(15,107,92,.22)}
+.jobs-done a.go-report:hover{background:#0C574B}
+.jobs-done .stay{appearance:none;border:0;background:none;color:var(--mut);font-weight:600;font-size:13.5px;padding:8px 10px;cursor:pointer;border-radius:8px}
+.jobs-done .stay:hover{color:var(--ink);background:var(--tint)}
 
 @media (max-width:860px){.chg{grid-template-columns:1fr}.row{grid-template-columns:1fr;gap:10px}.tb .hm{display:none}}
 @media (max-width:560px){
@@ -273,6 +278,6 @@ textarea:focus,.inp:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px
   <p class="note" id="app-note">Reports stay on this device’s server until you delete them. Login comes later.</p>
 </main>
 
-<script src="/static/app.js?v=0.4.73"></script>
+<script src="/static/app.js?v=0.4.74"></script>
 </body>
 </html>

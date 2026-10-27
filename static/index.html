@@ -477,6 +477,14 @@
     let allRuns = [];
     let es = null;
     let activeJobIds = [];
+    let goTimer = null;
+
+    function clearGo() {
+      if (goTimer) {
+        clearTimeout(goTimer);
+        goTimer = null;
+      }
+    }
 
     function setTab(name) {
       activeTab = name === "competitors" ? "competitors" : "analyze";
@@ -635,6 +643,7 @@
     }
 
     function resetStatus() {
+      clearGo();
       $("err").textContent = "";
       $("done").innerHTML = "";
       $("log").textContent = "";
@@ -655,6 +664,16 @@
       `;
       const btn = $("redoBtn");
       if (btn) btn.addEventListener("click", () => rerun(jobId));
+    }
+
+    function goToReport(url) {
+      if (!url) return;
+      clearGo();
+      $("stepLabel").textContent = "Opening the report…";
+      goTimer = setTimeout(() => {
+        goTimer = null;
+        location.assign(url);
+      }, 1200);
     }
 
     function watchJob(job) {
@@ -791,6 +810,7 @@
 
         $("bar").style.width = "100%";
         $("stepLabel").textContent = list.length > 1 ? `Done — ${links.length}/${list.length} reports` : "Done";
+        if (links.length) goToReport(links[links.length - 1].url);
         setBusy(false);
         loadHistory();
       } catch (err) {
@@ -826,7 +846,10 @@
         $("meta").textContent = `Rerun · ${list[0].company || list[0].url} · force`;
         $("url").value = list[0].url || $("url").value;
         const result = await watchJob(list[0]);
-        if (result && result.url) attachDone(list[0].job_id, result.url);
+        if (result && result.url) {
+          attachDone(list[0].job_id, result.url);
+          goToReport(result.url);
+        }
         setBusy(false);
         loadHistory();
       } catch (err) {
