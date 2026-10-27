@@ -100,6 +100,7 @@ def build_find_v2_payload(
     market: str,
 ) -> dict[str, Any]:
     comps = build_competitor_table_rows(report, run_meta=meta)
+    sw_done = bool(report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"))
     me_row = next((c for c in comps if c.get("is_client")), None)
     domain = ""
     if me_row:
@@ -128,7 +129,7 @@ def build_find_v2_payload(
             "src": _fonte_keys(c.get("fonte")) or (["manual"] if c.get("manual") else []),
             "niche": str(c.get("nicho") or "").strip(),
             "off": off,
-            "added": bool(c.get("manual")),
+            "added": bool(c.get("manual")) and _visits(c) is None and not sw_done,
             "color": PAL[i % len(PAL)],
         })
     if domain and not any(r.get("d") == domain for r in rows):

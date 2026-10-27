@@ -93,10 +93,12 @@
 
   var mxv = Math.max.apply(null, R.map(function (r) { return r.v || 0; }).concat([1]));
   function visitCell(r) {
+    if (r.v) {
+      var w = Math.max(3, Math.log10(r.v) / Math.log10(mxv) * 100 - (r.v < mxv ? 30 * (1 - r.v / mxv) : 0));
+      return '<span class="vb"><b class="num">' + fmt(r.v) + '</b><span class="tk"><i style="width:' + w.toFixed(0) + "%;background:" + r.color + '"></i></span></span>';
+    }
     if (r.added) return '<span class="vb"><span class="na">' + t("find.vis.added") + "</span></span>";
-    if (!r.v) return '<span class="vb"><span class="na">' + t("find.vis.na") + "</span></span>";
-    var w = Math.max(3, Math.log10(r.v) / Math.log10(mxv) * 100 - (r.v < mxv ? 30 * (1 - r.v / mxv) : 0));
-    return '<span class="vb"><b class="num">' + fmt(r.v) + '</b><span class="tk"><i style="width:' + w.toFixed(0) + "%;background:" + r.color + '"></i></span></span>';
+    return '<span class="vb"><span class="na">' + t("find.vis.na") + "</span></span>";
   }
   var av = function (r) {
     return '<span class="av" style="background:' + r.color + '">' + esc((r.n || "?").charAt(0)) + "</span>";
