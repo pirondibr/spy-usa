@@ -15,7 +15,7 @@
   Sections, top to bottom:
     1. Hero: 3-line headline and website input, then a full-width demo card with 3 auto-rotating tabs
        (Find / Discover / Track, 10.4 s each, stops when a tab is clicked). Tab contents are built by findHtml(), seeHtml(), trackHtml().
-    2. Video section: click-to-play with sound; resets to the cover when it ends.
+    2. Video section: right after the screenshots; click-to-play with sound; resets to the cover when it ends.
     3. How it works: one block per step (#find, #see, #track) reusing the same three cards.
     4. Case (Trendtrack), Who it's for, FAQ, final CTA.
 
@@ -392,6 +392,19 @@ footer a:hover{color:var(--ink)}
     </div>
   </div></section>
 
+  <!-- video -->
+  <section class="vsec"><div class="wrap"><div class="vin rv">
+    <span class="eyebrow">See it in action</span>
+    <h2>Find, discover and track in 38 seconds.</h2>
+    <div class="vframe">
+      <video id="pv" preload="metadata" playsinline poster="/static/promo/winnertracker-3steps-poster.jpg" aria-label="WinnerTracker in 38 seconds">
+        <source src="/static/promo/winnertracker-3steps-promo.mp4" type="video/mp4">
+        <source src="/static/promo/winnertracker-3steps-promo.webm" type="video/webm">
+      </video>
+      <button type="button" class="play" id="play" aria-label="Play the 38-second video with sound"><span class="pb"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></span><span class="pt">Watch how it works <small>0:38 · with sound</small></span></button>
+    </div>
+  </div></div></section>
+
   <!-- 3 pillars -->
   <section class="sec" style="padding-top:48px"><div class="wrap">
     <div class="sec-h rv"><span class="eyebrow">How it works</span><h2>Three steps from "who is growing fastest?" to "what did they just change?"</h2></div>
@@ -423,19 +436,6 @@ footer a:hover{color:var(--ink)}
       <div class="vis v3"><div class="card" id="track2"></div></div>
     </div>
   </div></section>
-
-  <!-- video -->
-  <section class="vsec"><div class="wrap"><div class="vin rv">
-    <span class="eyebrow">See it in action</span>
-    <h2>Find, discover and track in 38 seconds.</h2>
-    <div class="vframe">
-      <video id="pv" preload="metadata" playsinline poster="/static/promo/winnertracker-3steps-poster.jpg" aria-label="WinnerTracker in 38 seconds">
-        <source src="/static/promo/winnertracker-3steps-promo.mp4" type="video/mp4">
-        <source src="/static/promo/winnertracker-3steps-promo.webm" type="video/webm">
-      </video>
-      <button type="button" class="play" id="play" aria-label="Play the 38-second video with sound"><span class="pb"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></span><span class="pt">Watch how it works <small>0:38 · with sound</small></span></button>
-    </div>
-  </div></div></section>
 
   <!-- case -->
   <section class="wrap" aria-label="Case study"><div class="case rv"><div class="in">
