@@ -531,33 +531,104 @@ def build_v5_payload(
             "w": str(row.get("note") or row.get("error") or ""),
         }
 
-    from run_log import apply_cost_shares, collect_api_pulls, cost_rates_note
+    from run_log import (
+        apply_cost_shares,
+        collect_api_pulls,
+        cost_rates_note,
+        filter_llm_for_company,
+        filter_pulls_for_company,
+        split_lines_by_company,
+    )
 
     log = _resolve_run_log(report, meta) or {}
     totals = dict(log.get("totals") or {})
     log_channels = [ch for ch in (log.get("channels") or []) if isinstance(ch, dict)]
     apply_cost_shares(log_channels, totals)
-    steps = []
-    for ch in log_channels:
-        blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
-        skipped = "skip" in blob or "pulado" in blob
-        status = str(ch.get("status") or "").strip().lower()
-        if skipped:
-            sit = "skipped"
-        elif status in ("n/d", "nd"):
-            sit = "n/a"
-        else:
-            sit = "done"
-        steps.append({
-            "label": str(ch.get("label") or ch.get("id") or "—"),
-            "time": str(ch.get("sec_fmt") or "—"),
-            "cost": str(ch.get("cost_fmt") or "—"),
-            "pct": str(ch.get("cost_pct_fmt") or "—"),
-            "apis": str(ch.get("apis_fmt") or "—"),
-            "status": sit,
-            "skipped": skipped,
-        })
+
+    def _exec_steps(channels: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        steps_out: list[dict[str, Any]] = []
+        for ch in channels:
+            blob = " ".join(str(ch.get(k) or "") for k in ("detail", "cost_note", "status")).lower()
+            skipped = "skip" in blob or "pulado" in blob
+            status = str(ch.get("status") or "").strip().lower()
+            if skipped:
+                sit = "skipped"
+            elif status in ("n/d", "nd"):
+                sit = "n/a"
+            else:
+                sit = "done"
+            steps_out.append({
+                "label": str(ch.get("label") or ch.get("id") or "—"),
+                "time": str(ch.get("sec_fmt") or "—"),
+                "cost": str(ch.get("cost_fmt") or "—"),
+                "pct": str(ch.get("cost_pct_fmt") or "—"),
+                "apis": str(ch.get("apis_fmt") or "—"),
+                "status": sit,
+                "skipped": skipped,
+            })
+        return steps_out
+
+    def _host_slug(company: dict[str, Any]) -> str:
+        host = re.sub(r"^www\.", "", str(company.get("domain") or "").strip().lower())
+        if host:
+            return host.split(".")[0]
+        return re.sub(r"[^a-z0-9]+", "", str(company.get("name") or "").strip().lower())
+
+    def _pack_from_log(payload: dict[str, Any], *, fallback_pulls=None, fallback_llm=None) -> dict[str, Any]:
+        chans = [ch for ch in (payload.get("channels") or []) if isinstance(ch, dict)]
+        tot = dict(payload.get("totals") or {})
+        if chans:
+            apply_cost_shares(chans, tot)
+        pulls = payload.get("api_pulls") if isinstance(payload.get("api_pulls"), dict) else fallback_pulls
+        llm = payload.get("llm_calls") if isinstance(payload.get("llm_calls"), list) else fallback_llm
+        return {
+            "duration": str(tot.get("sec_fmt") or totals.get("sec_fmt") or "—"),
+            "cost": str(tot.get("cost_fmt") or totals.get("cost_fmt") or "—"),
+            "pct": str(tot.get("cost_pct_fmt") or totals.get("cost_pct_fmt") or "—"),
+            "runs_per": str(tot.get("runs_per_usd_fmt") or totals.get("runs_per_usd_fmt") or ""),
+            "steps": _exec_steps(chans) if chans else _exec_steps(log_channels),
+            "log": "\n".join(str(x) for x in (payload.get("lines") or [])),
+            "pulls": pulls if isinstance(pulls, dict) else {"youtube": [], "tiktok": []},
+            "llm": list(llm or []),
+        }
+
+    steps = _exec_steps(log_channels)
     lines = [str(x) for x in (log.get("lines") or [])]
+    merged_pulls = log.get("api_pulls") if isinstance(log.get("api_pulls"), dict) else collect_api_pulls(report)
+    merged_llm = log.get("llm_calls") if isinstance(log.get("llm_calls"), list) else []
+    by_company: dict[str, dict[str, Any]] = {}
+    stored = [e for e in (log.get("by_company") or []) if isinstance(e, dict)]
+    if stored:
+        for entry in stored:
+            slug = str(entry.get("slug") or "").strip().lower()
+            name = str(entry.get("name") or "").strip().lower()
+            for i, co in enumerate(raw_cos):
+                if slug and slug == _host_slug(co):
+                    by_company[f"c{i}"] = _pack_from_log(entry)
+                    break
+                if name and name == str(co.get("name") or "").strip().lower():
+                    by_company[f"c{i}"] = _pack_from_log(entry)
+                    break
+    if not by_company and len(raw_cos) > 1 and lines:
+        split_cos = [
+            {"slug": _host_slug(c), "name": c.get("name"), "domain": c.get("domain")}
+            for c in raw_cos
+        ]
+        buckets = split_lines_by_company(lines, split_cos)
+        if any(buckets.values()):
+            for i, co in enumerate(raw_cos):
+                slug = _host_slug(co)
+                ident = {**co, "slug": slug}
+                by_company[f"c{i}"] = {
+                    "duration": str(totals.get("sec_fmt") or "—"),
+                    "cost": str(totals.get("cost_fmt") or "—"),
+                    "pct": str(totals.get("cost_pct_fmt") or "—"),
+                    "runs_per": str(totals.get("runs_per_usd_fmt") or ""),
+                    "steps": steps,
+                    "log": "\n".join(buckets.get(slug) or []),
+                    "pulls": filter_pulls_for_company(merged_pulls, ident),
+                    "llm": filter_llm_for_company(merged_llm, ident),
+                }
 
     n_peers = max(0, len(companies) - 1)
     market_code = "US" if str(market).upper() == "US" else "BR"
@@ -609,8 +680,9 @@ def build_v5_payload(
             "steps": steps,
             "log": "\n".join(lines),
             "rates": cost_rates_note(),
-            "pulls": log.get("api_pulls") if isinstance(log.get("api_pulls"), dict) else collect_api_pulls(report),
-            "llm": log.get("llm_calls") if isinstance(log.get("llm_calls"), list) else [],
+            "pulls": merged_pulls,
+            "llm": merged_llm,
+            "by_company": by_company,
         },
     }
 

@@ -172,7 +172,7 @@
   var sel = ME.k;
   var flt = null;
   var rkSel = "visits";
-  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, x: ME.k, li: ME.k, rd: ME.k };
+  var tabCo = { yt: ME.k, ig: ME.k, tt: ME.k, x: ME.k, li: ME.k, rd: ME.k, exec: ME.k };
   var FIXED = ["perfil", "canais"];
   var open = null;
   try { open = localStorage.getItem("spy-min-tab"); } catch (e) {}
@@ -570,8 +570,10 @@
   }
 
   function renderExec() {
-    var steps = EX.steps || [];
-    var log = EX.log || "";
+    var c = CO.find(function (x) { return x.k === tabCo.exec; }) || ME;
+    var pack = (EX.by_company && EX.by_company[c.k]) || EX;
+    var steps = pack.steps || EX.steps || [];
+    var log = pack.log || "";
     var nLog = log ? log.split("\n").filter(function (l) { return l.trim(); }).length : 0;
     var rowHtml = function (r) {
       if (Array.isArray(r)) {
@@ -579,11 +581,11 @@
       }
       return '<tr class="' + (r.skipped ? "sk" : "") + '"><td>' + esc(r.label) + '</td><td class="num">' + esc(r.time) + '</td><td class="num">' + esc(r.cost) + "</td><td>" + esc(r.apis || "—") + '</td><td class="num">' + esc(r.pct || "—") + "</td><td" + (r.skipped ? ' class="muted"' : "") + ">" + esc(stL(r.status || "done")) + "</td></tr>";
     };
-    var pulls = EX.pulls || {};
+    var pulls = pack.pulls || EX.pulls || {};
     var ytPull = pulls.youtube || [];
     var ttPull = pulls.tiktok || [];
     var nPulls = ytPull.length + ttPull.length;
-    var llmCalls = EX.llm || [];
+    var llmCalls = pack.llm || EX.llm || [];
     var llmGroups = {};
     llmCalls.forEach(function (row) {
       var k = row.task || "other";
@@ -622,7 +624,8 @@
           return '<tr class="' + (String(it.label || "").toLowerCase() === "unrelated" ? "sk" : "") + '"><td class="num">' + (i + 1) + "</td><td>" + esc(it.company || "—") + "</td><td>" + titleCell + '</td><td class="desc">' + esc(it.description || "—") + '</td><td class="num">' + esc(it.views == null ? "—" : fmt(it.views)) + "</td><td>" + esc(it.age || "—") + "</td><td>" + esc(it.channel || "—") + "</td><td>" + cutL(it.label) + "</td></tr>";
         }).join("") + "</tbody></table></div>";
     };
-    $("v6-pb-exec").innerHTML = '<div class="kv3"><div><span>' + t("ex.time") + "</span><b>" + esc(EX.duration || "—") + "</b></div><div><span>" + t("ex.cost") + "</span><b>" + esc(EX.cost || "—") + "</b></div><div><span>" + t("ex.cos") + "</span><b>" + esc(String(EX.companies || CO.length)) + "</b></div><div><span>" + t("ex.steps") + "</span><b>" + steps.length + "</b></div></div>" +
+    $("v6-pb-exec").innerHTML = (CO.length > 1 ? '<div class="det-h"><span>' + t("ex.log") + "</span>" + coSeg("exec") + "</div>" : "") +
+      '<div class="kv3"><div><span>' + t("ex.time") + "</span><b>" + esc(pack.duration || EX.duration || "—") + "</b></div><div><span>" + t("ex.cost") + "</span><b>" + esc(pack.cost || EX.cost || "—") + "</b></div><div><span>" + t("ex.cos") + "</span><b>" + esc(c.name || String(EX.companies || CO.length)) + "</b></div><div><span>" + t("ex.steps") + "</span><b>" + steps.length + "</b></div></div>" +
       '<div class="ex-switch"><div class="ex-tabs" role="tablist" aria-label="' + t("ex.aria") + '">' +
       '<button type="button" data-ex="resumo" aria-pressed="true">' + t("ex.summary") + "</button>" +
       '<button type="button" data-ex="log" aria-pressed="false">' + t("ex.log") + (nLog ? " · " + nLog : "") + "</button>" +
@@ -828,7 +831,7 @@
       if (tc && root.contains(tc)) {
         var parts = tc.dataset.tco.split(":");
         tabCo[parts[0]] = parts[1];
-        ({ yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD })[parts[0]]();
+        ({ yt: renderYT, ig: renderIG, tt: renderTT, x: renderX, li: renderLI, rd: renderRD, exec: renderExec })[parts[0]]();
         return;
       }
       var gt = e.target.closest("[data-gotab]");

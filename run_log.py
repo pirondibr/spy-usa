@@ -573,6 +573,7 @@ class RunRecorder:
         self.lines: list[str] = []
         self._step_t0: dict[str, float] = {}
         self.steps: dict[str, dict[str, Any]] = {}
+        self.company_logs: list[dict[str, Any]] = []
 
     def absorb_child_log(self, child_log: Optional[dict[str, Any]]) -> None:
         """Copy per-channel wall times from a nested site_only run into All mode."""
@@ -607,6 +608,28 @@ class RunRecorder:
             detail = str(ch.get("detail") or "").strip()
             if detail and not str(row.get("detail") or "").lower().startswith("merged"):
                 row["detail"] = detail
+
+    def add_company_log(
+        self,
+        slug: str,
+        name: str,
+        child_log: Optional[dict[str, Any]] = None,
+        *,
+        extra_lines: Optional[list[str]] = None,
+    ) -> None:
+        """Keep one execution log per company for All-mode reports."""
+        payload = child_log if isinstance(child_log, dict) else {}
+        lines = [str(x) for x in (payload.get("lines") or extra_lines or []) if str(x).strip()]
+        self.company_logs.append({
+            "slug": (slug or "").strip(),
+            "name": (name or slug or "").strip(),
+            "lines": lines[-2000:],
+            "line_count": payload.get("line_count") or len(lines),
+            "channels": [ch for ch in (payload.get("channels") or []) if isinstance(ch, dict)],
+            "totals": dict(payload.get("totals") or {}),
+            "api_pulls": payload.get("api_pulls") if isinstance(payload.get("api_pulls"), dict) else {},
+            "llm_calls": list(payload.get("llm_calls") or []),
+        })
 
     def add_line(self, line: str) -> None:
         text = (line or "").rstrip("\n\r")
@@ -733,7 +756,7 @@ class RunRecorder:
             "cost_fmt": _fmt_usd(total_cost if cost_known else None),
         }
         apply_cost_shares(channels, totals)
-        return {
+        out = {
             "lines": self.lines[-2000:],  # cap stored log
             "line_count": len(self.lines),
             "channels": channels,
@@ -741,6 +764,9 @@ class RunRecorder:
             "totals": totals,
             "rates_note": cost_rates_note(),
         }
+        if self.company_logs:
+            out["by_company"] = list(self.company_logs)
+        return out
 
 
 def _as_view_int(value: Any) -> int:
@@ -812,6 +838,88 @@ def collect_api_pulls(report: Optional[dict[str, Any]] = None) -> dict[str, list
         for item in _row_pulled_videos(row):
             tiktok.append(_slim_pulled_video(item, platform="tiktok", company=company))
     return {"youtube": youtube, "tiktok": tiktok}
+
+
+_ALL_COMPANY_MARK = re.compile(r"\[ALL\]\s+\((\d+)/(\d+)\)")
+_ALL_MERGE_MARK = re.compile(r"\[ALL\]\s+Merging", re.I)
+
+
+def split_lines_by_company(
+    lines: list[Any],
+    companies: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Split a merged All-mode log using `[ALL] (1/N)` markers."""
+    slugs = [str(c.get("slug") or "").strip() for c in companies]
+    out: dict[str, list[str]] = {s: [] for s in slugs if s}
+    if not out:
+        return {}
+    current = ""
+    for raw in lines or []:
+        text = str(raw)
+        if _ALL_MERGE_MARK.search(text):
+            current = ""
+            continue
+        m = _ALL_COMPANY_MARK.search(text)
+        if m:
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < len(slugs) and slugs[idx]:
+                current = slugs[idx]
+        if current and current in out:
+            out[current].append(text)
+    return out
+
+
+def filter_pulls_for_company(
+    pulls: Optional[dict[str, Any]],
+    company: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    pulls = pulls if isinstance(pulls, dict) else {}
+    needles = {
+        str(company.get("name") or "").strip().lower(),
+        str(company.get("slug") or "").strip().lower(),
+        str(company.get("domain") or "").strip().lower().removeprefix("www.").split(".")[0],
+    }
+    needles.discard("")
+
+    def _hit(item: dict[str, Any]) -> bool:
+        blob = " ".join(
+            str(item.get(k) or "") for k in ("company", "domain", "name", "slug")
+        ).lower()
+        return any(n and n in blob for n in needles)
+
+    return {
+        "youtube": [x for x in (pulls.get("youtube") or []) if isinstance(x, dict) and _hit(x)],
+        "tiktok": [x for x in (pulls.get("tiktok") or []) if isinstance(x, dict) and _hit(x)],
+    }
+
+
+def filter_llm_for_company(
+    calls: Optional[list[Any]],
+    company: dict[str, Any],
+) -> list[dict[str, Any]]:
+    slug = str(company.get("slug") or "").strip().lower()
+    host = str(company.get("domain") or "").strip().lower().removeprefix("www.")
+    name = str(company.get("name") or "").strip().lower()
+    out: list[dict[str, Any]] = []
+    for row in calls or []:
+        if not isinstance(row, dict):
+            continue
+        extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+        blob = " ".join(
+            [
+                str(extra.get("slug") or ""),
+                str(extra.get("url") or ""),
+                str(extra.get("domain") or ""),
+                str(extra.get("company") or ""),
+            ]
+        ).lower()
+        if slug and slug in blob:
+            out.append(row)
+        elif host and host in blob:
+            out.append(row)
+        elif name and name in blob:
+            out.append(row)
+    return out
 
 
 def attach_run_log(report: dict[str, Any], recorder: RunRecorder) -> dict[str, Any]:

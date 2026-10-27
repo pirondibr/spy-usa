@@ -65,7 +65,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 os.environ.setdefault("SPY_MARKET", "us")
 
-APP_VERSION = "0.5.23"
+APP_VERSION = "0.5.25"
 REQUIRED_LIVE_KEYS = (
     "OPENROUTER_API_KEY",
     "SCRAPINGBEE_API_KEY",
@@ -99,6 +99,7 @@ def _write_run_meta(job: "Job", **extra: Any) -> None:
         "competitors_only": bool(getattr(job, "competitors_only", False)),
         "include_brand_growth": bool(getattr(job, "include_brand_growth", False)),
         "include_similarweb_alto": bool(getattr(job, "include_similarweb_alto", False)),
+        "urls_only": bool(getattr(job, "urls_only", False)),
         "has_competitors": (not bool(getattr(job, "competitors_only", False)))
         and ((not bool(job.site_only)) or bool(getattr(job, "compare_all", False))),
         "peer_urls": list(job.parsed.competitors or []),
@@ -246,6 +247,7 @@ def list_runs(limit: int = 40) -> list[dict[str, Any]]:
             "site_only": job.site_only,
             "compare_all": bool(job.compare_all),
             "competitors_only": bool(getattr(job, "competitors_only", False)),
+            "urls_only": bool(getattr(job, "urls_only", False)),
             "has_competitors": (not bool(getattr(job, "competitors_only", False)))
             and ((not bool(job.site_only)) or bool(job.compare_all)),
             "peer_urls": list(job.parsed.competitors or []),
@@ -299,6 +301,7 @@ class Job:
     competitors_only: bool = False
     include_brand_growth: bool = False
     include_similarweb_alto: bool = False
+    urls_only: bool = False
     append_similarity: str = ""
     new_peer_urls: list[str] = field(default_factory=list)
     queue: Queue = field(default_factory=Queue)
@@ -385,6 +388,7 @@ def _worker(job: Job) -> None:
             competitors_only=bool(job.competitors_only),
             include_brand_growth=bool(job.include_brand_growth),
             include_similarweb_alto=bool(job.include_similarweb_alto),
+            urls_only=bool(getattr(job, "urls_only", False)),
         )
         if job.append_similarity and job.new_peer_urls:
             for href in job.new_peer_urls:
@@ -473,6 +477,13 @@ def _flags_from_body(body: dict) -> tuple:
     include_similarweb_alto = _flag(
         body, "include_similarweb_alto", "similarweb_alto", default=False
     )
+    urls_only = _flag(
+        body, "urls_only", "no_research", "list_only", default=False
+    )
+    if urls_only:
+        competitors_only = True
+        site_only = False
+        compare_all = False
     return (
         force,
         site_only,
@@ -490,6 +501,7 @@ def _flags_from_body(body: dict) -> tuple:
         competitors_only,
         include_brand_growth,
         include_similarweb_alto,
+        urls_only,
     )
 
 
@@ -504,6 +516,7 @@ def _job_payload(job: Job) -> dict[str, Any]:
         "competitors_only": bool(job.competitors_only),
         "include_brand_growth": bool(job.include_brand_growth),
         "include_similarweb_alto": bool(job.include_similarweb_alto),
+        "urls_only": bool(getattr(job, "urls_only", False)),
         "market": (job.market or "us").upper(),
         "include_google_ads": job.include_google_ads,
         "include_linkedin": job.include_linkedin,
@@ -619,12 +632,17 @@ def _start_jobs_from_raw(
     competitors_only: bool = False,
     include_brand_growth: bool = False,
     include_similarweb_alto: bool = False,
+    urls_only: bool = False,
 ) -> list[Job]:
     companies = parse_company_list(raw)
     if not companies:
         return []
 
     market = _normalize_market(market)
+    if urls_only:
+        competitors_only = True
+        site_only = False
+        compare_all = False
     if competitors_only:
         site_only = False
         compare_all = False
@@ -633,7 +651,12 @@ def _start_jobs_from_raw(
 
     # All / discovery com N URLs → 1 job (primary + peers)
     # Isolated competitors tab: 1 job per URL (no collapse).
-    if (not competitors_only) and (compare_all or not site_only) and len(companies) > 1:
+    # URLs-only Find: collapse the pasted list into one job (no discovery).
+    collapse_list = len(companies) > 1 and (
+        (competitors_only and urls_only)
+        or ((not competitors_only) and (compare_all or not site_only))
+    )
+    if collapse_list:
         primary = companies[0]
         primary.competitors = [
             (c.url or c.company or c.slug).rstrip("/")
@@ -665,6 +688,7 @@ def _start_jobs_from_raw(
             competitors_only=competitors_only,
             include_brand_growth=include_brand_growth,
             include_similarweb_alto=include_similarweb_alto,
+            urls_only=urls_only,
         )
         _enqueue_job(job)
         created.append(job)
@@ -674,9 +698,11 @@ def _start_jobs_from_raw(
 @app.post("/api/analyze")
 def analyze():
     body = request.get_json(silent=True) or {}
-    raw = (body.get("url") or body.get("company") or body.get("q") or body.get("urls") or "").strip()
-    if isinstance(body.get("urls"), list):
-        raw = "\n".join(str(x) for x in body.get("urls") if str(x).strip())
+    urls_val = body.get("urls")
+    if isinstance(urls_val, list):
+        raw = "\n".join(str(x) for x in urls_val if str(x).strip())
+    else:
+        raw = (body.get("url") or body.get("company") or body.get("q") or urls_val or "").strip()
     if not raw:
         return jsonify({"error": "Informe um domínio ou URL (ex: semrush.com)"}), 400
 
@@ -697,6 +723,7 @@ def analyze():
         competitors_only,
         include_brand_growth,
         include_similarweb_alto,
+        urls_only,
     ) = _flags_from_body(body)
 
     missing = [k for k, ok in _live_keys_ready().items() if not ok]
@@ -721,6 +748,7 @@ def analyze():
         competitors_only=competitors_only,
         include_brand_growth=include_brand_growth,
         include_similarweb_alto=include_similarweb_alto,
+        urls_only=urls_only,
     )
     if not created:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400
@@ -737,6 +765,7 @@ def analyze():
         "competitors_only": competitors_only,
         "include_brand_growth": include_brand_growth,
         "include_similarweb_alto": include_similarweb_alto,
+        "urls_only": urls_only,
         "site_only": site_only,
         "include_google_ads": include_google_ads,
         "include_linkedin": include_linkedin,
@@ -774,6 +803,7 @@ def rerun(run_id: str):
     competitors_only = False
     include_brand_growth = False
     include_similarweb_alto = False
+    urls_only = False
     peer_urls: list[str] = []
     if meta:
         url = (meta.get("url") or meta.get("company") or "").strip()
@@ -792,6 +822,7 @@ def rerun(run_id: str):
         competitors_only = bool(meta.get("competitors_only"))
         include_brand_growth = bool(meta.get("include_brand_growth"))
         include_similarweb_alto = bool(meta.get("include_similarweb_alto"))
+        urls_only = bool(meta.get("urls_only"))
         peer_urls = [str(x).strip() for x in (meta.get("peer_urls") or []) if str(x).strip()]
     if job_mem and not url:
         url = job_mem.parsed.url or job_mem.parsed.company
@@ -810,6 +841,7 @@ def rerun(run_id: str):
         competitors_only = bool(job_mem.competitors_only)
         include_brand_growth = bool(job_mem.include_brand_growth)
         include_similarweb_alto = bool(job_mem.include_similarweb_alto)
+        urls_only = bool(getattr(job_mem, "urls_only", False))
         peer_urls = list(job_mem.parsed.competitors or [])
 
     if not url:
@@ -841,6 +873,7 @@ def rerun(run_id: str):
         competitors_only=competitors_only,
         include_brand_growth=include_brand_growth,
         include_similarweb_alto=include_similarweb_alto,
+        urls_only=urls_only,
     )
     if not created:
         return jsonify({"error": "Não foi possível interpretar a empresa/URL"}), 400
@@ -854,6 +887,7 @@ def rerun(run_id: str):
         "count": 1,
         "rerun_of": run_id,
         "competitors_only": competitors_only,
+        "urls_only": urls_only,
     })
 
 

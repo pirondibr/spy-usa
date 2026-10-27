@@ -122,11 +122,27 @@ def _phrase_words(phrase: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", _fold(phrase))
 
 
+_BRAND_QUERY_EXTRAS = {
+    "app", "ai", "io", "hq", "official", "oficial", "inc", "ads",
+    "co", "com", "net", "org", "dev",
+}
+
+# Long-tail article titles that mention the brand plus rivals (Semrush, Pathmatics…)
+# must not become the influencer / brand-search query.
+_BRAND_QUERY_NOISE = {
+    "competitor", "competitors", "tools", "tool", "strategy", "monitoring",
+    "issues", "performance", "marketing", "roi", "organic", "traffic",
+    "review", "reviews", "comparison", "versus", "vs", "alternative",
+    "alternatives", "how", "what", "why", "best", "guide",
+}
+
+
 def semrush_phrase_is_branded(phrase: str, domain: str, company: str = "") -> bool:
-    """True when a Semrush keyword is a brand query, not a category word.
+    """True when a Semrush keyword is a short brand query, not a category word.
 
     'dropship io' / 'foreplay app' match. Bare 'dropship' does not when that
     token is a generic dictionary word. 'dropshipping' does not match dropship.io.
+    Article titles like 'panoramata pathmatics semrush competitor …' do not match.
     """
     host = _domain_host(domain)
     brand = (host.split(".")[0] if host else brand_from_domain(domain)) or ""
@@ -142,6 +158,16 @@ def semrush_phrase_is_branded(phrase: str, domain: str, company: str = "") -> bo
     compact_hit = folded == brand_fold or (tld and folded == brand_fold + tld)
     if not word_hit and not compact_hit:
         return False
+    if len(words) > 4:
+        return False
+    extras_ok = set(_BRAND_QUERY_EXTRAS)
+    if tld:
+        extras_ok.add(tld)
+    extra_words = [w for w in words if w != brand_fold and w != tld]
+    if extra_words and not all(w in extras_ok for w in extra_words):
+        return False
+    if any(w in _BRAND_QUERY_NOISE for w in words):
+        return False
     try:
         from brand_false_positive import GENERIC_BRAND_WORDS
     except Exception:
@@ -150,6 +176,30 @@ def semrush_phrase_is_branded(phrase: str, domain: str, company: str = "") -> bo
     if only_brand and brand_fold in GENERIC_BRAND_WORDS:
         return False
     return True
+
+
+def brand_query_is_usable(kw: str, domain: str = "", company: str = "") -> bool:
+    """Influencer / cache reuse: keep only short brand queries for this company."""
+    phrase = (kw or "").strip()
+    if not phrase:
+        return False
+    host = domain or company
+    if host and semrush_phrase_is_branded(phrase, host, company):
+        return True
+    words = _phrase_words(phrase)
+    if not words or len(words) > 3:
+        return False
+    if any(w in _BRAND_QUERY_NOISE for w in words):
+        return False
+    compact = "".join(words)
+    needles = []
+    for raw in (company, brand_from_domain(domain) if domain else ""):
+        n = re.sub(r"[^a-z0-9]+", "", _fold(raw or ""))
+        if len(n) >= 3:
+            needles.append(n)
+    if not needles:
+        return len(words) <= 3
+    return any(n in compact or compact in n for n in needles)
 
 
 def pick_semrush_brand_keyword(
@@ -438,6 +488,7 @@ def ensure_brand_search_keyword(
         existing
         and existing_method == "semrush_top"
         and keyword_belongs_to_company(existing, slug, url, company)
+        and brand_query_is_usable(existing, url or slug, company)
     ):
         return {"keyword": existing, "keyword_method": "cached"}
     if existing:
@@ -481,8 +532,9 @@ def influencer_search_query(
     if is_client:
         site = url or (f"https://{domain}/" if domain else "")
         meta = ensure_brand_search_keyword(slug, url=site, company=name or slug)
-        if meta.get("keyword"):
-            return str(meta["keyword"]).strip()
+        kw = str(meta.get("keyword") or "").strip()
+        if kw and brand_query_is_usable(kw, site or domain, name or slug):
+            return kw
     from tiktok_brand_filter import search_query
 
     return search_query(name or slug, domain=domain)

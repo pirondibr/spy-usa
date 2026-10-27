@@ -85,13 +85,53 @@
     }).join("");
   }
 
+  function urlsOnlyOn() {
+    return !!$("opt-urls-only") && $("opt-urls-only").checked;
+  }
+
   function renderFind() {
     const list = parse($("find-sites").value);
     const bad = list.filter((d) => !valid(d));
-    $("find-parsed").innerHTML = list.length > 1 || bad.length ? chips(list, 99, false) : "";
-    $("find-count").innerHTML = list.length > 1 ? `${list.length} separate searches` : "";
-    const n = Math.max(1, list.length);
-    $("find-est").innerHTML = `About <b>${n === 1 ? "1½ minutes" : Math.ceil(n * 1.5) + " minutes"}</b> · ${$("opt-traffic").checked ? "with" : "without"} traffic check`;
+    const only = urlsOnlyOn();
+    $("find-parsed").innerHTML = list.length > 1 || bad.length ? chips(list, only ? MAX_FULL : 99, only) : "";
+    const lb = document.querySelector("#f-find .row .lb");
+    if (lb) {
+      const title = lb.querySelector("b");
+      const hint = lb.querySelector("span");
+      if (title) title.textContent = only ? "Sites to check" : "Your website";
+      if (hint) hint.textContent = only
+        ? "One per line. We only score this list — no new competitors."
+        : "One per line. Each one becomes its own search.";
+    }
+    const help = document.querySelector("#find-help span");
+    if (help) {
+      help.textContent = only
+        ? "Brand and traffic extras run on every URL you add. Discovery is skipped."
+        : "We read the site, understand the niche, then search Google, AI and Semrush.";
+    }
+    const trafficHint = document.querySelector("#opt-traffic") && document.querySelector("#opt-traffic").closest("label");
+    const trafficSmall = trafficHint && trafficHint.querySelector("small");
+    if (trafficSmall) {
+      trafficSmall.textContent = only
+        ? "Monthly visits for every URL on the list (SimilarWeb)"
+        : "Monthly visits for you and the most similar competitors (SimilarWeb)";
+    }
+    const go = $("find-go");
+    if (go) go.textContent = only ? "Check list →" : "Find competitors →";
+    if (only) {
+      $("find-count").innerHTML = list.length
+        ? `<span class="${list.length > MAX_FULL ? "bad" : ""}">${list.length} / ${MAX_FULL}</span>`
+        : "";
+      const n = Math.max(1, list.length);
+      const brand = $("opt-brand").checked;
+      const traffic = $("opt-traffic").checked;
+      const min = Math.max(1, Math.ceil((20 + n * (brand ? 8 : 2) + (traffic ? n * 10 : 0)) / 60));
+      $("find-est").innerHTML = `About <b>${min} min</b> · list only, no discovery${traffic ? " · traffic on all" : ""}`;
+    } else {
+      $("find-count").innerHTML = list.length > 1 ? `${list.length} separate searches` : "";
+      const n = Math.max(1, list.length);
+      $("find-est").innerHTML = `About <b>${n === 1 ? "1½ minutes" : Math.ceil(n * 1.5) + " minutes"}</b> · ${$("opt-traffic").checked ? "with" : "without"} traffic check`;
+    }
   }
 
   function renderFull() {
@@ -537,6 +577,7 @@
       include_linkedin_profile: false,
       include_brand_growth: $("opt-brand").checked,
       include_similarweb_alto: $("opt-traffic").checked,
+      urls_only: urlsOnlyOn(),
     };
   }
 
@@ -570,6 +611,11 @@
     if (!list.length) { msg.className = "msg err"; msg.textContent = "Enter your website first, like yourcompany.com"; $("find-sites").focus(); return; }
     const bad = list.filter((d) => !valid(d));
     if (bad.length) { msg.className = "msg err"; msg.textContent = `Check this site: ${bad.join(", ")}`; return; }
+    if (urlsOnlyOn() && list.length > MAX_FULL) {
+      msg.className = "msg err";
+      msg.textContent = `That's ${list.length} sites — the limit is ${MAX_FULL}. Remove ${list.length - MAX_FULL}.`;
+      return;
+    }
     startAnalyze(findPayload(list), msg);
   });
 
@@ -614,7 +660,11 @@
       if (r) {
         if (runType(r) === "find") {
           state.mode = "find";
-          $("find-sites").value = hostOf(r.url);
+          const peers = peersOf(r);
+          $("find-sites").value = (r.urls_only && peers.length)
+            ? [hostOf(r.url), ...peers].filter(Boolean).join("\n")
+            : hostOf(r.url);
+          if ($("opt-urls-only")) $("opt-urls-only").checked = !!r.urls_only;
           renderMode();
           renderFind();
         } else {
@@ -637,7 +687,7 @@
       renderFull();
       return;
     }
-    if (e.target.id === "opt-traffic") renderFind();
+    if (e.target.id === "opt-traffic" || e.target.id === "opt-urls-only" || e.target.id === "opt-brand") renderFind();
   });
 
   $("find-sites").addEventListener("input", renderFind);

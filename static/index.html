@@ -354,6 +354,11 @@
           <span class="hint" data-i18n="home.sw_hint">(High similarity + client only)</span>
         </label>
         <label class="check">
+          <input id="urlsOnly" type="checkbox" />
+          URLs added only, no research
+          <span class="hint">(score the pasted list — skip briefing and discovery)</span>
+        </label>
+        <label class="check">
           <input id="forceCompetitors" type="checkbox" />
           Force refresh
           <span class="hint" data-i18n="home.force_hint">(redo briefing + competitor list)</span>
@@ -856,6 +861,7 @@
         include_linkedin_profile: false,
         include_brand_growth: $("brandGrowth").checked,
         include_similarweb_alto: $("similarwebAlto").checked,
+        urls_only: $("urlsOnly").checked,
       });
     });
 

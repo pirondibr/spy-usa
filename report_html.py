@@ -362,7 +362,7 @@ def _started_sort(c: dict[str, Any]) -> str:
     return raw if raw.isdigit() else ""
 
 
-REPORT_UI_VERSION = "0.5.23"
+REPORT_UI_VERSION = "0.5.25"
 
 
 def _vol_nums(vals: tuple[Any, ...]) -> Optional[list[Optional[int]]]:
@@ -3123,14 +3123,17 @@ def render_report_html(
     chips = [f'<span class="chip accent">Market {_esc(market)}</span>']
     if compare_all:
         chips.append('<span class="chip">Mode: All</span>')
-    if competitors_only:
+    if competitors_only and (report.get("urls_only") or meta.get("urls_only")):
+        chips.append('<span class="chip accent">URLs only · no research</span>')
+    elif competitors_only:
         chips.append('<span class="chip accent">Concorrentes only</span>')
     elif with_competitors:
         chips.append('<span class="chip accent">Com concorrentes</span>')
     if report.get("include_brand_growth") or meta.get("include_brand_growth"):
         chips.append('<span class="chip">Brand Aug 26/25/24</span>')
     if report.get("include_similarweb_alto") or meta.get("include_similarweb_alto"):
-        chips.append('<span class="chip">SimilarWeb Alto</span>')
+        sw_label = "SimilarWeb list" if (report.get("urls_only") or meta.get("urls_only")) else "SimilarWeb Alto"
+        chips.append(f'<span class="chip">{sw_label}</span>')
     if competitors_only:
         chips.append('<span class="chip">Started Semrush</span>')
     if meta.get("site_only") and not compare_all and not competitors_only:
